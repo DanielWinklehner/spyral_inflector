@@ -294,7 +294,7 @@ class SpiralInflector(object):
 
         return 0
 
-    def draw_geometry(self, freq = 10, show=False, filename=None):
+    def draw_geometry(self, freq=10, show=False, filename=None):
 
         if self._variables_analytic["geo"] is None or self._variables_analytic["trj_design"] is None:
             print("No geometry yet ... generating")
@@ -361,7 +361,6 @@ class SpiralInflector(object):
                         color=colors[2], linewidth=2.0)
 
         if self._variables_track["trj_tracker"] is not None:
-
             trj_tracked = self._variables_track["trj_tracker"]
 
             # Plot the tracked beam trajectory
@@ -948,7 +947,7 @@ End Sub
         # --- Trajectory coordinates --- #
         _x = +0.5 * h * ((2.0 / (1.0 - (4.0 * (self._variables_analytic["k"] ** 2.0)))) -
                          (np.cos(cp * self._variables_analytic["b"]) / cp) - np.cos(
-            -cm * self._variables_analytic["b"]) / cm)
+                    -cm * self._variables_analytic["b"]) / cm)
 
         _y = -0.5 * h * (np.sin(cp * self._variables_analytic["b"]) / cp +
                          np.sin(-cm * self._variables_analytic["b"]) / cm)
@@ -1155,7 +1154,6 @@ End Sub
             domains = np.zeros([0], int)
 
             for name, electrode in self._variables_bempp["objects"].items():
-
                 # Create the mesh of each electrode
                 electrode["mesh"] = generate_from_string(electrode["gmsh_str"])
                 electrode["domain"] = domain_index
@@ -1357,7 +1355,6 @@ End Sub
         """
 
         if h is None:
-
             h = self._params_bempp["h"]
 
         return "Point({}) = {{ {}, {}, {}, {} }};\n".format(self._variables_bempp["i"][0], pos[0], pos[1], pos[2], h)
@@ -1650,7 +1647,7 @@ End Sub
         f_space = self._space
 
         plot_grid = np.mgrid[limits[0]:limits[1]:n_grid_points * 1j, \
-                             limits[2]:limits[3]:n_grid_points * 1j]
+                    limits[2]:limits[3]:n_grid_points * 1j]
 
         e1 = plot_grid[0].ravel()
         e2 = plot_grid[1].ravel()
@@ -1744,7 +1741,6 @@ End Sub
         elif group in self._params_bempp.keys():
 
             if key in self._params_bempp[group].keys():
-
                 self._params_bempp[group][key] = value
 
     def solve_bempp(self):
@@ -1790,7 +1786,7 @@ End Sub
     def track(self, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
 
         # TODO: For now break if r_start or v_start are not given, later get from class properties?
-        assert(r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
+        assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
         if self._variables_track["ef_itp"] is None:
             print("No E-Field has been generated. Cannot track!")
@@ -1867,17 +1863,17 @@ End Sub
             _r[i + 1], _v[i + 1] = pusher.push(_r[i], _v[i], ef, bf, dt)
 
             vx, vy, vz = _v[i + 1]
-            vo = np.sqrt(vx**2.0 + vy**2.0 + vz**2.0)
+            vo = np.sqrt(vx ** 2.0 + vy ** 2.0 + vz ** 2.0)
             _b[i + 1] = i * dt * vo / self._variables_analytic["height"]
 
             # Toprek theory with surgery
             Eh = field_val * self._variables_analytic["kp"] * np.sin(_b[i + 1])
-            Ehx = -Eh * vy / (np.sqrt(vo**2.0 - vz**2.0))
-            Ehy = Eh * vx / (np.sqrt(vo**2.0 - vz**2.0))
+            Ehx = -Eh * vy / (np.sqrt(vo ** 2.0 - vz ** 2.0))
+            Ehy = Eh * vx / (np.sqrt(vo ** 2.0 - vz ** 2.0))
 
-            ex = field_val * vx * np.abs(vz) / (vo * np.sqrt(vo**2.0 - vz**2.0)) + Ehx
-            ey = field_val * vy * np.abs(vz) / (vo * np.sqrt(vo**2.0 - vz**2.0)) + Ehy
-            ez = -field_val * (vo**2.0 - vz**2.0) / (vo * np.sqrt(vo**2.0 - vz**2.0))
+            ex = field_val * vx * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + Ehx
+            ey = field_val * vy * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + Ehy
+            ez = -field_val * (vo ** 2.0 - vz ** 2.0) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0))
             efield1 = Field(dim=0, field={"x": ex, "y": ey, "z": ez})
             if vz < 0:  # Stop when the z-component of the velocity is zero
                 if self._debug:
@@ -1888,7 +1884,7 @@ End Sub
         try:
             i_init = np.where(_b >= self._params_analytic["b_lim"][0])[0][0]
             if i_init == 0:
-              i_init = 1
+                i_init = 1
         except IndexError:
             i_init = 1
 
@@ -2055,7 +2051,7 @@ End Sub
 
         # Plot the beam trajectory
         for trj in trajectories:
-          ax.plot(trj[:, 0], trj[:, 1], trj[:, 2])
+            ax.plot(trj[:, 0], trj[:, 1], trj[:, 2])
 
         plt.show()
 
@@ -2067,14 +2063,15 @@ End Sub
         matplotlib.rcParams.update({'font.size': 16})
         fig, ax = plt.subplots()
         for i in range(num):
-          zpt = zpts[i]
-          b[i] = self._params_analytic["bf_itp"](np.array([0.0, 0.0, zpt]))[2]
+            zpt = zpts[i]
+            b[i] = self._params_analytic["bf_itp"](np.array([0.0, 0.0, zpt]))[2]
         ax.plot(np.array(zpts), -np.array(b), colors[0], linewidth=3.0)
         plt.xlim([-0.2, 0.2])
         plt.xlabel('z (m)')
         plt.ylabel('B (T)')
         plt.grid(True)
         plt.savefig("bfield.png")
+
 
 if __name__ == "__main__":
     h2p = IonSpecies("H2_1+", 0.035)

@@ -1,1 +1,1 @@
-from spyral_inflector import *
+from .spyral_inflector import *
