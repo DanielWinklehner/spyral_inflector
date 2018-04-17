@@ -1,0 +1,8 @@
+numpy
+scipy
+dans_pymodules
+matplotlib
+fipy
+bempp
+pyqt5
+pyqtgraph
