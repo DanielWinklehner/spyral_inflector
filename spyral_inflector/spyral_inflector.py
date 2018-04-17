@@ -810,9 +810,9 @@ Ruled Surface(6) = { 8 };
 End Sub
 """
 
-        with open(os.path.join(self._outp_folder, filename), "w") as outfile:
+        with open(os.path.join(self._outp_folder, fname), "w") as of:
 
-            outfile.write(header_text + electrode_texts[0] + electrode_texts[1] + footer_text)
+            of.write(header_text + electrode_texts[0] + electrode_texts[1] + footer_text)
 
         print("Done!")
 
@@ -1627,7 +1627,7 @@ End Sub
 
         return shift
 
-    def plot_potential(self, lims=[-0.1, 0.1, -0.1, 0.1], orientation="xy", **kwargs):
+    def plot_potential(self, limits=[-0.1, 0.1, -0.1, 0.1], orientation="xy", **kwargs):
 
         if self._variables_bempp["solution"] is None:
             print("No BEM++ solution in memory to plot from.")
@@ -1646,8 +1646,8 @@ End Sub
         sol = self._bem_sol
         f_space = self._space
 
-        plot_grid = np.mgrid[limits[0]:limits[1]:n_grid_points * 1j, \
-                    limits[2]:limits[3]:n_grid_points * 1j]
+        plot_grid = np.mgrid[limits[0]:limits[1]:n_grid_points * 1j,
+                             limits[2]:limits[3]:n_grid_points * 1j]
 
         e1 = plot_grid[0].ravel()
         e2 = plot_grid[1].ravel()
@@ -1663,7 +1663,7 @@ End Sub
         u_evaluated = slp_pot * sol
         u_evaluated = u_evaluated.reshape((n_grid_points, n_grid_points))
 
-        if vlims in kwargs.keys():
+        if "vlims" in kwargs.keys():
             vlims = kwargs["vlims"]
         else:
             vlims = [np.min(u_evaluated), np.max(u_evaluated)]
@@ -1681,7 +1681,7 @@ End Sub
 
         if "save_fig" in kwargs.keys() and "filename" in kwargs.keys():
             if kwargs["save_fig"]:
-                plt.savefig(filename)
+                plt.savefig(kwargs["filename"])
 
         return 0
 
