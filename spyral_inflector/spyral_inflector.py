@@ -99,7 +99,8 @@ class SpiralInflector(object):
                                                   "radius": None,
                                                   "length": None,
                                                   "width": None,
-                                                  "distance": None,
+                                                  "top_distance": None,
+                                                  "bottom_distance": None,
                                                   "voltage": 0.0},
                               "make_cylinder": False,  # Cylindrical housing
                               "cylinder_params": {"radius": None,
@@ -125,7 +126,8 @@ class SpiralInflector(object):
         # --- Additional parameters used for particle tracking ------------------------------------------------------- #
         self._params_track = {}
         self._variables_track = {"trj_tracker": None,
-                                 "shift": None}
+                                 "shift": None  # type: np.ndarray
+                                 }
 
     def __str__(self):
 
@@ -429,7 +431,8 @@ class SpiralInflector(object):
         radius = self._params_bempp["aperture_params"]["radius"]
         length = self._params_bempp["aperture_params"]["length"]
         width = self._params_bempp["aperture_params"]["width"]
-        aperture_distance = self._params_bempp["aperture_params"]["distance"]
+        aperture_distance_top = self._params_bempp["aperture_params"]["top_distance"]
+        aperture_distance_bottom = self._params_bempp["aperture_params"]["bottom_distance"]
         voltage = self._params_bempp["aperture_params"]["voltage"]
 
         gmsh_str = """
@@ -446,12 +449,12 @@ h = {};
         norm_vec = np.cross(mid_vec_b, mid_vec_a)
         norm_vec /= np.linalg.norm(norm_vec)
 
-        offset_a = norm_vec * aperture_distance
-        offset_b = norm_vec * (aperture_distance + thickness)
-
         if i == 0:
-            offset_a *= -1.0
-            offset_b *= -1.0
+            offset_a = -norm_vec * aperture_distance_top
+            offset_b = -norm_vec * (aperture_distance_top + thickness)
+        else:
+            offset_a = norm_vec * aperture_distance_bottom
+            offset_b = norm_vec * (aperture_distance_bottom + thickness)
 
         gmsh_str += """
 Point(1) = {{ {}, {}, {}, h }};
@@ -689,7 +692,7 @@ Ruled Surface(6) = { 8 };
 
     def export_electrode_geometry(self, fname="electrode_macro.ivb"):
 
-        geo = self._variables_analytic["geo"] * 100.0  # Fix scaling in inventor
+        geo = (self._variables_analytic["geo"] - self._variables_track["shift"]) * 100.0  # Fix scaling in inventor
 
         # Generate text for Inventor macro
         header_text = """Sub CreateSpiralElectrode()
@@ -818,14 +821,15 @@ End Sub
 
     def export_aperture_geometry(self, fname="aperture_macro.ivb"):
 
-        geo = self._variables_analytic["geo"] * 100.0  # Scaling for inventor
-        trj = self._variables_analytic["trj_design"]  # type: np.ndarray
-        thickness = self._params_bempp["aperture_params"]["thickness"]
-        radius = self._params_bempp["aperture_params"]["radius"]
-        length = self._params_bempp["aperture_params"]["length"]
-        width = self._params_bempp["aperture_params"]["width"]
-        aperture_distance = self._params_bempp["aperture_params"]["distance"]
-        voltage = self._params_bempp["aperture_params"]["voltage"]
+        geo = (self._variables_analytic["geo"] - self._variables_track["shift"]) * 100.0  # Scaling for inventor
+        trj = (self._variables_analytic["trj_design"] - self._variables_track["shift"]) * 100.0  # type: np.ndarray
+        thickness = self._params_bempp["aperture_params"]["thickness"] * 100.0
+        radius = self._params_bempp["aperture_params"]["radius"] * 100.0
+        length = self._params_bempp["aperture_params"]["length"] * 100.0
+        width = self._params_bempp["aperture_params"]["width"] * 100.0
+        aperture_distance_top = self._params_bempp["aperture_params"]["top_distance"] * 100.0
+        aperture_distance_bottom = self._params_bempp["aperture_params"]["bottom_distance"] * 100.0
+        # voltage = self._params_bempp["aperture_params"]["voltage"]
 
         aperture_string = """Sub createApertures()
     Dim oApp As Application
@@ -865,10 +869,10 @@ End Sub
             mid_vec_a += trj[i, :]
             mid_vec_b += trj[i, :]
 
-            offset = norm_vec * aperture_distance
+            offset = norm_vec * aperture_distance_top
 
             if i == -1:
-                offset *= -1.0
+                offset = -norm_vec * aperture_distance_bottom
 
             aperture_string += """
     Set oPart = oApp.Documents.Add(kPartDocumentObject, , True)
@@ -962,7 +966,12 @@ End Sub
                 print("Flipping direction of cyclotron motion...", end="")
             self._variables_analytic["trj_design"][:, 1] = -self._variables_analytic["trj_design"][:, 1]
 
+        # If there is a known shift, apply it now...
+        if self._variables_track["shift"] is not None:
+            self._variables_analytic["trj_design"] -= self._variables_track["shift"]
+
         print("Done!")
+
         if self._debug:
             print("Design Trajectory:")
             print(self._variables_analytic["trj_design"])
@@ -1483,8 +1492,8 @@ End Sub
 
             print("Successfully loaded B-Field from file")
 
-        if si._initialized:
-            si.initialize()
+        if self._initialized:
+            self.initialize()
 
     def optimize_fringe(self, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.002):
         """
@@ -1517,6 +1526,10 @@ End Sub
         # --- Optimize entrance fringe --- #
         deviation_x = 1e20  # Some large number as initialization
         it = 0
+
+        if self._variables_track["shift"] is None:
+            self._variables_track["shift"] = np.zeros(3)
+
         while abs(deviation_x) > tol:
 
             # Apply the angle correction (first time use initial guess)
@@ -1552,10 +1565,8 @@ End Sub
                   "deviation from z-axis in x-dir: {:.4f} degrees, "
                   "deviation from z-axis in y-dir: {:.4f} degrees".format(_db[0], deviation_x, deviation_y))
 
-            if it == 1:
-                _db[0] += deviation_x
-            else:
-                _db[0] += 0.5 * deviation_x  # Dampen the oscillations a bit
+            self._variables_track["shift"][0] -= _r[-1][0]
+            self._variables_track["shift"][1] -= _r[-1][1]
 
             it += 1
 
@@ -1563,8 +1574,10 @@ End Sub
                 print("Entrance Fringe: Maximum number of iterations has been reached. Breaking.")
                 break
 
-        # Save the coordinates of trj endpoint --> need to shift x and y later
-        shift = _r[-1]
+            if it == 1:
+                _db[0] += deviation_x
+            else:
+                _db[0] += 0.5 * deviation_x  # Dampen the oscillations a bit
 
         # --- Optimize exit fringe --- #
         deviation = 1e20  # Some large number as initialization
@@ -1583,11 +1596,9 @@ End Sub
 
             _ns = self._params_analytic["ns"]  # type: int
             start_idx = int(0.9 * _ns)  # start the tracking "10 percent" into the spiral inflector exit
-            # xs, ys, zs = _trj[start_idx]
-            rs = shift
-            rs[2] = -0.15
-            xs, ys, zs = rs
-            vs = _v_des[0]
+            xs, ys, zs = rs = _trj[start_idx]
+            vs = _v_des[start_idx]
+
             # Calculate E-Field
             # TODO: Better way to determine the fringe field region
             self.calculate_efield(limits=((xs - 2.0 * _hcl, xs + 2.0 * _hcl),
@@ -1599,7 +1610,7 @@ End Sub
 
             _r, _v = self.track(r_start=rs,  # Use point close to exit along design particle
                                 v_start=vs,  # Regular direction of design particle
-                                nsteps=12500,
+                                nsteps=5000,
                                 dt=1e-11,
                                 omit_b=False)
 
@@ -1609,10 +1620,7 @@ End Sub
             print("Current exit adjustment: {:.4f}, "
                   "deviation from xy-plane: {:.4f} degrees".format(_db[1], deviation))
 
-            if it == 1:
-                _db[1] += deviation
-            else:
-                _db[1] += 0.65 * deviation  # Dampen the oscillations a bit
+            self._variables_track["shift"][2] -= _r[-1, 2]
 
             it += 1
 
@@ -1620,12 +1628,19 @@ End Sub
                 print("Exit Fringe: Maximum number of iterations has been reached. Breaking.")
                 break
 
-        shift[2] = _r[-1, 2]
-        self._variables_track["shift"] = -shift
+            if it == 1:
+                _db[1] += deviation
+            else:
+                _db[1] += 0.65 * deviation  # Dampen the oscillations a bit
+
+        # Recalculate the new geometry and BEM++ solution one last time
+        self.initialize()
+        self.generate_meshed_model()
+        self.solve_bempp()
 
         print("Done optimizing!")
 
-        return shift
+        return self._variables_track["shift"]
 
     def plot_potential(self, limits=[-0.1, 0.1, -0.1, 0.1], orientation="xy", **kwargs):
 
@@ -1700,8 +1715,8 @@ End Sub
                 print("Working on {}".format(name))
 
             filename = os.path.join(folder, "{}.geo".format(name))
-            with open(filename, 'w') as outfile:
-                outfile.write(electrode["gmsh_str"])
+            with open(filename, 'w') as of:
+                of.write(electrode["gmsh_str"])
 
         return 0
 
@@ -1909,6 +1924,11 @@ End Sub
 
         # Redefine the analytical variables (will change name eventually)
         self._variables_analytic["trj_design"] = r
+
+        # If there is a known shift, apply it now...
+        if self._variables_track["shift"] is not None:
+            self._variables_analytic["trj_design"] -= self._variables_track["shift"]
+
         self._variables_analytic["trj_vel"] = v
         self._variables_analytic["b"] = b
         self._params_analytic["ns"] = len(r[:, 0])
@@ -2100,7 +2120,8 @@ if __name__ == "__main__":
                                                    "radius": 50e-3,
                                                    "length": 45e-3,
                                                    "width": 18e-3,
-                                                   "distance": 10e-3,
+                                                   "top_distance": 5e-3,
+                                                   "bottom_distance": 10e-3,
                                                    "voltage": 0.0})
     si.set_parameter(key="make_cylinder", value=False)
     si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
@@ -2111,11 +2132,8 @@ if __name__ == "__main__":
     si.generate_meshed_model()
 
     ts = time.time()
-    myshift = si.optimize_fringe(initial_guess=(2.8683, -4.9849), maxiter=5, tol=0.01, res=0.002)
+    si.optimize_fringe(initial_guess=(2.8683, -4.9849), maxiter=5, tol=0.01, res=0.002)
     print("Optimizing took {:.4f} s".format(time.time() - ts))
-
-    rstart = myshift
-    rstart[2] = -0.15
 
     ts = time.time()
     print("Calculating electric field...")
@@ -2128,10 +2146,12 @@ if __name__ == "__main__":
         outfile.write("Generating electric field took {:.4f} s\n".format(time.time() - ts))
 
     ts = time.time()
-    si.track(r_start=rstart,
+
+    si.track(r_start=np.array([0.0, 0.0, -0.15]),
              v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
              nsteps=15000,
              dt=1e-11)
+
     print("Tracking took {:.4f} s".format(time.time() - ts))
 
     with open('timing.txt', 'a') as outfile:
@@ -2140,4 +2160,4 @@ if __name__ == "__main__":
     si.draw_geometry(show=True, filename='auto')
     si.export_electrode_geometry(fname='electrode_macro.ivb')
     si.export_aperture_geometry(fname='aperture_macro.ivb')
-    si.save_geo_files()
+    # si.save_geo_files()
