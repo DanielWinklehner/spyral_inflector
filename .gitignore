@@ -99,3 +99,9 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# Example outputs
+aperture_macro.ivb
+electrode_macro.ivb
+geometry.png
+timing.txt

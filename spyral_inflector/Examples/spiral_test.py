@@ -66,4 +66,4 @@ with open('timing.txt', 'a') as outfile:
 si.draw_geometry(show=True, filename='auto')
 si.export_electrode_geometry(fname='electrode_macro.ivb')
 si.export_aperture_geometry(fname='aperture_macro.ivb')
-# si.save_geo_files()
+si.save_geo_files()

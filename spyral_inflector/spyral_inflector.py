@@ -692,7 +692,7 @@ Ruled Surface(6) = { 8 };
 
     def export_electrode_geometry(self, fname="electrode_macro.ivb"):
 
-        geo = (self._variables_analytic["geo"] - self._variables_track["shift"]) * 100.0  # Fix scaling in inventor
+        geo = self._variables_analytic["geo"] * 100.0  # Fix scaling in inventor
 
         # Generate text for Inventor macro
         header_text = """Sub CreateSpiralElectrode()
@@ -821,8 +821,8 @@ End Sub
 
     def export_aperture_geometry(self, fname="aperture_macro.ivb"):
 
-        geo = (self._variables_analytic["geo"] - self._variables_track["shift"]) * 100.0  # Scaling for inventor
-        trj = (self._variables_analytic["trj_design"] - self._variables_track["shift"]) * 100.0  # type: np.ndarray
+        geo = self._variables_analytic["geo"] * 100.0  # Scaling for inventor
+        trj = self._variables_analytic["trj_design"] * 100.0  # type: np.ndarray
         thickness = self._params_bempp["aperture_params"]["thickness"] * 100.0
         radius = self._params_bempp["aperture_params"]["radius"] * 100.0
         length = self._params_bempp["aperture_params"]["length"] * 100.0
@@ -968,7 +968,7 @@ End Sub
 
         # If there is a known shift, apply it now...
         if self._variables_track["shift"] is not None:
-            self._variables_analytic["trj_design"] -= self._variables_track["shift"]
+            self._variables_analytic["trj_design"] += self._variables_track["shift"]
 
         print("Done!")
 
@@ -1927,7 +1927,7 @@ End Sub
 
         # If there is a known shift, apply it now...
         if self._variables_track["shift"] is not None:
-            self._variables_analytic["trj_design"] -= self._variables_track["shift"]
+            self._variables_analytic["trj_design"] += self._variables_track["shift"]
 
         self._variables_analytic["trj_vel"] = v
         self._variables_analytic["b"] = b
@@ -2160,4 +2160,4 @@ if __name__ == "__main__":
     si.draw_geometry(show=True, filename='auto')
     si.export_electrode_geometry(fname='electrode_macro.ivb')
     si.export_aperture_geometry(fname='aperture_macro.ivb')
-    # si.save_geo_files()
+    si.save_geo_files()
