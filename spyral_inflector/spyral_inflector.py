@@ -972,7 +972,6 @@ End Sub
         if self._variables_track["shift"] is not None:
             self._variables_analytic["trj_design"] += self._variables_track["shift"]
 
-
         if self._params_analytic["rotation"] != 0.0:
             for i in range(self._params_analytic["ns"]):
                 self._variables_analytic["trj_design"][i, :] = np.matmul(self._variables_analytic["rot"],
@@ -1948,9 +1947,15 @@ End Sub
         if self._variables_track["shift"] is not None:
             self._variables_analytic["trj_design"] += self._variables_track["shift"]
 
+        self._params_analytic["ns"] = len(r[:, 0])
+
+        if self._params_analytic["rotation"] != 0.0:
+            for i in range(self._params_analytic["ns"]):
+                self._variables_analytic["trj_design"][i, :] = np.matmul(self._variables_analytic["rot"],
+                                                                         self._variables_analytic["trj_design"][i, :])
+
         self._variables_analytic["trj_vel"] = v
         self._variables_analytic["b"] = b
-        self._params_analytic["ns"] = len(r[:, 0])
 
         return r, v
 
@@ -2028,19 +2033,24 @@ End Sub
                     v_rh[0, i, j] = ((np.cos(nemo[i])) * v_optical[0, i, j]) - (np.sin(nemo[i])) * v_optical[1, i, j]
                     v_rh[1, i, j] = ((np.cos(nemo[i])) * v_optical[1, i, j]) + (np.sin(nemo[i])) * v_optical[0, i, j]
 
-            # Turn track of unit vectors
-            t1 = np.arange(0, 5, 0.01)
-            v_er = np.zeros((3, 3, np.size(t1)))
+            # # Turn track of unit vectors
+            # t1 = np.arange(0, 5, 0.01)
+            # v_er = np.zeros((3, 3, np.size(t1)))
 
-            for i in range(3):
-                for j in range(3):
-                    for k in range(np.size(t1)):
-                        v_er[i, j, k] = trj_design[ns - 1, j] + t1[k] * v_rh[i, ns - 1, j]
+            # for i in range(3):
+            #     for j in range(3):
+            #         for k in range(np.size(t1)):
+            #             v_er[i, j, k] = trj_design[ns - 1, j] + t1[k] * v_rh[i, ns - 1, j]
 
             # Construction of the electrodes
             edge_lines = np.zeros((5, ns, 3))
 
             xi = 0.5 * aspect_ratio * end_distance
+
+            if self._params_analytic["rotation"] != 0.0:
+                for i in range(self._params_analytic["ns"]):
+                    v_rh[0, i, :] = np.matmul(self._variables_analytic["rot"], v_rh[0, i, :])
+                    v_rh[1, i, :] = np.matmul(self._variables_analytic["rot"], v_rh[1, i, :])
 
             for i in range(ns):
                 for j in range(3):
