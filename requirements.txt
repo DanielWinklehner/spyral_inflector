@@ -2,5 +2,4 @@ numpy
 scipy
 dans_pymodules
 matplotlib
-fipy
 bempp
