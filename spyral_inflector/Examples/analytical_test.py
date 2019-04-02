@@ -20,6 +20,8 @@ si.initialize()
 
 si.generate_geometry()
 
+si.set_parameter(key="h", value=0.005)
+
 si.generate_meshed_model()
 
 si.draw_geometry(show=True, filename='auto')
