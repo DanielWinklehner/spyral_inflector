@@ -3,7 +3,12 @@ import numpy as np
 # noinspection PyUnresolvedReferences
 from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
 
-from spyral_inflector import *
+from .spyral_inflector import *
+
+# Define the directions:
+X = 0
+Y = 1
+Z = 2
 
 
 def calculate_efield(si,
@@ -58,6 +63,7 @@ def calculate_efield(si,
 
     # Generate a full mesh to be indexed later
     _r = np.array([np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in range(3)])
+
     mesh = np.meshgrid(_r[X], _r[Y], _r[Z], indexing='ij')  # type: np.ndarray
 
     # Initialize potential array

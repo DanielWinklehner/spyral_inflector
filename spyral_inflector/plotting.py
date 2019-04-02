@@ -1,7 +1,7 @@
 from dans_pymodules import *
 from mpl_toolkits.mplot3d import proj3d
 
-from spyral_inflector import *
+from .spyral_inflector import *
 
 colors = MyColors()
 

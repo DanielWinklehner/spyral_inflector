@@ -1,10 +1,10 @@
 from dans_pymodules import *
 
-from field_solving import *
-from meshing import *
-from optimization import *
-from plotting import *
-from trajectories import *
+from .field_solving import *
+from .meshing import *
+from .optimization import *
+from .plotting import *
+from .trajectories import *
 
 __author__ = "Daniela Campo, Philip Weigel, Daniel Winklehner"
 __doc__ = """
@@ -22,11 +22,6 @@ amu = const.value("atomic mass constant energy equivalent in MeV")
 echarge = const.value("elementary charge")
 clight = const.value("speed of light in vacuum")
 colors = MyColors()
-
-# Define the directions:
-X = 0
-Y = 1
-Z = 2
 
 
 def orthogonal_proj(zfront, zback):
@@ -328,6 +323,7 @@ class SpiralInflector(object):
             if key in self._params_bempp[group].keys():
                 self._params_bempp[group][key] = value
 
+    # Function wrappers below
     def calculate_efield(self, **kwargs):
         return calculate_efield(self, **kwargs)
 

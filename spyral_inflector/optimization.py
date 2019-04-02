@@ -1,7 +1,7 @@
 import numpy as np
 
-from spyral_inflector import *
-
+from .spyral_inflector import *
+from dans_pymodules import *
 
 def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.002):
     """
@@ -21,7 +21,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     # Start with an initial guess for bmin, bmax. If None, use 0.0
     # TODO: Update to use current internal adjustment, if present -DW
     _db_init = np.array(initial_guess)
-    _db_init[np.where(_db_init is None)] = 0.0
+    _db_init[np.where(_db_init == None)] = 0.0
     _db = _db_init[:]
 
     # Half the length of the cube for electric field calculation
