@@ -1,7 +1,6 @@
 from dans_pymodules import *
 from mpl_toolkits.mplot3d import proj3d
 
-
 from spyral_inflector import *
 
 colors = MyColors()
@@ -122,8 +121,8 @@ def draw_geometry(si, freq=10, show=False, filename=None):
 
     return 0
 
-def plot_potential(si, limits=(-0.1, 0.1, -0.1, 0.1), orientation="xy", **kwargs):
 
+def plot_potential(si, limits=(-0.1, 0.1, -0.1, 0.1), orientation="xy", **kwargs):
     if si._variables_bempp["solution"] is None:
         print("No BEM++ solution in memory to plot from.")
         return 1
@@ -142,7 +141,7 @@ def plot_potential(si, limits=(-0.1, 0.1, -0.1, 0.1), orientation="xy", **kwargs
     f_space = si._variables_bempp["f_space"]
 
     plot_grid = np.mgrid[limits[0]:limits[1]:n_grid_points * 1j,
-                         limits[2]:limits[3]:n_grid_points * 1j]
+                limits[2]:limits[3]:n_grid_points * 1j]
 
     e1 = plot_grid[0].ravel()
     e2 = plot_grid[1].ravel()
@@ -217,6 +216,5 @@ def plot_trajectories(si, trajectories=None):
 
 
 def draw_mesh(si):
-
     if si._variables_bempp["full mesh"] is not None:
         si._variables_bempp["full mesh"].plot()

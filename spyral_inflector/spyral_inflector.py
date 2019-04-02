@@ -71,7 +71,7 @@ class SpiralInflector(object):
                                  "ns": None,  # Resolution of the analytical solution (steps along beam trajectory s)
                                  "b_lim": np.deg2rad(np.array([0.0, 90.0])),  # Limits of the curvature
                                  "rotation": 0.0,  # Clockwise rotation of the spiral inflector, assuming that at
-                                                   # 0.0 deg the entrance E-field points in the x-dir
+                                 # 0.0 deg the entrance E-field points in the x-dir
                                  }
 
         for key in self._params_analytic.keys():
@@ -192,7 +192,7 @@ class SpiralInflector(object):
         else:
             return None
 
-    def initialize(self, **kwargs):
+    def initialize(self):
 
         abort_flag = False
         for key, item in self._params_analytic.items():
@@ -433,9 +433,10 @@ if __name__ == "__main__":
 
     ts = time.time()
     print("Calculating electric field...")
-    calculate_efield(si, res=0.002,
-                         limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                         domain_decomp=(7, 7, 7))
+    calculate_efield(si,
+                     res=0.002,
+                     limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
+                     domain_decomp=(7, 7, 7))
     print("Calculating field took {:.4f} s".format(time.time() - ts))
 
     with open('timing.txt', 'a') as outfile:
@@ -443,10 +444,11 @@ if __name__ == "__main__":
 
     ts = time.time()
 
-    track(si, r_start=np.array([0.0, 0.0, -0.15]),
-              v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-              nsteps=15000,
-              dt=1e-11)
+    track(si,
+          r_start=np.array([0.0, 0.0, -0.15]),
+          v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+          nsteps=15000,
+          dt=1e-11)
 
     print("Tracking took {:.4f} s".format(time.time() - ts))
 

@@ -56,17 +56,17 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         xs, ys, zs = _trj[0]
 
         si.calculate_efield(limits=((xs - 0.5 * _hcl, xs + 0.5 * _hcl),
-                                      (ys - 0.5 * _hcl, ys + 0.5 * _hcl),
-                                      (zs - 1.9 * _hcl, zs + 0.1 * _hcl)),
-                              res=res,
-                              domain_decomp=(4, 4, 4),
-                              overlap=0)
+                                    (ys - 0.5 * _hcl, ys + 0.5 * _hcl),
+                                    (zs - 1.9 * _hcl, zs + 0.1 * _hcl)),
+                            res=res,
+                            domain_decomp=(4, 4, 4),
+                            overlap=0)
 
         _r, _v = si.track(r_start=_trj[0],  # Use starting point of design particle
-                            v_start=-_v_des[0],  # Reverse direction of design particle
-                            nsteps=5000,
-                            dt=1e-11,
-                            omit_b=True)
+                          v_start=-_v_des[0],  # Reverse direction of design particle
+                          nsteps=5000,
+                          dt=1e-11,
+                          omit_b=True)
 
         trj_dir = Vector(_r[-1] - _r[-100])
         deviation_x = 90.0 - np.rad2deg(trj_dir.angle_with(x_axis))
@@ -113,17 +113,17 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         # Calculate E-Field
         # TODO: Better way to determine the fringe field region
         si.calculate_efield(limits=((xs - 2.0 * _hcl, xs + 2.0 * _hcl),
-                                      (ys - 2.0 * _hcl, ys + 2.0 * _hcl),
-                                      (zs - _hcl, zs + _hcl)),
-                              res=res,
-                              domain_decomp=(4, 4, 4),
-                              overlap=0)
+                                    (ys - 2.0 * _hcl, ys + 2.0 * _hcl),
+                                    (zs - _hcl, zs + _hcl)),
+                            res=res,
+                            domain_decomp=(4, 4, 4),
+                            overlap=0)
 
         _r, _v = si.track(r_start=rs,  # Use point close to exit along design particle
-                            v_start=vs,  # Regular direction of design particle
-                            nsteps=5000,
-                            dt=1e-11,
-                            omit_b=False)
+                          v_start=vs,  # Regular direction of design particle
+                          nsteps=5000,
+                          dt=1e-11,
+                          omit_b=False)
 
         trj_dir = Vector(_r[-1] - _r[-100])
         deviation = 90.0 - np.rad2deg(trj_dir.angle_with(z_axis))

@@ -1,4 +1,3 @@
-# Try importing BEMPP
 import bempp.api
 import numpy as np
 # noinspection PyUnresolvedReferences
@@ -116,16 +115,17 @@ def calculate_efield(si,
     gc.collect()
 
     si._variables_track["ef_itp"] = Field("Spiral Inflector E-Field",
-                                            dim=3,
-                                            field={"x": RegularGridInterpolator(points=_r, values=-ex,
-                                                                                bounds_error=False, fill_value=0.0),
-                                                   "y": RegularGridInterpolator(points=_r, values=-ey,
-                                                                                bounds_error=False, fill_value=0.0),
-                                                   "z": RegularGridInterpolator(points=_r, values=-ez,
-                                                                                bounds_error=False, fill_value=0.0)
-                                                   })
+                                          dim=3,
+                                          field={"x": RegularGridInterpolator(points=_r, values=-ex,
+                                                                              bounds_error=False, fill_value=0.0),
+                                                 "y": RegularGridInterpolator(points=_r, values=-ey,
+                                                                              bounds_error=False, fill_value=0.0),
+                                                 "z": RegularGridInterpolator(points=_r, values=-ez,
+                                                                              bounds_error=False, fill_value=0.0)
+                                                 })
 
     return 0
+
 
 def solve_bempp(si):
     if si._variables_bempp["full mesh"] is None:
