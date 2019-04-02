@@ -1,3 +1,5 @@
+from dans_pymodules import *
+
 from field_solving import *
 from meshing import *
 from optimization import *
