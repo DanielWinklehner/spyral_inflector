@@ -1,5 +1,6 @@
 import numpy as np
-from dans_pymodules import Field
+from dans_pymodules import *
+
 
 def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
     # TODO: For now break if r_start or v_start are not given, later get from class properties?
@@ -42,8 +43,8 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
 
     return r, v
 
-def generate_analytical_trajectory(si):
 
+def generate_analytical_trajectory(si):
     if not si._initialized:
         si.initialize()
 
@@ -83,7 +84,7 @@ def generate_analytical_trajectory(si):
     if si._params_analytic["rotation"] != 0.0:
         for i in range(si._params_analytic["ns"]):
             si._variables_analytic["trj_design"][i, :] = np.matmul(si._variables_analytic["rot"],
-                                                                     si._variables_analytic["trj_design"][i, :])
+                                                                   si._variables_analytic["trj_design"][i, :])
 
     print("Done!")
 
@@ -94,7 +95,14 @@ def generate_analytical_trajectory(si):
 
     return si._variables_analytic["trj_design"]
 
+
 def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
+    # TODO: Make sure the nsteps and dt are being consistent throughout the code
+    if "nsteps" in si._params_track:
+        nsteps = si._params_track["nsteps"]
+    if "dt" in si._params_track:
+        dt = si._params_track["dt"]
+
     pusher = ParticlePusher(si._params_analytic["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     tilt = si._params_analytic["tilt"]  # type: float
@@ -172,6 +180,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
             if si._debug:
                 print(_r[i + 1, :])  # Print the final position
             break
+        i += 1
     ns = i
 
     try:
@@ -212,7 +221,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     if si._params_analytic["rotation"] != 0.0:
         for i in range(si._params_analytic["ns"]):
             si._variables_analytic["trj_design"][i, :] = np.matmul(si._variables_analytic["rot"],
-                                                                     si._variables_analytic["trj_design"][i, :])
+                                                                   si._variables_analytic["trj_design"][i, :])
 
     si._variables_analytic["trj_vel"] = v
     si._variables_analytic["b"] = b

@@ -465,14 +465,14 @@ def export_electrode_geometry(si, fname="electrode_macro.ivb"):
 
 End Sub
 """
-
+        import os
         with open(os.path.join(si._outp_folder, fname), "w") as of:
 
             of.write(header_text + electrode_texts[0] + electrode_texts[1] + footer_text)
 
         print("Done!")
 
-def generate_analytical_geometry(si, **kwargs):
+def generate_analytical_geometry(si):
     """
     The process of generating the geometry is as follows:
     Create the inner and outer surface of the spiral electrodes, shift the inside edges according to sigma,
@@ -1083,13 +1083,14 @@ ThisApplication.ActiveView.Fit
 
 End Sub
 """
-
+    import os
     with open(os.path.join(si._outp_folder, fname), "w") as outfile:
         outfile.writelines(aperture_string)
 
 
 def save_geo_files(si, filename=None):
-
+    import os
+    from dans_pymodules import FileDialog
     if filename is None:
         fd = FileDialog()
         folder, _ = fd.get_filename("folder")

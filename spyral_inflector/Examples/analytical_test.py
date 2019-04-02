@@ -1,29 +1,28 @@
 from spyral_inflector import *
 
+# Define the ion species with energy 35 keV/n
 h2p = IonSpecies("H2_1+", 0.035)
 h2p.calculate_from_energy_mev(0.07 / h2p.a())
 
+# Create spiral inflector object with the follow parameters
 si = SpiralInflector(ion=h2p,
                      method="analytical",
-                     volt=12000,
-                     gap=18e-3,
-                     tilt=27.0,
-                     dx=10e-3,
-                     sigma=1.5E-3,
-                     ns=60,
-                     debug=False,
-                     rotation=45.0)
+                     volt=12000,        # Electrode voltages
+                     gap=18e-3,         # Electrode gap distance
+                     tilt=0,            # Tilt angle
+                     dx=10e-3,          # Electrode thickness
+                     sigma=0,           # v-shape parameter
+                     ns=60,             # Number of trajectory points
+                     debug=False)
 
+# Load a constant magnetic field pointing in the negative z direction
 si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
+# Initialize the spiral inflector and generate the geometry
 si.initialize()
 
 si.generate_geometry()
+draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.005)
-
-si.generate_meshed_model()
-
-si.draw_geometry(show=True, filename='auto')
-si.export_electrode_geometry(fname='electrode_macro.ivb')
-si.save_geo_files()
+# Save the geometry as an AutoDesk Inventor macro
+export_electrode_geometry(si, fname='electrode_macro.ivb')

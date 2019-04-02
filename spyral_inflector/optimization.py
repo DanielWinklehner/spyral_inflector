@@ -54,6 +54,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
 
         # Calculate E-Field upwards of starting point
         xs, ys, zs = _trj[0]
+
         si.calculate_efield(limits=((xs - 0.5 * _hcl, xs + 0.5 * _hcl),
                                       (ys - 0.5 * _hcl, ys + 0.5 * _hcl),
                                       (zs - 1.9 * _hcl, zs + 0.1 * _hcl)),

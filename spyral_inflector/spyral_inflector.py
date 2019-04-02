@@ -124,7 +124,8 @@ class SpiralInflector(object):
                                  }
 
         # --- Additional parameters used for particle tracking ------------------------------------------------------- #
-        self._params_track = {}
+        self._params_track = {"dt": 1e-10,
+                              "nsteps": 10000}
         self._variables_track = {"trj_tracker": None,
                                  "shift": None  # type: np.ndarray
                                  }
@@ -328,37 +329,37 @@ class SpiralInflector(object):
                 self._params_bempp[group][key] = value
 
     def calculate_efield(self, **kwargs):
-        return calculate_efield(self, kwargs)
+        return calculate_efield(self, **kwargs)
 
     def solve_bempp(self):
         return solve_bempp(self)
 
-    def generate_aperture_geometry(self, aperture_type):
-        return generate_aperture_geometry(self, aperture_type)
+    def generate_aperture_geometry(self, *args):
+        return generate_aperture_geometry(self, *args)
 
     def generate_cylinder_geometry(self):
         return generate_cylinder_geometry(self)
 
-    def generate_spiral_electrode_geometry(self, electrode_type):
-        return generate_spiral_electrode_geometry(self, electrode_type)
+    def generate_spiral_electrode_geometry(self, *args):
+        return generate_spiral_electrode_geometry(self, *args)
 
     def generate_meshed_model(self, **kwargs):
-        return generate_meshed_model(self, kwargs)
+        return generate_meshed_model(self, **kwargs)
 
     def save_geo_files(self):
         return save_geo_files(self)
 
-    def export_aperature_geo(self, **kwargs):
-        return export_aperture_geometry(self, kwargs)
+    def export_aperature_geometry(self, **kwargs):
+        return export_aperture_geometry(self, **kwargs)
 
-    def export_electrode_geo(self, **kwargs):
-        return export_electrode_geometry(self, kwargs)
+    def export_electrode_geometry(self, **kwargs):
+        return export_electrode_geometry(self, **kwargs)
 
     def optimize_fringe(self, **kwargs):
-        return optimize_fringe(self, kwargs)
+        return optimize_fringe(self, **kwargs)
 
     def draw_geometry(self, **kwargs):
-        return draw_geometry(self, kwargs)
+        return draw_geometry(self, **kwargs)
 
     def draw_mesh(self):
         return draw_mesh(self)
@@ -370,7 +371,7 @@ class SpiralInflector(object):
         return plot_bfield(self, kwargs)
 
     def plot_trajectories(self, **kwargs):
-        return plot_trajectories(self, kwargs)
+        return plot_trajectories(self, **kwargs)
 
     def generate_analytical_trajectory(self):
         return generate_analytical_trajectory(self)
@@ -385,7 +386,7 @@ class SpiralInflector(object):
         return generate_numerical_geometry(self)
 
     def track(self, **kwargs):
-        return track(kwargs)
+        return track(self, **kwargs)
 
 
 if __name__ == "__main__":
@@ -393,7 +394,7 @@ if __name__ == "__main__":
     h2p.calculate_from_energy_mev(0.07 / h2p.a())
 
     si = SpiralInflector(ion=h2p,
-                         method="analytical",
+                         method="numerical",
                          volt=12000,
                          gap=18e-3,
                          tilt=27.0,
@@ -409,7 +410,7 @@ if __name__ == "__main__":
     si.generate_geometry()
     draw_geometry(si, freq=10, show=True)
 
-    si.set_parameter(key="h", value=0.005)  # Mesh characteristic length
+    si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
     si.set_parameter(key="make_aperture", value=True)
     si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                    "radius": 50e-3,
@@ -427,7 +428,7 @@ if __name__ == "__main__":
     generate_meshed_model(si)
 
     ts = time.time()
-    optimize_fringe(si, initial_guess=(2.8683, -4.9849), maxiter=5, tol=0.01, res=0.002)
+    optimize_fringe(si, initial_guess=(2.8683, -4.9849), maxiter=5, tol=0.02, res=0.005)
     print("Optimizing took {:.4f} s".format(time.time() - ts))
 
     ts = time.time()

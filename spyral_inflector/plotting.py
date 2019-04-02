@@ -1,6 +1,7 @@
 from dans_pymodules import *
 from mpl_toolkits.mplot3d import proj3d
 
+
 from spyral_inflector import *
 
 colors = MyColors()
@@ -102,6 +103,7 @@ def draw_geometry(si, freq=10, show=False, filename=None):
     ax.view_init(elev=-180.0, azim=-90.0)
 
     if filename == 'dialog':
+        from dans_pymodules import FileDialog
         print("Please select figure filename in dialog...")
         fd = FileDialog()
         filename = fd.get_filename('open')
@@ -110,7 +112,7 @@ def draw_geometry(si, freq=10, show=False, filename=None):
 
     if filename is not None:
         try:
-            fig.savefig(filename=filename)
+            fig.savefig(fname=filename)
         except Exception as ex:
             print("Something went wrong when trying to save the file: {}".format(ex))
             return 1
