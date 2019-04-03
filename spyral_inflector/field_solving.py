@@ -1,9 +1,7 @@
+from dans_pymodules import *
 import bempp.api
-import numpy as np
 # noinspection PyUnresolvedReferences
 from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
-
-from .spyral_inflector import *
 
 # Define the directions:
 X = 0

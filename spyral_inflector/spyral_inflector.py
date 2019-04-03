@@ -1,10 +1,11 @@
-from dans_pymodules import *
-
 from .field_solving import *
 from .meshing import *
 from .optimization import *
 from .plotting import *
 from .trajectories import *
+
+from dans_pymodules import *
+import numpy as np
 
 __author__ = "Daniela Campo, Philip Weigel, Daniel Winklehner"
 __doc__ = """
@@ -122,7 +123,7 @@ class SpiralInflector(object):
         self._params_track = {"dt": 1e-10,
                               "nsteps": 10000}
         self._variables_track = {"trj_tracker": None,
-                                 "shift": None  # type: np.ndarray
+                                 "shift": None,  # type: np.ndarray
                                  }
 
     def __str__(self):

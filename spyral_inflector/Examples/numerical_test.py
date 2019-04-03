@@ -1,5 +1,4 @@
 from spyral_inflector import *
-from numpy import *
 
 h2p = IonSpecies("H2_1+", 0.035)
 h2p.calculate_from_energy_mev(0.07 / h2p.a())
