@@ -103,7 +103,6 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
     # Create solids for termination
     pa = PyElectrodeAssembly("Inflector")
     si_upper = PyElectrode("SI_Upper")
-    si_upper.
     si_lower = PyElectrode("SI_Lower")
 
     pusher.set_efield(efield1)
