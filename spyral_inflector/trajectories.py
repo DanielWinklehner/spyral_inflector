@@ -2,7 +2,7 @@ from dans_pymodules import *
 # from phils_pymodules import *
 import multiprocessing as mp
 import time
-
+from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
 
 def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
     # TODO: For now break if r_start or v_start are not given, later get from class properties?
@@ -76,10 +76,49 @@ def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=Fa
 
     return r, v
 
-# z_axis = Vector([0.0, 0.0, 1.0])
-#
-#
+
+def fast_track_with_termination(si, r_start=None, v_start=None,
+                                nsteps=10000, dt=1e-12,
+                                omit_b=False, omit_e=False):
+
+    # TODO: For now break if r_start or v_start are not given, later get from class properties?
+    assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
+
+    if si._variables_track["ef_itp"] is None:
+        print("No E-Field has been generated. Cannot track!")
+        return 1
+
+    pusher = ParticlePusher(si._params_analytic["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+
+    if omit_e:
+        efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+    else:
+        efield1 = si._variables_track["ef_itp"]  # type: Field
+
+    if omit_b:
+        bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+    else:
+        bfield1 = si._params_analytic["bf_itp"]  # type: Field
+
+    # Create solids for termination
+    pa = PyElectrodeAssembly("Inflector")
+    si_upper = PyElectrode("SI_Upper")
+    si_upper.
+    si_lower = PyElectrode("SI_Lower")
+
+    pusher.set_efield(efield1)
+    pusher.set_bfield(bfield1)
+    pusher.set_bds()
+
+    r, v = pusher.track(r_start, v_start, nsteps, dt)
+
+    si._variables_track["trj_tracker"] = r
+
+    return r, v
+
+
 # def deflection_job(si, particle, j):
+#     z_axis = Vector([0.0, 0.0, 1.0])
 #     print("Starting new particle process ({})...".format(j))
 #     ts = time.time()
 #     r, v = si.track(r_start=particle.get_position(),
