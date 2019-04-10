@@ -402,6 +402,9 @@ class SpiralInflector(object):
     def fast_track(self, **kwargs):
         return fast_track(self, **kwargs)
 
+    def fast_track_with_termination(self, **kwargs):
+        return fast_track_with_termination(self, **kwargs)
+
 
 if __name__ == "__main__":
     h2p = IonSpecies("H2_1+", 0.035)
