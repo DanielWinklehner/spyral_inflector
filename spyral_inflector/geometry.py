@@ -84,7 +84,8 @@ def generate_aperture_geometry(si, electrode_type):
     aperture_distance_bottom = si._params_bempp["aperture_params"]["bottom_distance"]
     voltage = si._params_bempp["aperture_params"]["voltage"]
 
-    gmsh_str = """
+    gmsh_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
 h = {};
 """.format(h * 1.5)
 
@@ -273,7 +274,8 @@ def generate_cylinder_geometry(si):
     voltage = si._params_bempp["cylinder_params"]["voltage"]
     electrode_type = "cylinder"
 
-    gmsh_str = """
+    gmsh_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
 h = {};
 """.format(h * 5)
 
@@ -794,7 +796,9 @@ def generate_spiral_electrode_geometry(si, electrode_type):
 
     geo = si._variables_analytic["geo"]  # type: np.ndarray
     h = si._params_bempp["h"]
-    gmsh_str = ""
+    gmsh_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+"""
 
     ly = geo.shape[1]
 
