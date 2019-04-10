@@ -1,4 +1,7 @@
 from dans_pymodules import *
+from phils_pymodules import *
+import multiprocessing as mp
+import time
 
 
 def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
@@ -42,6 +45,35 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
 
     return r, v
 
+# z_axis = Vector([0.0, 0.0, 1.0])
+#
+#
+# def deflection_job(si, particle, j):
+#     print("Starting new particle process ({})...".format(j))
+#     ts = time.time()
+#     r, v = si.track(r_start=particle.get_position(),
+#                     v_start=particle.get_velocity(),
+#                     nsteps=11000,
+#                     dt=1e-11)
+#     print("Particle {}: Tracking took {:.4f} s.".format(j, time.time() - ts))
+#
+#     trj_dir = Vector(r[-1] - r[-100])
+#     deviation = 90.0 - np.rad2deg(trj_dir.angle_with(z_axis))
+#
+#     print("Particle {}: Deviation from xy-plane: {:.4f} degrees".format(j, deviation))
+#
+#
+# def deflection_angle_analysis(si, bunch):
+#
+#     jobs = []
+#
+#     i = 0
+#     for particle in bunch:
+#         i += 1
+#         p = mp.Process(target=deflection_job, args=(si, particle, i,))
+#         jobs.append(p)
+#         p.start()
+
 
 def generate_analytical_trajectory(si):
     if not si._initialized:
@@ -68,6 +100,7 @@ def generate_analytical_trajectory(si):
 
     _z = - h * (1.0 - np.sin(si._variables_analytic["b"]))
 
+
     si._variables_analytic["trj_design"] = np.array([_x, _y, _z]).T
 
     # Rotation/flip
@@ -79,6 +112,16 @@ def generate_analytical_trajectory(si):
     # If there is a known shift, apply it now...
     if si._variables_track["shift"] is not None:
         si._variables_analytic["trj_design"] += si._variables_track["shift"]
+
+    # TODO: This is a work in progress
+    # if si._variables_optimization["x_rot"] is not None and si._params_exp["y_opt"]:
+    #     xrot = np.array([[1.0, 0.0, 0.0],
+    #                     [0.0, np.cos(si._variables_optimization["x_rot"]),
+    #                      -np.sin(si._variables_optimization["x_rot"])],
+    #                     [0.0, np.sin(si._variables_optimization["x_rot"]),
+    #                      np.cos(si._variables_optimization["x_rot"])]])
+    #     for i in range(si._params_analytic["ns"]):
+    #         si._variables_analytic["trj_design"][i, :] = np.matmul(xrot, si._variables_analytic["trj_design"][i, :])
 
     if si._params_analytic["rotation"] != 0.0:
         for i in range(si._params_analytic["ns"]):

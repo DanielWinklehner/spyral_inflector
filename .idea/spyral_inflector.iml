@@ -6,6 +6,8 @@
     </content>
     <orderEntry type="jdk" jdkName="Python 3.6 (SimulationsVENV)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module" module-name="spiral_beam_profile" />
+    <orderEntry type="module" module-name="py_particle_processor" />
   </component>
   <component name="TestRunnerService">
     <option name="projectConfiguration" value="pytest" />
