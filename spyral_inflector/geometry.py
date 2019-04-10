@@ -41,6 +41,9 @@ def _gmsh_surface(si, lines, surface_type="Plane", invert=False):
     else:
         c = -1
 
+    if surface_type == "Ruled":
+        surface_type = ""
+
     return_str = "Line Loop({}) = {{".format(si._variables_bempp["i"][2])
 
     for line in lines[:-1]:
