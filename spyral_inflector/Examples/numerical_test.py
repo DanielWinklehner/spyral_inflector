@@ -65,6 +65,19 @@ print("Tracking took {:.4f} s".format(time.time() - ts))
 with open('timing.txt', 'a') as outfile:
     outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
 
+ts = time.time()
+
+fast_track(si,
+           r_start=np.array([0.0, 0.0, -0.15]),
+           v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+           nsteps=15000,
+           dt=1e-11)
+
+print("Fast tracking took {:.4f} s".format(time.time() - ts))
+
+with open('timing.txt', 'a') as outfile:
+    outfile.write("Fast tracking took {:.4f} s\n".format(time.time() - ts))
+
 draw_geometry(si, show=True, filename='auto')
 export_electrode_geometry(si, fname='electrode_macro.ivb')
 export_aperture_geometry(si, fname='aperture_macro.ivb')
