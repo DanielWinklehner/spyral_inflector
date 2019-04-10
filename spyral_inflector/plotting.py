@@ -14,7 +14,7 @@ def orthogonal_proj(zfront, zback):
                      [0, 0, -0.0001, zback]])
 
 
-def draw_geometry(si, freq=10, show=False, filename=None):
+def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None):
     if si._variables_analytic["geo"] is None or si._variables_analytic["trj_design"] is None:
         print("No geometry yet ... generating")
         si.generate_geometry()
@@ -87,6 +87,10 @@ def draw_geometry(si, freq=10, show=False, filename=None):
                 trj_tracked[:, 1] + shift[1],
                 trj_tracked[:, 2] + shift[2],
                 color=colors[1], linewidth=3.0)
+
+    if aux_trajectories is not None:
+        for trj in aux_trajectories:
+            ax.plot(trj[:, 0], trj[:, 1], trj[:, 2], linewidth=1.0)
 
     plt.axis("equal")
     plt.xlabel("x")

@@ -18,7 +18,6 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
 
     # Start with an initial guess for bmin, bmax. If None, use 0.0
     # TODO: Update to use current internal adjustment, if present -DW
-    # TODO: Fix the angle in the y direction!
     _db_init = np.array(initial_guess)
     _db_init[np.where(_db_init == None)] = 0.0
     _db = _db_init[:]
@@ -35,6 +34,8 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     # --- Optimize entrance fringe --- #
     deviation_x = 1e20  # Some large number as initialization
     it = 0
+
+    entrance_opt = []  # Store the information from the optimization
 
     if si._variables_track["shift"] is None:
         si._variables_track["shift"] = np.zeros(3)
@@ -78,6 +79,8 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         si._variables_track["shift"][0] -= _r[-1][0]
         si._variables_track["shift"][1] -= _r[-1][1]
 
+        entrance_opt.append([it, _db[0], deviation_x, deviation_y])
+
         it += 1
 
         if it == maxiter:
@@ -89,9 +92,26 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         else:
             _db[0] += 0.5 * deviation_x  # Dampen the oscillations a bit
 
+    entrance_opt = np.array(entrance_opt)
+    _db[0] = entrance_opt[np.abs(entrance_opt[:, 2]).argsort()][0, 1]
+
+    # TODO: This is a work in progress
+    # # Send the devation from the y-axis for the entrance to the optimziation parameters
+    # si._variables_optimization["x_rot"] = -entrance_opt[np.abs(entrance_opt[:, 2]).argsort()][0, 3] * (np.pi / 180.0)
+    # if si._params_exp["y_opt"]:
+    #     print("Using x rotation angle of {:.4f} deg.".format(np.rad2deg(si._variables_optimization["x_rot"])))
+
+    # Construct the rotation matrix
+    rot = np.array([[1.0, 0.0, 0.0],
+                    [0.0, np.cos(si._variables_optimization["x_rot"]), -np.sin(si._variables_optimization["x_rot"])],
+                    [0.0, np.sin(si._variables_optimization["x_rot"]), np.cos(si._variables_optimization["x_rot"])]])
+
     # --- Optimize exit fringe --- #
     deviation = 1e20  # Some large number as initialization
     it = 0
+
+    exit_opt = []  # Store the information from the optimization
+
     while abs(deviation) > tol:
 
         # Apply the angle correction (first time use initial guess)
@@ -103,6 +123,10 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         # Trajectory starting point:
         _trj = si._variables_analytic["trj_design"]  # type: np.ndarray
         _v_des = si._variables_analytic["v_design"]  # type: np.ndarray
+
+        # Rotate the initial trajectory point and velocity
+        _trj = np.matmul(rot, _trj.T).T
+        _v_des = np.matmul(rot, _v_des.T).T
 
         _ns = si._params_analytic["ns"]  # type: int
         start_idx = int(0.9 * _ns)  # start the tracking "10 percent" into the spiral inflector exit
@@ -132,6 +156,8 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
 
         si._variables_track["shift"][2] -= _r[-1, 2]
 
+        exit_opt.append([it, _db[1], deviation])
+
         it += 1
 
         if it == maxiter:
@@ -142,6 +168,17 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
             _db[1] += deviation
         else:
             _db[1] += 0.65 * deviation  # Dampen the oscillations a bit
+
+    exit_opt = np.array(exit_opt)
+    _db[1] = exit_opt[np.abs(exit_opt[:, 2]).argsort()][0, 1]
+
+    print("Applied entrance adjustment: {:.4f}, and exit adjustment: {:.4f}.".format(_db[0], _db[1]))
+
+    if si._debug:
+        print("Entrance Optimization:")
+        print(entrance_opt)
+        print("Exit Optimization:")
+        print(exit_opt)
 
     # Recalculate the new geometry and BEM++ solution one last time
     si.initialize()

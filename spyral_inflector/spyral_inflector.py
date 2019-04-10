@@ -1,5 +1,5 @@
 from .field_solving import *
-from .meshing import *
+from .geometry import *
 from .optimization import *
 from .plotting import *
 from .trajectories import *
@@ -125,6 +125,16 @@ class SpiralInflector(object):
         self._variables_track = {"trj_tracker": None,
                                  "shift": None,  # type: np.ndarray
                                  }
+
+        # --- Additional parameters used for optimization ------------------------------------------------------------ #
+        self._variables_optimization = {"x_rot": 0
+                                        }
+        # --- Experimental parameters -------------------------------------------------------------------------------- #
+        self._params_exp = {"y_opt": False
+                            }
+        for key in self._params_exp.keys():
+            if key in kwargs.keys():
+                self._params_exp[key] = kwargs[key]
 
     def __str__(self):
 
@@ -323,6 +333,10 @@ class SpiralInflector(object):
 
             if key in self._params_bempp[group].keys():
                 self._params_bempp[group][key] = value
+
+        elif key in self._params_exp:
+
+            self._params_exp[key] = value
 
     # Function wrappers below
     def calculate_efield(self, **kwargs):

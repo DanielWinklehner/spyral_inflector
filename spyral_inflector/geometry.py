@@ -709,6 +709,18 @@ def generate_numerical_geometry(si):
 
         xi = 0.5 * aspect_ratio * end_distance
 
+        # TODO: This is a work in progress
+        # if si._variables_optimization["x_rot"] is not None and si._params_exp["y_opt"]:
+        #     xrot = np.array([[1.0, 0.0, 0.0],
+        #                     [0.0, np.cos(si._variables_optimization["x_rot"]),
+        #                      -np.sin(si._variables_optimization["x_rot"])],
+        #                     [0.0, np.sin(si._variables_optimization["x_rot"]),
+        #                      np.cos(si._variables_optimization["x_rot"])]])
+        #     for i in range(si._params_analytic["ns"]):
+        #         v_rh[0, i, :] = np.matmul(xrot, v_rh[0, i, :])
+        #         v_rh[1, i, :] = np.matmul(xrot, v_rh[1, i, :])
+        #     # print("Applied a {:.4f} rad x rotation.".format(si._variables_optimization["x_rot"]))
+
         if si._params_analytic["rotation"] != 0.0:
             for i in range(si._params_analytic["ns"]):
                 v_rh[0, i, :] = np.matmul(si._variables_analytic["rot"], v_rh[0, i, :])
