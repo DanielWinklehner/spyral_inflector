@@ -42,7 +42,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         if hole_type == "rectangle":
             geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
         elif hole_type == "ellipse":
-            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, a, b)
+            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * a, 0.5 * b)
             geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 100 }}; }}\n".format(2 * dz)
         else:
             print("Don't understand hole type {}!".format(hole_type))
