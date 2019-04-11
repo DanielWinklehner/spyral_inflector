@@ -40,9 +40,9 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
-            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
+            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * b, -0.5 * a, -dz, b, a, 2 * dz)
         elif hole_type == "ellipse":
-            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * a, 0.5 * b)
+            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * b, 0.5 * a)
             geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 100 }}; }}\n".format(2 * dz)
         else:
             print("Don't understand hole type {}!".format(hole_type))
@@ -1034,7 +1034,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
         entrance_aperture = SIAperture(name="Entrance Aperture", voltage=0)
         entrance_aperture.set_translation([0.0, 0.0, -0.12], absolute=True)
-        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
+        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="rectangle", h=h, load=True)
 
         # exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
         # exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
