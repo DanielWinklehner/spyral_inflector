@@ -95,20 +95,28 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         new_loop = 1
         new_surf = 1
         new_vol = 1
-        spline1_pts = [new_pt]
+        spline_pts = [new_pt]
+        spline_lines = []
 
-        geo_str += "// Points for guiding rail spline\n"
-        for _x, _y, _z in zip(raw_geo[5, :, 0], raw_geo[5, :, 1], raw_geo[5, :, 2]):
-            geo_str += "Point({}) = {{ {}, {}, {}, h }};\n".format(spline1_pts[-1], _x, _y, _z)
-            spline1_pts.append(spline1_pts[-1] + 1)
+        for i in range(5):
+            geo_str += "// Points for guiding rail spline {}\n".format(i + 1)
+            for _x, _y, _z in zip(raw_geo[5, :, 0], raw_geo[5, :, 1], raw_geo[5, :, 2]):
+                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(spline_pts[-1], _x, _y, _z)
+                spline_pts.append(spline_pts[-1] + 1)
 
-        new_pt = spline1_pts[-1]
-        spline1_pts.pop(-1)
+            new_pt = spline_pts[-1]
+            spline_pts.pop(-1)
 
-        geo_str += """
-        Spline({}) = {{ {}:{} }}; 
+            geo_str += """
+    Spline({}) = {{ {}:{} }};
+     
+    """.format(new_ln, spline_pts[0], spline_pts[-1])
 
-        """.format(new_ln, spline1_pts[0], spline1_pts[-1])
+            spline_pts = [new_pt]
+            spline_lines.append(new_ln)
+            new_ln += 1
+
+        geo_str += "//Entrance face\n"
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
