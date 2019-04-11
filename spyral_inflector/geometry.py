@@ -52,7 +52,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
-            self.generate_from_geo_str(self, geo_str=geo_str)
+            self.generate_from_geo_str(geo_str=geo_str)
 
         return geo_str
 
