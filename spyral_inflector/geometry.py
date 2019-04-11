@@ -57,14 +57,6 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         return geo_str
 
 
-# Upper Electrode
-#     geo[0, :, :] = geos[0][0, :, :] + diff_hat * sigma
-#     geo[1, :, :] = geos[0][1, :, :] + diff_hat * sigma
-#     geo[2, :, :] = geos[1][0, :, :] + diff_hat * sigma  # Should reduce the thickness
-#     geo[3, :, :] = geos[1][1, :, :] + diff_hat * sigma  # Should reduce the thickness
-#     geo[4, :, :] = 0.5 * (geos[0][0, :, :] + geos[0][1, :, :])
-
-
 class SIAnode(PyElectrode):
     def __init__(self, parent=None, name="New Anode", voltage=10000):
         super().__init__(name=name, voltage=voltage)
@@ -93,11 +85,9 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         new_pt = 1
         new_ln = 1
         new_loop = 1
-        # new_surf = 1
         new_vol = 1
 
         num_sections = len(raw_geo[0, :, 0])
-        print("Creating ")
 
         for j in range(num_sections):
             for i in range(5):
@@ -116,16 +106,16 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
             new_ln += 5
 
-            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n".format(new_loop,
-                                                                       (j * 5) + 3,
-                                                                       (j * 5) + 2,
-                                                                       (j * 5) + 5,
-                                                                       (j * 5) + 4,
-                                                                       (j * 5) + 1)
+            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop,
+                                                                         (j * 5) + 3,
+                                                                         (j * 5) + 2,
+                                                                         (j * 5) + 5,
+                                                                         (j * 5) + 4,
+                                                                         (j * 5) + 1)
 
             new_loop += 1
 
-        geo_str += "Ruled ThruSections({}) = {{Wire {{ 1 : {} }}; }}".format(new_vol, new_loop - 1)
+        geo_str += "Ruled ThruSections({}) = {{ 1:{} }};".format(new_vol, new_loop - 1)
 
         new_vol += 1
 
@@ -135,6 +125,74 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         return geo_str
 
+
+class SICathode(PyElectrode):
+    def __init__(self, parent=None, name="New Cathode", voltage=10000):
+        super().__init__(name=name, voltage=voltage)
+        self._parent = parent  # the spiral inflector that contains this aperture
+
+    def create_geo_str(self, raw_geo, h=0.005, load=True):
+        """
+
+        Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
+        For circular or square holes set a = b
+        This plate is centered around the origin (local coordinate system) with surface normal in z direction
+        and needs to be shifted/rotated.
+
+        :param raw_geo: ndim=3 numpy array containing the guide rails of the spiral electrodes
+        :param h: desired mesh resolution
+        :param load: Flag whether to also load from geo string directly.
+                     Cave: If False, geo str will not be saved internally!
+        :return gmsh_str: the string object for gmsh
+        """
+
+        geo_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+""".format(h)
+
+        new_pt = 1
+        new_ln = 1
+        new_loop = 1
+        new_vol = 1
+
+        num_sections = len(raw_geo[0, :, 0])
+
+        for j in range(num_sections):
+            for i in range(5):
+                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt,
+                                                                    raw_geo[i + 5, j, 0],
+                                                                    raw_geo[i + 5, j, 1],
+                                                                    raw_geo[i + 5, j, 2])
+                new_pt += 1
+
+            # For each section, add the lines
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 0, (j * 5) + 4, (j * 5) + 2)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 1, (j * 5) + 3, (j * 5) + 1)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 2, (j * 5) + 3, (j * 5) + 4)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3, (j * 5) + 5, (j * 5) + 2)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4, (j * 5) + 1, (j * 5) + 5)
+
+            new_ln += 5
+
+            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop,
+                                                                         (j * 5) + 3,
+                                                                         (j * 5) + 2,
+                                                                         (j * 5) + 5,
+                                                                         (j * 5) + 4,
+                                                                         (j * 5) + 1)
+
+            new_loop += 1
+
+        geo_str += "Ruled ThruSections({}) = {{ 1:{} }};".format(new_vol, new_loop - 1)
+
+        new_vol += 1
+
+        # Call function in PyElectrode module we inherit from if load is not False
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
 
 def _gmsh_point(si, pos, h=None):
     """
@@ -953,7 +1011,10 @@ def generate_spiral_electrode_geometry(si, electrode_type):
 
     geo = si._variables_analytic["geo"]  # type: np.ndarray
 
-    si_test = SIAnode()
+    # si_test = SIAnode()
+    # si_test.create_geo_str(geo)
+
+    si_test = SICathode()
     si_test.create_geo_str(geo)
 
     h = si._params_bempp["h"]
