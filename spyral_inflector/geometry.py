@@ -100,7 +100,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         for i in range(5):
             geo_str += "// Points for guiding rail spline {}\n".format(i + 1)
-            for _x, _y, _z in zip(raw_geo[5, :, 0], raw_geo[5, :, 1], raw_geo[5, :, 2]):
+            for _x, _y, _z in zip(raw_geo[i, :, 0], raw_geo[i, :, 1], raw_geo[i, :, 2]):
                 geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(spline_pts[-1], _x, _y, _z)
                 spline_pts.append(spline_pts[-1] + 1)
 
