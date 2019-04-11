@@ -94,7 +94,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         new_ln = 1
         new_loop = 1
         # new_surf = 1
-        # new_vol = 1
+        new_vol = 1
 
         num_sections = len(raw_geo[0, :, 0])
         print("Creating ")
@@ -116,14 +116,18 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
             new_ln += 5
 
-            geo_str += "Curve Loop({}) = {{ {}, {}, {}, {}, {} }};\n".format(new_loop,
-                                                                             (j * 5) + 3,
-                                                                             (j * 5) + 2,
-                                                                             (j * 5) + 5,
-                                                                             (j * 5) + 4,
-                                                                             (j * 5) + 1)
+            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n".format(new_loop,
+                                                                       (j * 5) + 3,
+                                                                       (j * 5) + 2,
+                                                                       (j * 5) + 5,
+                                                                       (j * 5) + 4,
+                                                                       (j * 5) + 1)
 
             new_loop += 1
+
+        geo_str += "Ruled ThruSections({}) = {{Wire {{ 1 : {} }}; }}".format(new_vol, new_loop - 1)
+
+        new_vol += 1
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
