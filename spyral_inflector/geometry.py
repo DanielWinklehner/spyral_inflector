@@ -1034,12 +1034,12 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         b = si._params_bempp["aperture_params"]["width"]
 
         entrance_aperture = SIAperture(name="Entrance Aperture", voltage=0)
-        translate = np.array([trj[0][0],
-                              trj[0][1],
+        translate = np.array([0,
+                              0,
                               trj[0][2] - si._params_bempp["aperture_params"]["top_distance"] - 0.5 * dz])
         print(translate)
         entrance_aperture.set_translation(translate, absolute=True)
-        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="rectangle", h=h, load=True)
+        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
 
         # exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
         # exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
