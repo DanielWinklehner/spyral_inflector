@@ -7,7 +7,7 @@ from py_electrodes.py_electrodes import PyElectrode
 
 
 class SIAperture(PyElectrode):
-    def __init__(self, parent, name="New Aperture", voltage=0):
+    def __init__(self, parent=None, name="New Aperture", voltage=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
 
@@ -43,12 +43,72 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
         elif hole_type == "ellipse":
             geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, a, b)
-            geo_str += "Extrude {{ 0, 0, {} }} {{ 100 }};\n".format(dz)
+            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 100 }}; }}\n".format(2 * dz)
         else:
             print("Don't understand hole type {}!".format(hole_type))
             return 1
 
         geo_str += "\nBooleanDifference(3) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
+
+        # Call function in PyElectrode module we inherit from if load is not False
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
+
+
+# Upper Electrode
+#     geo[0, :, :] = geos[0][0, :, :] + diff_hat * sigma
+#     geo[1, :, :] = geos[0][1, :, :] + diff_hat * sigma
+#     geo[2, :, :] = geos[1][0, :, :] + diff_hat * sigma  # Should reduce the thickness
+#     geo[3, :, :] = geos[1][1, :, :] + diff_hat * sigma  # Should reduce the thickness
+#     geo[4, :, :] = 0.5 * (geos[0][0, :, :] + geos[0][1, :, :])
+
+
+class SIAnode(PyElectrode):
+    def __init__(self, parent, name="New Anode", voltage=10000):
+        super().__init__(name=name, voltage=voltage)
+        self._parent = parent  # the spiral inflector that contains this aperture
+
+    def create_geo_str(self, raw_geo, h=0.005, load=True):
+        """
+
+        Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
+        For circular or square holes set a = b
+        This plate is centered around the origin (local coordinate system) with surface normal in z direction
+        and needs to be shifted/rotated.
+
+        :param raw_geo: ndim=3 numpy array containing the guide rails of the spiral electrodes
+        :param h: desired mesh resolution
+        :param load: Flag whether to also load from geo string directly.
+                     Cave: If False, geo str will not be saved internally!
+        :return gmsh_str: the string object for gmsh
+        """
+
+        geo_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+""".format(h)
+
+        new_pt = 1
+        new_ln = 1
+        new_loop = 1
+        new_surf = 1
+        new_vol = 1
+        spline1_pts = [new_pt]
+
+        geo_str += "// Points for guiding rail spline\n"
+        for _x, _y, _z in zip(raw_geo[5, :, 0], raw_geo[5, :, 1], raw_geo[5, :, 2]):
+            geo_str += "Point({}) = {{ {}, {}, {}, h }};\n".format(spline1_pts[-1], _x, _y, _z)
+            spline1_pts.append(spline1_pts[-1] + 1)
+
+        new_pt = spline1_pts[-1]
+        spline1_pts.pop(-1)
+
+        geo_str += """
+        Spline({}) = {{ {}:{} }}; 
+
+        """.format(new_ln, spline1_pts[0], spline1_pts[-1])
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
@@ -112,48 +172,6 @@ def _gmsh_surface(si, lines, surface_type="Plane", invert=False):
 
 
 def generate_aperture_geometry(si, electrode_type):
-    if electrode_type == "top_aperture":
-        i = 0
-    elif electrode_type == "bottom_aperture":
-        i = -1
-    else:
-        print("You must specify either 'top_aperture' or 'bottom_aperture'!")
-        return 1
-
-    # Check if all parameters are set
-    abort_flag = False
-    for key, item in si._params_bempp["aperture_params"].items():
-        if item is None:
-            print("Item 'aperture_params/{}' is not set in BEM++ parameters!".format(key))
-            abort_flag = True
-    if abort_flag:
-        return 1
-
-    h = si._params_bempp["h"]
-    geo = si._variables_analytic["geo"]
-    trj = si._variables_analytic["trj_design"]  # type: np.ndarray
-    thickness = si._params_bempp["aperture_params"]["thickness"]
-    radius = si._params_bempp["aperture_params"]["radius"]
-    length = si._params_bempp["aperture_params"]["length"]
-    width = si._params_bempp["aperture_params"]["width"]
-    aperture_distance_top = si._params_bempp["aperture_params"]["top_distance"]
-    aperture_distance_bottom = si._params_bempp["aperture_params"]["bottom_distance"]
-    voltage = si._params_bempp["aperture_params"]["voltage"]
-
-    gmsh_str = """SetFactory("OpenCASCADE");
-Geometry.NumSubEdges = 100; // nicer display of curve
-h = {};
-""".format(h * 1.5)
-
-    si._variables_bempp["objects"][electrode_type] = {"gmsh_str": gmsh_str, "voltage": voltage}
-
-    if si._debug:
-        print(gmsh_str)
-
-    return 0
-
-
-def generate_aperture_geometry_old(si, electrode_type):
 
     # Check if all parameters are set
     abort_flag = False
@@ -915,6 +933,10 @@ def generate_spiral_electrode_geometry(si, electrode_type):
         voltage = -si._params_analytic["volt"]
 
     geo = si._variables_analytic["geo"]  # type: np.ndarray
+
+    si_test = SIAnode()
+    si_test.create_geo_str(geo)
+
     h = si._params_bempp["h"]
     gmsh_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
