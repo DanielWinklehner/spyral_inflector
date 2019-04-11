@@ -3,7 +3,7 @@ import bempp.api
 # noinspection PyUnresolvedReferences
 from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
 # noinspection PyUnresolvedReferences
-from py_electrodes.py_electrodes import PyElectrode
+from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
 
 
 class SIAperture(PyElectrode):
@@ -1011,11 +1011,20 @@ def generate_spiral_electrode_geometry(si, electrode_type):
 
     geo = si._variables_analytic["geo"]  # type: np.ndarray
 
-    # si_test = SIAnode()
-    # si_test.create_geo_str(geo)
+    # --- Testing the new PyElectrode class --- #
+    test_anode = SIAnode("SI Anode")
+    test_anode.create_geo_str(geo)
+    test_anode.color = "RED"
 
-    si_test = SICathode()
-    si_test.create_geo_str(geo)
+    test_cathode = SICathode("SI Cathode")
+    test_cathode.create_geo_str(geo)
+    test_cathode.color = "BLUE"
+
+    assy = PyElectrodeAssembly("Spiral Inflector Assembly")
+    assy.add_electrode(test_anode)
+    assy.add_electrode(test_cathode)
+    assy.show()
+    # ---------------------------------------- #
 
     h = si._params_bempp["h"]
     gmsh_str = """SetFactory("OpenCASCADE");
