@@ -101,9 +101,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         for j in range(num_sections):
             for i in range(5):
-                for _x, _y, _z in (raw_geo[i, j, 0], raw_geo[i, j, 1], raw_geo[i, j, 2]):
-                    geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt, _x, _y, _z)
-
+                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt,
+                                                                    raw_geo[i, j, 0],
+                                                                    raw_geo[i, j, 1],
+                                                                    raw_geo[i, j, 2])
                 new_pt += 1
 
             # For each section, add the lines
