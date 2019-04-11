@@ -66,7 +66,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
 
 class SIAnode(PyElectrode):
-    def __init__(self, parent, name="New Anode", voltage=10000):
+    def __init__(self, parent=None, name="New Anode", voltage=10000):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
 
