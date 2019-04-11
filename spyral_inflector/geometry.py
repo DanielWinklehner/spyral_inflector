@@ -2,6 +2,59 @@ from dans_pymodules import *
 import bempp.api
 # noinspection PyUnresolvedReferences
 from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+# noinspection PyUnresolvedReferences
+from py_electrodes.py_electrodes import PyElectrode
+
+
+class SIAperture(PyElectrode):
+    def __init__(self, parent, name="New Aperture", voltage=0):
+        super().__init__(name=name, voltage=voltage)
+        self._parent = parent  # the spiral inflector that contains this aperture
+
+    def create_geo_str(self, r, dz, a, b, hole_type="ellipse", h=0.005, load=True):
+        """
+
+        Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
+        For circular or square holes set a = b
+        This plate is centered around the origin (local coordinate system) with surface normal in z direction
+        and needs to be shifted/rotated.
+
+        :param r: plate radius
+        :param dz: plate thickness
+        :param a: ellipse/rectangle long half-axis
+        :param b: ellipse/rectangle short half-axis
+        :param hole_type: "ellipse", "rectangle"
+        :param h: desired mesh resolution
+        :param load: Flag whether to also load from geo string directly.
+                     Cave: If False, geo str will not be saved internally!
+        :return gmsh_str: the string object for gmsh
+        """
+
+        geo_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+""".format(h)
+
+        geo_str += "// Base plate\n"
+        geo_str += "Cylinder(1) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(-0.5 * dz, dz, r)
+
+        geo_str += "// Tool to subtract\n"
+        if hole_type == "rectangle":
+            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
+        elif hole_type == "ellipse":
+            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, a, b)
+            geo_str += "Extrude {{ 0, 0, {} }} {{ 100 }};\n".format(dz)
+        else:
+            print("Don't understand hole type {}!".format(hole_type))
+            return 1
+
+        geo_str += "\nBooleanDifference(3) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
+
+        # Call function in PyElectrode module we inherit from if load is not False
+        if load:
+            self.generate_from_geo_str(self, geo_str=geo_str)
+
+        return geo_str
 
 
 def _gmsh_point(si, pos, h=None):
@@ -86,6 +139,70 @@ def generate_aperture_geometry(si, electrode_type):
     aperture_distance_top = si._params_bempp["aperture_params"]["top_distance"]
     aperture_distance_bottom = si._params_bempp["aperture_params"]["bottom_distance"]
     voltage = si._params_bempp["aperture_params"]["voltage"]
+
+    gmsh_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+h = {};
+""".format(h * 1.5)
+
+    si._variables_bempp["objects"][electrode_type] = {"gmsh_str": gmsh_str, "voltage": voltage}
+
+    if si._debug:
+        print(gmsh_str)
+
+    return 0
+
+
+def generate_aperture_geometry_old(si, electrode_type):
+
+    # Check if all parameters are set
+    abort_flag = False
+    for key, item in si._params_bempp["aperture_params"].items():
+        if item is None:
+            print("Item 'aperture_params/{}' is not set in BEM++ parameters!".format(key))
+            abort_flag = True
+    if abort_flag:
+        return 1
+
+    h = si._params_bempp["h"]
+    geo_str = """SetFactory("OpenCASCADE");
+    Geometry.NumSubEdges = 100; // nicer display of curve
+    Mesh.CharacteristicLengthMax = {};
+            """.format(h * 1.5)
+
+    geo_str += "// Create Plate \n"
+
+    geo = si._variables_analytic["geo"]
+    trj = si._variables_analytic["trj_design"]  # type: np.ndarray
+    thickness = si._params_bempp["aperture_params"]["thickness"]
+    radius = si._params_bempp["aperture_params"]["radius"]
+    length = si._params_bempp["aperture_params"]["length"]
+    width = si._params_bempp["aperture_params"]["width"]
+    top_gap = si._params_bempp["aperture_params"]["top_distance"]
+    bottom_gap = si._params_bempp["aperture_params"]["bottom_distance"]
+    voltage = si._params_bempp["aperture_params"]["voltage"]
+
+    if electrode_type == "top_aperture":
+        zmin = trj[0, 2] + top_gap
+        geo_str += "Cylinder(1) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n".format(zmin,
+                                                                                  thickness,
+                                                                                  radius)
+    elif electrode_type == "bottom_aperture":
+        i = -1
+    else:
+        print("You must specify either 'top_aperture' or 'bottom_aperture'!")
+        return 1
+
+    geo_str += "BooleanDifference{ Volume{1}; Delete; }{ Volume{2}; Delete; }\n"
+
+    geo_str += """
+s() = Surface "*";
+""".format(self._domain_idx)
+
+    if reverse_normals:
+        geo_str += """
+ReverseMesh Surface { s() };
+"""
 
     gmsh_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
