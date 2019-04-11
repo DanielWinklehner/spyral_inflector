@@ -97,10 +97,15 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         new_vol = 1
         spline_pts = [new_pt]
         spline_lines = []
+        entrance_face_points = []
+        save_point_no = True
 
         for i in range(5):
             geo_str += "// Points for guiding rail spline {}\n".format(i + 1)
             for _x, _y, _z in zip(raw_geo[i, :, 0], raw_geo[i, :, 1], raw_geo[i, :, 2]):
+                if save_point_no:
+                    entrance_face_points.append(spline_pts[-1])
+                    save_point_no = False
                 geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(spline_pts[-1], _x, _y, _z)
                 spline_pts.append(spline_pts[-1] + 1)
 
@@ -115,8 +120,34 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             spline_pts = [new_pt]
             spline_lines.append(new_ln)
             new_ln += 1
+            save_point_no = True
 
         geo_str += "//Entrance face\n"
+        face_lns = []
+        entrance_face_points.append(entrance_face_points[0])  # For wraparound
+        for i in range(5):
+            face_lns.append(new_ln)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln,
+                                                           entrance_face_points[i], entrance_face_points[i + 1])
+            new_ln += 1
+
+        geo_str += "Curve Loop({}) = {{ {}, {}, {}, {}, {} }};\n".format(new_loop,
+                                                                         face_lns[0],
+                                                                         face_lns[1],
+                                                                         face_lns[2],
+                                                                         face_lns[3],
+                                                                         face_lns[4])
+        new_loop += 1
+        sweep_surf = new_surf
+        geo_str += "Plane Surface({}) = {{ {} }};\n".format(sweep_surf, new_loop - 1)
+        new_surf += 1
+
+        # Extrusion:
+        geo_str += "Wire({}) = {{ {} }};\n".format(new_loop, spline_lines[4])
+        geo_str += "Extrude {{ Surface{{ {} }}; }} Using Wire {{ {} }}\n".format(sweep_surf, new_loop)
+        new_loop += 1
+        extrude_vol = new_vol
+        new_vol += 1  # Extrude creates a volume
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
