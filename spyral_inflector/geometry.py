@@ -1031,7 +1031,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         # Calculate correct rotation
         # tilt_angle, face_angle = get_angles_from_geo(geo)
         exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)   # upright
-        # exit_aperture.set_rotation_angle_axis(angle=tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
+        exit_aperture.set_rotation_angle_axis(angle=-tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
         # exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
         # Create geo string and load
         exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
