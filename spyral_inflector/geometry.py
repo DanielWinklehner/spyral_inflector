@@ -945,10 +945,10 @@ def get_angles_from_geo(geo):
     norm_vec = mid_vec_b.cross(mid_vec_a).normalized()
 
     # tilt_angle is the angle of mid_vec_b with x/y plane
-    tilt_angle = np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
+    tilt_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
 
     # face angle is the angle of norm_vec with x/z plane
-    face_angle = np.pi - norm_vec.angle_with(Vector(Y_AXIS))
+    face_angle = 0.5 * np.pi - norm_vec.angle_with(Vector(Y_AXIS))
 
     return tilt_angle, face_angle
 
