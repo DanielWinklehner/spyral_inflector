@@ -1029,7 +1029,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         exit_aperture.set_translation(translate, absolute=True)
 
         # Calculate correct rotation
-        # tilt_angle, face_angle = get_angles_from_geo(geo)
+        tilt_angle, face_angle = get_angles_from_geo(geo)
         exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)   # upright
         exit_aperture.set_rotation_angle_axis(angle=-tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
         # exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
