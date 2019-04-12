@@ -1001,7 +1001,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
         # Calculate correct translation
         entrance_aperture.set_translation(np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz]), absolute=True)
-        entrance_aperture.set_rotation(angle=np.deg2rad(90.0), axis=Z_AXIS)
+        entrance_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Z_AXIS, absolute=True)
 
         # Create geo string and load
         entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
