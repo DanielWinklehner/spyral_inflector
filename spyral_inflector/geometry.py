@@ -938,8 +938,7 @@ def generate_numerical_geometry(si):
 #
 #     return 0
 
-def get_angles_from_geo(geo):
-
+def get_norm_vec_and_angles_from_geo(geo):
     mid_vec_a = Vector(geo[4, -1, :] - geo[9, -1, :]).normalized()
     mid_vec_b = Vector(geo[8, -1, :] - geo[7, -1, :]).normalized()
     norm_vec = mid_vec_b.cross(mid_vec_a).normalized()
@@ -950,7 +949,7 @@ def get_angles_from_geo(geo):
     # face angle is the angle of norm_vec with x/z plane
     face_angle = 0.5 * np.pi - norm_vec.angle_with(Vector(Y_AXIS))
 
-    return tilt_angle, face_angle
+    return norm_vec, tilt_angle, face_angle
 
 
 def generate_meshed_model(si, apertures=None, cylinder=None):
@@ -999,7 +998,6 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
     assy.add_electrode(cathode)
 
     if si.bempp_parameters["make_aperture"]:
-
         # Base aperture parameters:
         voltage = bempp_pars["aperture_params"]["voltage"]
         dz = bempp_pars["aperture_params"]["thickness"]
@@ -1025,14 +1023,17 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
 
         # Calculate correct translation
-        translate = np.array([trj[-1][0] - b_gap, trj[-1][1] - b_gap, 0.0])
+        norm_vec, tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+        translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
+                              trj[-1][1] + norm_vec[1] * b_gap,
+                              0.0])
         exit_aperture.set_translation(translate, absolute=True)
 
         # Calculate correct rotation
-        tilt_angle, face_angle = get_angles_from_geo(geo)
-        exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)   # upright
+        exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)  # upright
         exit_aperture.set_rotation_angle_axis(angle=tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
         exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
+
         # Create geo string and load
         exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
         exit_aperture.color = "GREEN"
@@ -1041,7 +1042,6 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         assy.add_electrode(exit_aperture)
 
     if bempp_pars["make_cylinder"]:
-
         # Base cylinder parameters:
         r = bempp_pars["cylinder_params"]["radius"]
         zmin = bempp_pars["cylinder_params"]["zmin"]
