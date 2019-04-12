@@ -1011,8 +1011,9 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
 
         # Calculate correct translation
-        translate = np.array([trj[0][0], trj[0][1], 0.0])
+        translate = np.array([trj[-1][0], trj[-1][1], 0.0])
         entrance_aperture.set_translation(translate, absolute=True)
+        entrance_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Y_AXIS, absolute=True)
 
         # Calculate correct rotation
         pass
