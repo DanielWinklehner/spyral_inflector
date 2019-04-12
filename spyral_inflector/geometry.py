@@ -50,7 +50,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         geo_str += "\nBooleanDifference(3) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
 
-        # Call function in PyElectrode module we inherit from if load is not False
+        # Call function in PyElectrode module we inherit from if 'load' is not False
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
 
@@ -171,60 +171,6 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             self.generate_from_geo_str(geo_str=geo_str)
 
         return geo_str
-
-
-# def _gmsh_point(si, pos, h=None):
-#     """
-#     returns the proper string for GMSH *.geo files point generation
-#     :param pos:
-#     :param h:
-#     :return:
-#     """
-#
-#     if h is None:
-#         h = si._params_bempp["h"]
-#
-#     return "Point({}) = {{ {}, {}, {}, {} }};\n".format(si._variables_bempp["i"][0], pos[0], pos[1], pos[2], h)
-#
-#
-# def _gmsh_line(si, point_a, point_b):
-#     """
-#     returns the proper string for GMSH *.geo files line generation
-#     :param point_a:
-#     :param point_b:
-#     :return:
-#     """
-#
-#     return "Line({}) = {{ {}, {} }};\n".format(si._variables_bempp["i"][1], point_a, point_b)
-#
-#
-# def _gmsh_surface(si, lines, surface_type="Plane", invert=False):
-#     """
-#     returns the proper string for GMSH *.geo files surface generation
-#     :param surface_type: either 'Plane' or 'Ruled'
-#     :return:
-#     """
-#
-#     if invert:
-#         c = 1
-#     else:
-#         c = -1
-#
-#     if surface_type == "Ruled":
-#         surface_type = ""
-#
-#     return_str = "Line Loop({}) = {{".format(si._variables_bempp["i"][2])
-#
-#     for line in lines[:-1]:
-#         return_str += " {},".format(c * line)
-#
-#     return_str += " {} }};\n".format(c * lines[-1])
-#     return_str += "{} Surface({}) = {{ {} }};\n".format(surface_type,
-#                                                         si._variables_bempp["i"][2],
-#                                                         si._variables_bempp["i"][2])
-#     si._variables_bempp["i"][2] += 1
-#
-#     return return_str
 
 
 # def generate_aperture_geometry(si, electrode_type):
@@ -990,93 +936,115 @@ def generate_numerical_geometry(si):
 
 
 def generate_meshed_model(si, apertures=None, cylinder=None):
+
+    analytic_pars = si.analytic_parameters
+    analytic_vars = si.analytic_variables
+    bempp_pars = si.bempp_parameters
+    bempp_vars = si.bempp_variables
+
     if apertures is not None:
-        si._params_bempp["make_aperture"] = apertures
+        bempp_pars["make_aperture"] = apertures
 
     if cylinder is not None:
-        si._params_bempp["make_cylinder"] = cylinder
+        bempp_pars["make_cylinder"] = cylinder
 
-    if si._variables_analytic["geo"] is None:
+    if analytic_vars["geo"] is None:
         print("No geometry generated yet... starting now...")
         si.generate_geometry()
 
     #  --- Create Electrode objects
     abort_flag = False
-    for key, item in si._params_bempp.items():
+    for key, item in bempp_pars.items():
         if item is None:
             print("Item {} is not set in BEM++ parameters!".format(key))
             abort_flag = True
     if abort_flag:
         return 1
 
-    geo = si._variables_analytic["geo"]
-    trj = si._variables_analytic["trj_design"]
-    voltage = si._params_bempp["aperture_params"]["voltage"]
-    h = si._params_bempp["h"]
+    geo = analytic_vars["geo"]
+    trj = analytic_vars["trj_design"]
+    voltage = analytic_pars["volt"]
+    h = bempp_pars["h"]
 
     anode = SIElectrode(name="SI Anode", voltage=voltage)
     anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True)
+    anode.color = "RED"
 
-    cathode = SIElectrode(name="SI Anode", voltage=-voltage)
+    cathode = SIElectrode(name="SI Cathode", voltage=-voltage)
     cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True)
+    anode.color = "BLUE"
 
     # Create an assembly holding all the electrodes
     assy = PyElectrodeAssembly("Spiral Inflector Assembly")
     assy.add_electrode(anode)
     assy.add_electrode(cathode)
 
-    if si._params_bempp["make_aperture"]:
+    if si.bempp_parameters["make_aperture"]:
 
         # Base aperture parameters:
-        dz = si._params_bempp["aperture_params"]["thickness"]
-        r = si._params_bempp["aperture_params"]["radius"]
-        a = si._params_bempp["aperture_params"]["length"]
-        b = si._params_bempp["aperture_params"]["width"]
+        voltage = bempp_pars["aperture_params"]["voltage"]
+        dz = bempp_pars["aperture_params"]["thickness"]
+        r = bempp_pars["aperture_params"]["radius"]
+        a = bempp_pars["aperture_params"]["length"]
+        b = bempp_pars["aperture_params"]["width"]
+        t_gap = bempp_pars["aperture_params"]["top_distance"]
+        b_gap = bempp_pars["aperture_params"]["bottom_distance"]
 
-        entrance_aperture = SIAperture(name="Entrance Aperture", voltage=0)
-        translate = np.array([0,
-                              0,
-                              trj[0][2] - si._params_bempp["aperture_params"]["top_distance"] - 0.5 * dz])
-        print(translate)
+        # --- Entrance aperture (only shifted up for now) --- #
+        # TODO: May have to be rotated with entrance of SI
+        entrance_aperture = SIAperture(name="Entrance Aperture", voltage=voltage)
+        translate = np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz])
         entrance_aperture.set_translation(translate, absolute=True)
         entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
+        entrance_aperture.color = "GREEN"
 
-        # exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
-        # exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
+        # --- Exit aperture (rotated and shifted) --- #
+        exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
 
-        # Aperture position parameters
-        top_gap = si._params_bempp["aperture_params"]["top_distance"]
-        bottom_gap = si._params_bempp["aperture_params"]["bottom_distance"]
+        # Calculate correct translation
+        translate = np.array([trj[0][0], trj[0][1], 0.0])
+        entrance_aperture.set_translation(translate, absolute=True)
 
-        # TODO: Shift and rotate apertures!
+        # Calculate correct rotation
+        exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
+        entrance_aperture.color = "GREEN"
 
         assy.add_electrode(entrance_aperture)
-        # assy.add_electrode(exit_aperture)
+        assy.add_electrode(exit_aperture)
 
-    if si._params_bempp["make_cylinder"]:
+    if bempp_pars["make_cylinder"]:
 
         # Base cylinder parameters:
-        r = si._params_bempp["cylinder_params"]["radius"]
-        zmin = si._params_bempp["cylinder_params"]["zmin"]
-        zmax = si._params_bempp["cylinder_params"]["zmax"]
-        voltage = si._params_bempp["cylinder_params"]["voltage"]
+        r = bempp_pars["cylinder_params"]["radius"]
+        zmin = bempp_pars["cylinder_params"]["zmin"]
+        zmax = bempp_pars["cylinder_params"]["zmax"]
+        voltage = bempp_pars["cylinder_params"]["voltage"]
 
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage)
         outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True)
 
         assy.add_electrode(outer_cylinder)
 
-        # TODO: Shift and rotate
+        # TODO: Shift
         # TODO: Think about surface normals for electrodes and outer cylinder!
 
     assy.show()
+    exit()
     leaf_view = assy.get_bempp_mesh()
 
-    si._variables_bempp["full mesh"] = bempp.api.grid.grid_from_element_data(leaf_view["verts"],
-                                                                             leaf_view["elems"],
-                                                                             leaf_view["domns"])
-    if si._debug:
-        si._variables_bempp["full mesh"].plot()
+    bempp_vars["full mesh"] = bempp.api.grid.grid_from_element_data(leaf_view["verts"],
+                                                                    leaf_view["elems"],
+                                                                    leaf_view["domns"])
+
+    if si.debug:
+        bempp_vars["full mesh"].plot()
+
+    si.bempp_parameters = bempp_pars
+    si.bempp_variables = bempp_vars
+    si.analytic_parameters = analytic_pars
+    si.analytic_variables = analytic_vars
+
+    return 0
 
 
 def export_aperture_geometry(si, fname="aperture_macro.ivb"):

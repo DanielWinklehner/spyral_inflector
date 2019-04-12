@@ -198,6 +198,42 @@ class SpiralInflector(object):
         else:
             return None
 
+    @property
+    def debug(self):
+        return self._debug
+
+    @property
+    def analytic_parameters(self):
+        return self._params_analytic
+
+    @property
+    def analytic_variables(self):
+        return self._variables_analytic
+
+    @property
+    def bempp_parameters(self):
+        return self._params_bempp
+
+    @property
+    def bempp_variables(self):
+        return self._variables_bempp
+
+    @analytic_parameters.setter
+    def analytic_parameters(self, analytic_parameters):
+        self._params_analytic = analytic_parameters
+
+    @analytic_variables.setter
+    def analytic_variables(self, analytic_variables):
+        self._variables_analytic = analytic_variables
+
+    @bempp_parameters.setter
+    def bempp_parameters(self, bempp_parameters):
+        self._params_bempp = bempp_parameters
+
+    @bempp_variables.setter
+    def bempp_variables(self, bempp_variables):
+        self._variables_bempp = bempp_variables
+
     def initialize(self):
 
         abort_flag = False
