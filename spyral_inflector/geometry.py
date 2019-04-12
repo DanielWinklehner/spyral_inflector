@@ -5,6 +5,10 @@ from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_
 # noinspection PyUnresolvedReferences
 from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
 
+X_AXIS = np.array([1, 0, 0], float)
+Y_AXIS = np.array([0, 1, 0], float)
+Z_AXIS = np.array([0, 0, 1], float)
+
 
 class SIAperture(PyElectrode):
     def __init__(self, parent=None, name="New Aperture", voltage=0):
@@ -40,9 +44,9 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
-            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * b, -0.5 * a, -dz, b, a, 2 * dz)
+            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
         elif hole_type == "ellipse":
-            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * b, 0.5 * a)
+            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * a, 0.5 * b)
             geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 100 }}; }}\n".format(2 * dz)
         else:
             print("Don't understand hole type {}!".format(hole_type))
@@ -936,6 +940,7 @@ def generate_numerical_geometry(si):
 
 
 def generate_meshed_model(si, apertures=None, cylinder=None):
+    # TODO: Think about surface normals for electrodes and outer cylinder!
 
     analytic_pars = si.analytic_parameters
     analytic_vars = si.analytic_variables
@@ -990,11 +995,15 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         t_gap = bempp_pars["aperture_params"]["top_distance"]
         b_gap = bempp_pars["aperture_params"]["bottom_distance"]
 
-        # --- Entrance aperture (only shifted up for now) --- #
-        # TODO: May have to be rotated with entrance of SI
+        # --- Entrance aperture --- #
+        # TODO: May have to be rotated more with entrance of SI
         entrance_aperture = SIAperture(name="Entrance Aperture", voltage=voltage)
-        translate = np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz])
-        entrance_aperture.set_translation(translate, absolute=True)
+
+        # Calculate correct translation
+        entrance_aperture.set_translation(np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz]), absolute=True)
+        entrance_aperture.set_rotation(angle=np.deg2rad(90.0), axis=Z_AXIS)
+
+        # Create geo string and load
         entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
         entrance_aperture.color = "GREEN"
 
@@ -1006,6 +1015,9 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         entrance_aperture.set_translation(translate, absolute=True)
 
         # Calculate correct rotation
+        pass
+
+        # Create geo string and load
         exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
         entrance_aperture.color = "GREEN"
 
@@ -1021,12 +1033,11 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         voltage = bempp_pars["cylinder_params"]["voltage"]
 
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage)
+        translate = np.array([0.0, 0.0, zmin])
+        outer_cylinder.set_translation(translate, absolute=True)
         outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True)
 
         assy.add_electrode(outer_cylinder)
-
-        # TODO: Shift
-        # TODO: Think about surface normals for electrodes and outer cylinder!
 
     assy.show()
     exit()
