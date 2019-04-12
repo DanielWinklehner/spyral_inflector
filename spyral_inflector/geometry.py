@@ -945,7 +945,7 @@ def get_angles_from_geo(geo):
     norm_vec = mid_vec_b.cross(mid_vec_a).normalized()
 
     # tilt_angle is the angle of mid_vec_b with x/y plane
-    tilt_angle = np.pi - mid_vec_b.angle_with(Vector(Z_AXIS))
+    tilt_angle = np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
 
     # face angle is the angle of norm_vec with x/z plane
     face_angle = np.pi - norm_vec.angle_with(Vector(Y_AXIS))
@@ -1031,7 +1031,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         # Calculate correct rotation
         tilt_angle, face_angle = get_angles_from_geo(geo)
         exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)   # upright
-        exit_aperture.set_rotation_angle_axis(angle=-tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
+        exit_aperture.set_rotation_angle_axis(angle=tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
         # exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
         # Create geo string and load
         exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
