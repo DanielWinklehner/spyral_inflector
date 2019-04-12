@@ -938,6 +938,20 @@ def generate_numerical_geometry(si):
 #
 #     return 0
 
+def get_angles_from_geo(geo):
+
+    mid_vec_a = Vector(geo[4, -1, :] - geo[9, -1, :]).normalized()
+    mid_vec_b = Vector(geo[8, -1, :] - geo[7, -1, :]).normalized()
+    norm_vec = mid_vec_b.cross(mid_vec_a).normalized()
+
+    # tilt_angle is the angle of mid_vec_b with x/y plane
+    tilt_angle = np.pi - mid_vec_b.angle_with(Z_AXIS)
+
+    # face angle is the angle of norm_vec with x/z plane
+    face_angle = np.pi - norm_vec.angle_with(Y_AXIS)
+
+    return tilt_angle, face_angle
+
 
 def generate_meshed_model(si, apertures=None, cylinder=None):
     # TODO: Think about surface normals for electrodes and outer cylinder!
@@ -1015,8 +1029,10 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         exit_aperture.set_translation(translate, absolute=True)
 
         # Calculate correct rotation
-        exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Y_AXIS, absolute=True)
-
+        tilt_angle, face_angle = get_angles_from_geo(geo)
+        exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)   # upright
+        exit_aperture.set_rotation_angle_axis(angle=tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
+        exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
         # Create geo string and load
         exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
         exit_aperture.color = "GREEN"
