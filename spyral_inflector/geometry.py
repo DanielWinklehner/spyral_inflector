@@ -1040,6 +1040,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         assy.add_electrode(outer_cylinder)
 
     assy.show()
+    input()
     exit()
     leaf_view = assy.get_bempp_mesh()
 
