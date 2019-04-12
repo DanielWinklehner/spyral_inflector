@@ -1056,8 +1056,6 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         assy.add_electrode(outer_cylinder)
 
     assy.show()
-    input()
-    exit()
     leaf_view = assy.get_bempp_mesh()
 
     bempp_vars["full mesh"] = bempp.api.grid.grid_from_element_data(leaf_view["verts"],
@@ -1066,6 +1064,9 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
     if si.debug:
         bempp_vars["full mesh"].plot()
+
+    input()
+    exit()
 
     si.bempp_parameters = bempp_pars
     si.bempp_variables = bempp_vars
