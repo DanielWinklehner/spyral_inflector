@@ -1020,7 +1020,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
         # Create geo string and load
         exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
-        entrance_aperture.color = "GREEN"
+        exit_aperture.color = "GREEN"
 
         assy.add_electrode(entrance_aperture)
         assy.add_electrode(exit_aperture)
