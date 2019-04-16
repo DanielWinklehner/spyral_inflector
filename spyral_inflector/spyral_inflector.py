@@ -274,6 +274,7 @@ class SpiralInflector(object):
         self._initialized = True
 
         print("Done!")
+
         if self._debug:
             print(self)
 

@@ -160,9 +160,6 @@ def solve_bempp(si):
     if si.debug:
         dirichlet_fun.plot()
 
-    input()
-    exit()
-
     # Solve
     sol, info = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=1e-5, use_strong_form=True)
 
