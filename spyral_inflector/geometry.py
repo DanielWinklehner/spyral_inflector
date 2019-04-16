@@ -209,7 +209,7 @@ class SITrajectory(PyElectrode):
         assert points.ndim == 2 and points[0, :].shape == (3, ), "points have wrong shape = {}".format(points.shape)
 
         # Reduce number of points to use in spline to max_points
-        points = points[::np.ceil(len(points) / max_points), :]
+        points = points[::int(np.ceil(len(points)) / max_points), :]
 
         geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve

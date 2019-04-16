@@ -38,15 +38,16 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
         shift = np.zeros(3)
 
     # --- Plot with pythonocc-core Qt5 Window --- #
-    display = bempp_vars["objects"].show()
+    display, start_display = bempp_vars["objects"].show()
     occ_trj = SITrajectory(name="Design Trajectory", voltage=0)
     occ_trj.create_geo_str(trj_design, max_points=25, load=True)
     occ_trj.color = "BLACK"
-
     occ_trj.show(display=display)
 
     display.FitAll()
     display.Repaint()
+
+    start_display()
 
     input()
     exit()
