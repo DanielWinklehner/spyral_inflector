@@ -98,24 +98,11 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
     if omit_b:
         bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     else:
-        bfield1 = si._params_analytic["bf_itp"]  # type: Field
-
-    # Create solids for termination
-    pa = PyElectrodeAssembly("Inflector")
-
-    # upper electrode is cathode
-    for _name in ["cathode", "anode"]:
-        gmsh_str = si._variables_bempp["objects"][_name]["gmsh_str"]
-        voltage = si._variables_bempp["objects"][_name]["voltage"]
-        pe = PyElectrode(name=_name, voltage=voltage, geo_str=gmsh_str)
-        pa.add_electrode(pe)
-
-    si._variables_bempp["objects"]["anode"]["gmsh_str"]
-    si._variables_bempp["objects"]["cathode"]
+        bfield1 = si.analytic_parameters["bf_itp"]  # type: Field
 
     pusher.set_efield(efield1)
     pusher.set_bfield(bfield1)
-    pusher.set_bds(pa)
+    pusher.set_bds(si.bempp_variables["objects"])  # 'objects' is now a PyElectrodeAssembly
 
     r, v = pusher.track(r_start, v_start, nsteps, dt)
 

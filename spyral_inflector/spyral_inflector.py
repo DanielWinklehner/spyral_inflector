@@ -218,6 +218,14 @@ class SpiralInflector(object):
     def bempp_variables(self):
         return self._variables_bempp
 
+    @property
+    def track_parameters(self):
+        return self._params_track
+
+    @property
+    def track_variables(self):
+        return self._variables_track
+
     @analytic_parameters.setter
     def analytic_parameters(self, analytic_parameters):
         self._params_analytic = analytic_parameters
@@ -233,6 +241,14 @@ class SpiralInflector(object):
     @bempp_variables.setter
     def bempp_variables(self, bempp_variables):
         self._variables_bempp = bempp_variables
+
+    @track_parameters.setter
+    def track_parameters(self, track_parameters):
+        self._params_track = track_parameters
+
+    @track_variables.setter
+    def track_variables(self, track_variables):
+        self._variables_track = track_variables
 
     def initialize(self):
 

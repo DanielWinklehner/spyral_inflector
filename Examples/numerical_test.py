@@ -37,9 +37,9 @@ si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
 
 # generate_meshed_model(si)
 
-ts = time.time()
-optimize_fringe(si, maxiter=2, tol=0.02, res=0.005)
-print("Optimizing took {:.4f} s".format(time.time() - ts))
+# ts = time.time()
+# optimize_fringe(si, maxiter=2, tol=0.02, res=0.005)
+# print("Optimizing took {:.4f} s".format(time.time() - ts))
 
 ts = time.time()
 print("Calculating electric field...")
@@ -52,31 +52,31 @@ print("Calculating field took {:.4f} s".format(time.time() - ts))
 with open('timing.txt', 'a') as outfile:
     outfile.write("Generating electric field took {:.4f} s\n".format(time.time() - ts))
 
-ts = time.time()
-
-track(si,
-      r_start=np.array([0.0, 0.0, -0.15]),
-      v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-      nsteps=15000,
-      dt=1e-11)
-
-print("Tracking took {:.4f} s".format(time.time() - ts))
-
-with open('timing.txt', 'a') as outfile:
-    outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
-
-ts = time.time()
-
-fast_track(si,
-           r_start=np.array([0.0, 0.0, -0.15]),
-           v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-           nsteps=15000,
-           dt=1e-11)
-
-print("Fast tracking took {:.4f} s".format(time.time() - ts))
-
-with open('timing.txt', 'a') as outfile:
-    outfile.write("Fast tracking took {:.4f} s\n".format(time.time() - ts))
+# ts = time.time()
+#
+# track(si,
+#       r_start=np.array([0.0, 0.0, -0.15]),
+#       v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+#       nsteps=15000,
+#       dt=1e-11)
+#
+# print("Tracking took {:.4f} s".format(time.time() - ts))
+#
+# with open('timing.txt', 'a') as outfile:
+#     outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
+#
+# ts = time.time()
+#
+# fast_track(si,
+#            r_start=np.array([0.0, 0.0, -0.15]),
+#            v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+#            nsteps=15000,
+#            dt=1e-11)
+#
+# print("Fast tracking took {:.4f} s".format(time.time() - ts))
+#
+# with open('timing.txt', 'a') as outfile:
+#     outfile.write("Fast tracking took {:.4f} s\n".format(time.time() - ts))
 
 ts = time.time()
 

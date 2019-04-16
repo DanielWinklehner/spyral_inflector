@@ -1,7 +1,10 @@
 import bempp.api
 from dans_pymodules import *
-colors = MyColors()
 from mpl_toolkits.mplot3d import proj3d
+from .geometry import SITrajectory
+
+colors = MyColors()
+
 
 def orthogonal_proj(zfront, zback):
     a = (zfront + zback) / (zfront - zback)
@@ -15,16 +18,40 @@ def orthogonal_proj(zfront, zback):
 
 
 def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None):
-    if si._variables_analytic["geo"] is None or si._variables_analytic["trj_design"] is None:
+
+    if si.analytic_variables["geo"] is None or si.analytic_variables["trj_design"] is None:
         print("No geometry yet ... generating")
         si.generate_geometry()
 
-    trj_design = si._variables_analytic["trj_design"]  # type: np.ndarray
-    geo = si._variables_analytic["geo"]  # type: np.ndarray
-    shift = si._variables_track["shift"]  # type: np.ndarray
+    analytic_pars = si.analytic_parameters
+    analytic_vars = si.analytic_variables
+    bempp_pars = si.bempp_parameters
+    bempp_vars = si.bempp_variables
+    track_pars = si.track_parameters
+    track_vars = si.track_variables
+
+    trj_design = analytic_vars["trj_design"]  # type: np.ndarray
+    geo = analytic_vars["geo"]  # type: np.ndarray
+    shift = track_vars["shift"]  # type: np.ndarray
+
     if shift is None:
         shift = np.zeros(3)
 
+    # --- Plot with pythonocc-core Qt5 Window --- #
+    display = bempp_vars["objects"].show()
+    occ_trj = SITrajectory(name="Design Trajectory", voltage=0)
+    occ_trj.create_geo_str(trj_design, max_points=25, load=True)
+    occ_trj.color = "BLACK"
+
+    occ_trj.show(display=display)
+
+    display.FitAll()
+    display.Repaint()
+
+    input()
+    exit()
+
+    # Plot with matplotlib
     fig = plt.figure()
     ax = Axes3D(fig)
 

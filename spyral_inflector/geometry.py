@@ -177,6 +177,64 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         return geo_str
 
 
+# Geometrically, trajectories have much in common with electrodes...
+class SITrajectory(PyElectrode):
+
+    def __init__(self, parent=None, name="New Spiral Electrode", voltage=0):
+        super().__init__(name=name, voltage=voltage)
+        self._parent = parent  # the spiral inflector that contains this aperture
+
+    # --- Override some of the PyElectrode functions that don't make sense for a wire --- #
+    @staticmethod
+    def points_inside(_points):
+        # By definition no points are 'inside' a PyWire
+        return np.zeros(_points.shape, bool)
+
+    @staticmethod
+    def generate_mesh(brep_h=0.0):
+        print("Can't generate a mesh from a PyWire")
+        return 1
+
+    def create_geo_str(self, points, max_points, load=True):
+        """
+        Create a geo string for gmsh
+        :param points: np array of points along the trajectory
+        :param max_points: maximum number of points to use if max is larger than num points all are used
+        :param load: immediately load the geo str as an occ object
+        :return:
+        """
+
+        points = np.asarray(points)
+
+        assert points.ndim == 2 and points[0, :].shape == (3, ), "points have wrong shape = {}".format(points.shape)
+
+        # Reduce number of points to use in spline to max_points
+        points = points[::np.ceil(len(points) / max_points), :]
+
+        geo_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+"""
+        new_pt = 1
+        new_ln = 1
+
+        geo_str += "// Center Spline:\n"
+        for _x, _y, _z in points:
+            geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt, _x, _y, _z)
+            new_pt += 1
+
+        geo_str += """
+Spline({}) = {{ {}:{} }}; 
+""".format(new_ln, 1, new_pt - 1)
+
+        # Immediately delete the points used up in the spline
+        geo_str += "Recursive Delete {{ Point{{ {}:{} }}; }}\n".format(1, new_pt - 1)
+
+        # Call function in PyElectrode module we inherit from if load is not False
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
+
 # def generate_aperture_geometry(si, electrode_type):
 #
 #     # Check if all parameters are set
