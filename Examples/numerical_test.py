@@ -18,7 +18,7 @@ si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 si.initialize()
 
 si.generate_geometry()
-draw_geometry(si, freq=10, show=True)
+# draw_geometry(si, freq=10, show=True)
 
 si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=True)
