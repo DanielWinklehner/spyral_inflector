@@ -35,7 +35,8 @@ si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                "zmax": 80e-3,
                                                "voltage": 0.0})
 
-# generate_meshed_model(si)
+generate_meshed_model(si)
+solve_bempp(si)
 
 # ts = time.time()
 # optimize_fringe(si, maxiter=2, tol=0.02, res=0.005)
