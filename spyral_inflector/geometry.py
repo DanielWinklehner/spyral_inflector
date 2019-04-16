@@ -952,9 +952,7 @@ def get_norm_vec_and_angles_from_geo(geo):
     return norm_vec, tilt_angle, face_angle
 
 
-def generate_meshed_model(si, apertures=None, cylinder=None):
-    # TODO: Think about surface normals for electrodes and outer cylinder!
-
+def generate_solid_assembly(si, apertures=None, cylinder=None):
     analytic_pars = si.analytic_parameters
     analytic_vars = si.analytic_variables
     bempp_pars = si.bempp_parameters
@@ -1055,7 +1053,28 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
         assy.add_electrode(outer_cylinder)
 
-    assy.show()
+    if si.debug:
+        assy.show()
+
+    bempp_vars["objects"] = assy
+
+    si.analytic_parameters = analytic_pars
+    si.analytic_variables = analytic_vars
+    si.bempp_parameters = bempp_pars
+    si.bempp_variables = bempp_vars
+
+    return assy
+
+
+def generate_meshed_model(si, apertures=None, cylinder=None):
+    # TODO: Think about surface normals for electrodes and outer cylinder!
+
+    generate_solid_assembly(si, apertures, cylinder)
+
+    bempp_vars = si.bempp_variables
+
+    assy = bempp_vars["objects"]
+
     leaf_view = assy.get_bempp_mesh()
 
     bempp_vars["full mesh"] = bempp.api.grid.grid_from_element_data(leaf_view["verts"],
@@ -1065,15 +1084,9 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
     if si.debug:
         bempp_vars["full mesh"].plot()
 
-    input()
-    exit()
-
-    si.bempp_parameters = bempp_pars
     si.bempp_variables = bempp_vars
-    si.analytic_parameters = analytic_pars
-    si.analytic_variables = analytic_vars
 
-    return 0
+    return bempp_vars["full mesh"]
 
 
 def export_aperture_geometry(si, fname="aperture_macro.ivb"):

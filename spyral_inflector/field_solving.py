@@ -132,18 +132,21 @@ def calculate_efield(si,
 
 
 def solve_bempp(si):
-    if si._variables_bempp["full mesh"] is None:
+    bempp_vars = si.bempp_variables
+    electrodes = bempp_vars["objects"].electrodes
+
+    if bempp_vars["full mesh"] is None:
         print("Please generate a mesh before solving with BEM++!")
         return 1
 
     print("Generating necessary BEM++ operators, function spaces. Solving... ", end="")
 
-    dp0_space = bempp.api.function_space(si._variables_bempp["full mesh"], "DP", 0)
+    dp0_space = bempp.api.function_space(bempp_vars["full mesh"], "DP", 0)
     slp = bempp.api.operators.boundary.laplace.single_layer(dp0_space, dp0_space, dp0_space)
 
     domain_mapping = {}
-    for name, electrode in si._variables_bempp["objects"].items():
-        domain_mapping[electrode["domain"]] = electrode["voltage"]
+    for name, electrode in electrodes.items():
+        domain_mapping[electrode.bempp_domain] = electrode.voltage
 
     def f(*args):
 
@@ -154,8 +157,11 @@ def solve_bempp(si):
 
     dirichlet_fun = bempp.api.GridFunction(dp0_space, fun=f)
 
-    if si._debug:
+    if si.debug:
         dirichlet_fun.plot()
+
+    input()
+    exit()
 
     # Solve
     sol, info = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=1e-5, use_strong_form=True)
@@ -163,9 +169,11 @@ def solve_bempp(si):
     print("Done!")
 
     # Save results
-    si._variables_bempp["solution"] = sol
-    si._variables_bempp["f_space"] = dp0_space
-    si._variables_bempp["operator"] = slp
-    si._variables_bempp["grid_fun"] = dirichlet_fun
+    bempp_vars["solution"] = sol
+    bempp_vars["f_space"] = dp0_space
+    bempp_vars["operator"] = slp
+    bempp_vars["grid_fun"] = dirichlet_fun
+
+    si.bempp_variables = bempp_vars
 
     return 0

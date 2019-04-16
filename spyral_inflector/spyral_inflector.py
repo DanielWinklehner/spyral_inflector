@@ -381,14 +381,14 @@ class SpiralInflector(object):
     def solve_bempp(self):
         return solve_bempp(self)
 
-    def generate_aperture_geometry(self, *args):
-        return generate_aperture_geometry(self, *args)
-
-    def generate_cylinder_geometry(self):
-        return generate_cylinder_geometry(self)
-
-    def generate_spiral_electrode_geometry(self, *args):
-        return generate_spiral_electrode_geometry(self, *args)
+    # def generate_aperture_geometry(self, *args):
+    #     return generate_aperture_geometry(self, *args)
+    #
+    # def generate_cylinder_geometry(self):
+    #     return generate_cylinder_geometry(self)
+    #
+    # def generate_spiral_electrode_geometry(self, *args):
+    #     return generate_spiral_electrode_geometry(self, *args)
 
     def generate_meshed_model(self, **kwargs):
         return generate_meshed_model(self, **kwargs)
