@@ -1112,7 +1112,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         assy.add_electrode(outer_cylinder)
 
     if si.debug:
-        assy.show()
+        assy.show(show_screen=True)
 
     bempp_vars["objects"] = assy
 

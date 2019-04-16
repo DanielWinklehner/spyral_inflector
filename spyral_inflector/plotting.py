@@ -23,36 +23,39 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
         print("No geometry yet ... generating")
         si.generate_geometry()
 
-    analytic_pars = si.analytic_parameters
-    analytic_vars = si.analytic_variables
-    bempp_pars = si.bempp_parameters
+    # analytic_pars = si.analytic_parameters
+    # analytic_vars = si.analytic_variables
+    # bempp_pars = si.bempp_parameters
     bempp_vars = si.bempp_variables
-    track_pars = si.track_parameters
+    # track_pars = si.track_parameters
     track_vars = si.track_variables
 
-    trj_design = analytic_vars["trj_design"]  # type: np.ndarray
-    geo = analytic_vars["geo"]  # type: np.ndarray
-    shift = track_vars["shift"]  # type: np.ndarray
+    if track_vars["trj_tracker"] is not None:
+        trj_tracked = track_vars["trj_tracker"]
 
-    if shift is None:
-        shift = np.zeros(3)
+        # --- Plot with pythonocc-core Qt5 Window --- #
+        display, start_display = bempp_vars["objects"].show()
+        occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
+        occ_trj.create_geo_str(trj_tracked, max_points=30, load=True)
+        occ_trj.color = "BLACK"
+        occ_trj.show(display=display)
 
-    # --- Plot with pythonocc-core Qt5 Window --- #
-    display, start_display = bempp_vars["objects"].show()
-    occ_trj = SITrajectory(name="Design Trajectory", voltage=0)
-    occ_trj.create_geo_str(trj_design, max_points=25, load=True)
-    occ_trj.color = "BLACK"
-    occ_trj.show(display=display)
+        display.FitAll()
+        display.Repaint()
 
-    display.FitAll()
-    display.Repaint()
-
-    start_display()
+        start_display()
 
     input()
     exit()
 
     # Plot with matplotlib
+    # trj_design = analytic_vars["trj_design"]  # type: np.ndarray
+    # geo = analytic_vars["geo"]  # type: np.ndarray
+    # shift = track_vars["shift"]  # type: np.ndarray
+    #
+    # if shift is None:
+    #     shift = np.zeros(3)
+
     fig = plt.figure()
     ax = Axes3D(fig)
 
