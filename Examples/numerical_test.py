@@ -17,10 +17,10 @@ si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
 si.initialize()
 
-si.generate_geometry()
+# si.generate_geometry()
 # draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
+si.set_parameter(key="h", value=0.005)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=True)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
