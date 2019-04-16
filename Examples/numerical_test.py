@@ -47,25 +47,25 @@ print("Calculating electric field...")
 calculate_efield(si,
                  res=0.002,
                  limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                 domain_decomp=(7, 7, 7))
+                 domain_decomp=(3, 3, 3))
 print("Calculating field took {:.4f} s".format(time.time() - ts))
 
 with open('timing.txt', 'a') as outfile:
     outfile.write("Generating electric field took {:.4f} s\n".format(time.time() - ts))
 
-# ts = time.time()
-#
-# track(si,
-#       r_start=np.array([0.0, 0.0, -0.15]),
-#       v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-#       nsteps=15000,
-#       dt=1e-11)
-#
-# print("Tracking took {:.4f} s".format(time.time() - ts))
-#
-# with open('timing.txt', 'a') as outfile:
-#     outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
-#
+ts = time.time()
+
+track(si,
+      r_start=np.array([0.0, 0.0, -0.15]),
+      v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+      nsteps=15000,
+      dt=1e-11)
+
+print("Tracking took {:.4f} s".format(time.time() - ts))
+
+with open('timing.txt', 'a') as outfile:
+    outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
+
 # ts = time.time()
 #
 # fast_track(si,
@@ -79,18 +79,18 @@ with open('timing.txt', 'a') as outfile:
 # with open('timing.txt', 'a') as outfile:
 #     outfile.write("Fast tracking took {:.4f} s\n".format(time.time() - ts))
 
-ts = time.time()
-
-fast_track_with_termination(si,
-                            r_start=np.array([0.0, 0.0, -0.15]),
-                            v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-                            nsteps=15000,
-                            dt=1e-11)
-
-print("Fast tracking with termination took {:.4f} s".format(time.time() - ts))
-
-with open('timing.txt', 'a') as outfile:
-    outfile.write("Fast tracking with termination took {:.4f} s\n".format(time.time() - ts))
+# ts = time.time()
+#
+# fast_track_with_termination(si,
+#                             r_start=np.array([0.0, 0.0, -0.15]),
+#                             v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+#                             nsteps=15000,
+#                             dt=1e-11)
+#
+# print("Fast tracking with termination took {:.4f} s".format(time.time() - ts))
+#
+# with open('timing.txt', 'a') as outfile:
+#     outfile.write("Fast tracking with termination took {:.4f} s\n".format(time.time() - ts))
 
 draw_geometry(si, show=True, filename='auto')
 # export_electrode_geometry(si, fname='electrode_macro.ivb')
