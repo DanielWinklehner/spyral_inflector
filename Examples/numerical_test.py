@@ -92,7 +92,7 @@ with open('timing.txt', 'a') as outfile:
 # with open('timing.txt', 'a') as outfile:
 #     outfile.write("Fast tracking with termination took {:.4f} s\n".format(time.time() - ts))
 
-draw_geometry(si, show=True, filename='auto')
+draw_geometry(si, freq=30, show=True, filename='auto', aux_trajectories=None)
 # export_electrode_geometry(si, fname='electrode_macro.ivb')
 # export_aperture_geometry(si, fname='aperture_macro.ivb')
 # save_geo_files(si)

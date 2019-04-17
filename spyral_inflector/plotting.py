@@ -29,34 +29,48 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
     track_vars = si.track_variables
     shift = track_vars["shift"]
 
-    # TODO: The following does not yet include the shift!
     # --- Plot with pythonocc-core Qt5 Window --- #
     # Electrodes (PyElectrodeAssembly.show() returns an instance of the display)
+    bempp_vars["objects"].set_translation(shift, absolute=True)  # TODO: This should be applied as part of calculation
     display, start_display = bempp_vars["objects"].show()
 
     # Trajectories
     occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
-    occ_trj.create_geo_str(analytic_vars["trj_design"], max_points=30, load=True)
+    occ_trj.create_geo_str(analytic_vars["trj_design"], max_points=freq, load=True)
     occ_trj.color = "RED"
     occ_trj.show(display=display)
 
     if track_vars["trj_tracker"] is not None:
         occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
-        occ_trj.create_geo_str(track_vars["trj_tracker"], max_points=30, load=True)
+        occ_trj.create_geo_str(track_vars["trj_tracker"], max_points=freq, load=True)
         occ_trj.color = "BLACK"
         occ_trj.show(display=display)
 
     if aux_trajectories is not None:
         for i, _trj in enumerate(aux_trajectories):
             occ_trj = SITrajectory(name="Aux Trajectory {}".format(i), voltage=0)
-            occ_trj.create_geo_str(_trj, max_points=30, load=True)
+            occ_trj.create_geo_str(_trj, max_points=freq, load=True)
             occ_trj.color = "BLUE"
             occ_trj.show(display=display)
 
-    # Repaint and plot
+    # Repaint
     display.FitAll()
     display.Repaint()
-    start_display()
+
+    # Show interactive display. Currently, this locks the execution of the script.
+    # without start_display, it is still created and pops up briefly, then is destroyed immediately...
+    if show:
+        start_display()
+
+    if filename is not None:
+        if filename == 'auto':
+            _fd = FileDialog()
+            filename = _fd.get_filename(action="save")
+        try:
+            display.ExportToImage(filename)
+        except Exception as ex:
+            print("Something went wrong when trying to save the file: {}".format(ex))
+            return 1
 
     # Plot with matplotlib
     # trj_design = analytic_vars["trj_design"]  # type: np.ndarray
