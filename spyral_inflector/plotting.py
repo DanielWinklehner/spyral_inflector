@@ -40,6 +40,8 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
         occ_trj.color = "BLACK"
         occ_trj.show(display=display)
 
+        display.set_raytracing_mode()
+        display.EnableAntiAliasing()
         display.FitAll()
         display.Repaint()
 
