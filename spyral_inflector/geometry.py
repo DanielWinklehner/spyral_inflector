@@ -61,6 +61,42 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         return geo_str
 
 
+class SIPointSphere(PyElectrode):
+    def __init__(self, parent=None, name="New Aperture", voltage=0):
+        super().__init__(name=name, voltage=voltage)
+        self._parent = parent  # the spiral inflector that contains this aperture
+
+    def create_geo_str(self, center, r=0.001, h=0.005, load=True):
+        """
+
+        Creates the geo string for a small sphere to show important vertices
+
+        :param center: numpy array, list or tuple containing 3 floats forthe center of the sphere
+        :param r: sphere radius - default is 1 mm
+        :param h: desired mesh resolution
+        :param load: Flag whether to also load from geo string directly.
+                     Cave: If False, geo str will not be saved internally!
+        :return gmsh_str: the string object for gmsh
+        """
+
+        center = np.asarray(center)
+        assert center.shape == (3, ), "Got wrong dimension of {} for center, should be (3, )".format(center.shape)
+
+        geo_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+""".format(h)
+
+        geo_str += "// Base plate\n"
+        geo_str += "Sphere(1) = {{ {}, {}, {}, {} }};\n".format(center[0], center[1], center[2], r)
+
+        # Call function in PyElectrode module we inherit from if 'load' is not False
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
+
+
 class SICylinder(PyElectrode):
     def __init__(self, parent=None, name="New Cylinder", voltage=0):
         super().__init__(name=name, voltage=voltage)
@@ -1080,6 +1116,26 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         # Calculate correct translation
         norm_vec, tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+
+        # DEBUG: Display points used for angles
+        p1 = SIPointSphere(name="P1")
+        p1.create_geo_str(geo[4, -1, :])
+        p1.color = "GREEN"
+        p2 = SIPointSphere(name="P2")
+        p2.create_geo_str(geo[7, -1, :])
+        p2.color = "BLUE"
+        p3 = SIPointSphere(name="P3")
+        p3.create_geo_str(geo[8, -1, :])
+        p3.color = "RED"
+        p4 = SIPointSphere(name="P4")
+        p4.create_geo_str(geo[9, -1, :])
+        p4.color = "BLACK"
+
+        assy.add_electrode(p1)
+        assy.add_electrode(p2)
+        assy.add_electrode(p3)
+        assy.add_electrode(p4)
+
         translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
                               trj[-1][1] + norm_vec[1] * b_gap,
                               0.0])

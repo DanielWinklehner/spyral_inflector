@@ -6,7 +6,7 @@ h2p.calculate_from_energy_mev(0.07 / h2p.a())
 si = SpiralInflector(ion=h2p,
                      method="numerical",
                      volt=12000,
-                     gap=18e-3,
+                     gap=20e-3,
                      tilt=27.0,
                      dx=10e-3,
                      sigma=1.5E-3,
