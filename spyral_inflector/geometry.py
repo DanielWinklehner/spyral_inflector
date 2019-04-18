@@ -1033,18 +1033,18 @@ def generate_numerical_geometry(si):
 #     return 0
 
 def get_norm_vec_and_angles_from_geo(geo):
-    mid_vec_a = Vector(geo[4, -1, :] - geo[9, -1, :]).normalized()
+    # mid_vec_a = Vector(geo[4, -1, :] - geo[9, -1, :]).normalized()
     mid_vec_b = Vector(geo[8, -1, :] - geo[7, -1, :]).normalized()
-    norm_vec = mid_vec_b.cross(mid_vec_a).normalized()
+    # norm_vec = mid_vec_b.cross(mid_vec_a).normalized()
 
     # tilt_angle is the angle of mid_vec_b with x/y plane
     tilt_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
 
     # face angle is the angle of norm_vec with x/z plane
-    mid_vec_b = Vector(np.array([mid_vec_b[0], mid_vec_b[1], 0.0]))
+    mid_vec_b = Vector([mid_vec_b[0], mid_vec_b[1], 0.0])
     face_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(Y_AXIS))
 
-    return norm_vec, tilt_angle, face_angle
+    return tilt_angle, face_angle
 
 
 def generate_solid_assembly(si, apertures=None, cylinder=None):
@@ -1116,7 +1116,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
 
         # Calculate correct translation
-        norm_vec, tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+        tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+        norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
         # DEBUG: Display points used for angles
         p1 = SIPointSphere(name="P1")
