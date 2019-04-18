@@ -1,7 +1,11 @@
 import bempp.api
 from dans_pymodules import *
-colors = MyColors()
 from mpl_toolkits.mplot3d import proj3d
+from .geometry import SITrajectory
+from OCC.AIS import AIS_Shape
+
+colors = MyColors()
+
 
 def orthogonal_proj(zfront, zback):
     a = (zfront + zback) / (zfront - zback)
@@ -15,110 +19,161 @@ def orthogonal_proj(zfront, zback):
 
 
 def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None):
-    if si._variables_analytic["geo"] is None or si._variables_analytic["trj_design"] is None:
+
+    if si.analytic_variables["geo"] is None or si.analytic_variables["trj_design"] is None:
         print("No geometry yet ... generating")
         si.generate_geometry()
 
-    trj_design = si._variables_analytic["trj_design"]  # type: np.ndarray
-    geo = si._variables_analytic["geo"]  # type: np.ndarray
-    shift = si._variables_track["shift"]  # type: np.ndarray
-    if shift is None:
-        shift = np.zeros(3)
+    analytic_vars = si.analytic_variables
+    bempp_vars = si.bempp_variables
+    track_vars = si.track_variables
+    shift = track_vars["shift"]
 
-    fig = plt.figure()
-    ax = Axes3D(fig)
+    # --- Plot with pythonocc-core Qt5 Window --- #
+    # Electrodes (PyElectrodeAssembly.show() returns an instance of the display)
+    bempp_vars["objects"].set_translation(shift, absolute=True)  # TODO: This should be applied as part of calculation
+    display, start_display = bempp_vars["objects"].show()
 
-    proj3d.persp_transformation = orthogonal_proj
+    # Trajectories
+    occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
+    occ_trj.create_geo_str(analytic_vars["trj_design"], max_points=freq, load=True)
+    occ_trj.color = "RED"
+    occ_trj.show(display=display)
 
-    ns = si._params_analytic["ns"]  # type: int
-
-    # Plot the beam trajectory
-    ax.plot(trj_design[:, 0] + shift[0],
-            trj_design[:, 1] + shift[1],
-            trj_design[:, 2] + shift[2],
-            color=colors[3], linewidth=3.0)
-
-    # Plot the splines/edge lines
-    for i in range(10):
-        ax.plot(geo[i, :, 0] + shift[0],
-                geo[i, :, 1] + shift[1],
-                geo[i, :, 2] + shift[2],
-                color=colors[4], linewidth=2.0)
-
-    # Lines between splines
-    for i in range(ns):
-
-        if (np.mod(i, freq) == 0) or (i == ns - 1):
-            ax.plot([geo[2, i, 0] + shift[0], geo[3, i, 0] + shift[0]],
-                    [geo[2, i, 1] + shift[1], geo[3, i, 1] + shift[1]],
-                    [geo[2, i, 2] + shift[2], geo[3, i, 2] + shift[2]],
-                    color=colors[1], linewidth=2.0)
-
-            ax.plot([geo[7, i, 0] + shift[0], geo[8, i, 0] + shift[0]],
-                    [geo[7, i, 1] + shift[1], geo[8, i, 1] + shift[1]],
-                    [geo[7, i, 2] + shift[2], geo[8, i, 2] + shift[2]],
-                    color=colors[1], linewidth=2.0)
-
-            ax.plot([geo[0, i, 0] + shift[0], geo[4, i, 0] + shift[0]],
-                    [geo[0, i, 1] + shift[1], geo[4, i, 1] + shift[1]],
-                    [geo[0, i, 2] + shift[2], geo[4, i, 2] + shift[2]],
-                    color=colors[2], linewidth=2.0)
-
-            ax.plot([geo[4, i, 0] + shift[0], geo[1, i, 0] + shift[0]],
-                    [geo[4, i, 1] + shift[1], geo[1, i, 1] + shift[1]],
-                    [geo[4, i, 2] + shift[2], geo[1, i, 2] + shift[2]],
-                    color=colors[2], linewidth=2.0)
-
-            ax.plot([geo[5, i, 0] + shift[0], geo[9, i, 0] + shift[0]],
-                    [geo[5, i, 1] + shift[1], geo[9, i, 1] + shift[1]],
-                    [geo[5, i, 2] + shift[2], geo[9, i, 2] + shift[2]],
-                    color=colors[2], linewidth=2.0)
-
-            ax.plot([geo[9, i, 0] + shift[0], geo[6, i, 0] + shift[0]],
-                    [geo[9, i, 1] + shift[1], geo[6, i, 1] + shift[1]],
-                    [geo[9, i, 2] + shift[2], geo[6, i, 2] + shift[2]],
-                    color=colors[2], linewidth=2.0)
-
-    if si._variables_track["trj_tracker"] is not None:
-        trj_tracked = si._variables_track["trj_tracker"]
-
-        # Plot the tracked beam trajectory
-        ax.plot(trj_tracked[:, 0] + shift[0],
-                trj_tracked[:, 1] + shift[1],
-                trj_tracked[:, 2] + shift[2],
-                color=colors[1], linewidth=3.0)
+    if track_vars["trj_tracker"] is not None:
+        occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
+        occ_trj.create_geo_str(track_vars["trj_tracker"], max_points=freq, load=True)
+        occ_trj.color = "BLACK"
+        occ_trj.show(display=display)
 
     if aux_trajectories is not None:
-        for trj in aux_trajectories:
-            ax.plot(trj[:, 0], trj[:, 1], trj[:, 2], linewidth=1.0)
+        for i, _trj in enumerate(aux_trajectories):
+            occ_trj = SITrajectory(name="Aux Trajectory {}".format(i), voltage=0)
+            occ_trj.create_geo_str(_trj, max_points=freq, load=True)
+            occ_trj.color = "BLUE"
+            occ_trj.show(display=display)
 
-    plt.axis("equal")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    ax.set_xlim(-0.1, 0.1)
-    ax.set_ylim(-0.1, 0.1)
-    ax.set_zlabel("z")
-    ax.set_aspect("equal")
+    # Repaint
+    display.FitAll()
+    display.Repaint()
 
-    ax.view_init(elev=-180.0, azim=-90.0)
-
-    if filename == 'dialog':
-        from dans_pymodules import FileDialog
-        print("Please select figure filename in dialog...")
-        fd = FileDialog()
-        filename = fd.get_filename('open')
-    elif filename == 'auto':
-        filename = os.path.join(si._outp_folder, "geometry.png")
+    # Show interactive display. Currently, this locks the execution of the script.
+    # without start_display, it is still created and pops up briefly, then is destroyed immediately...
+    if show:
+        start_display()
 
     if filename is not None:
+        if filename == 'auto':
+            _fd = FileDialog()
+            filename = _fd.get_filename(action="save")
         try:
-            fig.savefig(fname=filename)
+            display.ExportToImage(filename)
         except Exception as ex:
             print("Something went wrong when trying to save the file: {}".format(ex))
             return 1
 
-    if show:
-        plt.show()
+    # Plot with matplotlib
+    # trj_design = analytic_vars["trj_design"]  # type: np.ndarray
+    # geo = analytic_vars["geo"]  # type: np.ndarray
+    # shift = track_vars["shift"]  # type: np.ndarray
+    #
+    # if shift is None:
+    #     shift = np.zeros(3)
+
+    # fig = plt.figure()
+    # ax = Axes3D(fig)
+    #
+    # proj3d.persp_transformation = orthogonal_proj
+    #
+    # ns = si._params_analytic["ns"]  # type: int
+    #
+    # # Plot the beam trajectory
+    # ax.plot(trj_design[:, 0] + shift[0],
+    #         trj_design[:, 1] + shift[1],
+    #         trj_design[:, 2] + shift[2],
+    #         color=colors[3], linewidth=3.0)
+    #
+    # # Plot the splines/edge lines
+    # for i in range(10):
+    #     ax.plot(geo[i, :, 0] + shift[0],
+    #             geo[i, :, 1] + shift[1],
+    #             geo[i, :, 2] + shift[2],
+    #             color=colors[4], linewidth=2.0)
+    #
+    # # Lines between splines
+    # for i in range(ns):
+    #
+    #     if (np.mod(i, freq) == 0) or (i == ns - 1):
+    #         ax.plot([geo[2, i, 0] + shift[0], geo[3, i, 0] + shift[0]],
+    #                 [geo[2, i, 1] + shift[1], geo[3, i, 1] + shift[1]],
+    #                 [geo[2, i, 2] + shift[2], geo[3, i, 2] + shift[2]],
+    #                 color=colors[1], linewidth=2.0)
+    #
+    #         ax.plot([geo[7, i, 0] + shift[0], geo[8, i, 0] + shift[0]],
+    #                 [geo[7, i, 1] + shift[1], geo[8, i, 1] + shift[1]],
+    #                 [geo[7, i, 2] + shift[2], geo[8, i, 2] + shift[2]],
+    #                 color=colors[1], linewidth=2.0)
+    #
+    #         ax.plot([geo[0, i, 0] + shift[0], geo[4, i, 0] + shift[0]],
+    #                 [geo[0, i, 1] + shift[1], geo[4, i, 1] + shift[1]],
+    #                 [geo[0, i, 2] + shift[2], geo[4, i, 2] + shift[2]],
+    #                 color=colors[2], linewidth=2.0)
+    #
+    #         ax.plot([geo[4, i, 0] + shift[0], geo[1, i, 0] + shift[0]],
+    #                 [geo[4, i, 1] + shift[1], geo[1, i, 1] + shift[1]],
+    #                 [geo[4, i, 2] + shift[2], geo[1, i, 2] + shift[2]],
+    #                 color=colors[2], linewidth=2.0)
+    #
+    #         ax.plot([geo[5, i, 0] + shift[0], geo[9, i, 0] + shift[0]],
+    #                 [geo[5, i, 1] + shift[1], geo[9, i, 1] + shift[1]],
+    #                 [geo[5, i, 2] + shift[2], geo[9, i, 2] + shift[2]],
+    #                 color=colors[2], linewidth=2.0)
+    #
+    #         ax.plot([geo[9, i, 0] + shift[0], geo[6, i, 0] + shift[0]],
+    #                 [geo[9, i, 1] + shift[1], geo[6, i, 1] + shift[1]],
+    #                 [geo[9, i, 2] + shift[2], geo[6, i, 2] + shift[2]],
+    #                 color=colors[2], linewidth=2.0)
+    #
+    # if si._variables_track["trj_tracker"] is not None:
+    #     trj_tracked = si._variables_track["trj_tracker"]
+    #
+    #     # Plot the tracked beam trajectory
+    #     ax.plot(trj_tracked[:, 0] + shift[0],
+    #             trj_tracked[:, 1] + shift[1],
+    #             trj_tracked[:, 2] + shift[2],
+    #             color=colors[1], linewidth=3.0)
+
+    # if aux_trajectories is not None:
+    #     for trj in aux_trajectories:
+    #         ax.plot(trj[:, 0], trj[:, 1], trj[:, 2], linewidth=1.0)
+
+    # plt.axis("equal")
+    # plt.xlabel("x")
+    # plt.ylabel("y")
+    # ax.set_xlim(-0.1, 0.1)
+    # ax.set_ylim(-0.1, 0.1)
+    # ax.set_zlabel("z")
+    # ax.set_aspect("equal")
+    #
+    # ax.view_init(elev=-180.0, azim=-90.0)
+    #
+    # if filename == 'dialog':
+    #     from dans_pymodules import FileDialog
+    #     print("Please select figure filename in dialog...")
+    #     fd = FileDialog()
+    #     filename = fd.get_filename('open')
+    # elif filename == 'auto':
+    #     filename = os.path.join(si._outp_folder, "geometry.png")
+    #
+    # if filename is not None:
+    #     try:
+    #         fig.savefig(fname=filename)
+    #     except Exception as ex:
+    #         print("Something went wrong when trying to save the file: {}".format(ex))
+    #         return 1
+    #
+    # if show:
+    #     plt.show()
 
     return 0
 

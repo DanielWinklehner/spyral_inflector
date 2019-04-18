@@ -198,6 +198,58 @@ class SpiralInflector(object):
         else:
             return None
 
+    @property
+    def debug(self):
+        return self._debug
+
+    @property
+    def analytic_parameters(self):
+        return self._params_analytic
+
+    @property
+    def analytic_variables(self):
+        return self._variables_analytic
+
+    @property
+    def bempp_parameters(self):
+        return self._params_bempp
+
+    @property
+    def bempp_variables(self):
+        return self._variables_bempp
+
+    @property
+    def track_parameters(self):
+        return self._params_track
+
+    @property
+    def track_variables(self):
+        return self._variables_track
+
+    @analytic_parameters.setter
+    def analytic_parameters(self, analytic_parameters):
+        self._params_analytic = analytic_parameters
+
+    @analytic_variables.setter
+    def analytic_variables(self, analytic_variables):
+        self._variables_analytic = analytic_variables
+
+    @bempp_parameters.setter
+    def bempp_parameters(self, bempp_parameters):
+        self._params_bempp = bempp_parameters
+
+    @bempp_variables.setter
+    def bempp_variables(self, bempp_variables):
+        self._variables_bempp = bempp_variables
+
+    @track_parameters.setter
+    def track_parameters(self, track_parameters):
+        self._params_track = track_parameters
+
+    @track_variables.setter
+    def track_variables(self, track_variables):
+        self._variables_track = track_variables
+
     def initialize(self):
 
         abort_flag = False
@@ -238,6 +290,7 @@ class SpiralInflector(object):
         self._initialized = True
 
         print("Done!")
+
         if self._debug:
             print(self)
 
@@ -345,14 +398,14 @@ class SpiralInflector(object):
     def solve_bempp(self):
         return solve_bempp(self)
 
-    def generate_aperture_geometry(self, *args):
-        return generate_aperture_geometry(self, *args)
-
-    def generate_cylinder_geometry(self):
-        return generate_cylinder_geometry(self)
-
-    def generate_spiral_electrode_geometry(self, *args):
-        return generate_spiral_electrode_geometry(self, *args)
+    # def generate_aperture_geometry(self, *args):
+    #     return generate_aperture_geometry(self, *args)
+    #
+    # def generate_cylinder_geometry(self):
+    #     return generate_cylinder_geometry(self)
+    #
+    # def generate_spiral_electrode_geometry(self, *args):
+    #     return generate_spiral_electrode_geometry(self, *args)
 
     def generate_meshed_model(self, **kwargs):
         return generate_meshed_model(self, **kwargs)
@@ -398,6 +451,12 @@ class SpiralInflector(object):
 
     def track(self, **kwargs):
         return track(self, **kwargs)
+
+    def fast_track(self, **kwargs):
+        return fast_track(self, **kwargs)
+
+    def fast_track_with_termination(self, **kwargs):
+        return fast_track_with_termination(self, **kwargs)
 
 
 if __name__ == "__main__":
