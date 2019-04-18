@@ -1033,9 +1033,7 @@ def generate_numerical_geometry(si):
 #     return 0
 
 def get_norm_vec_and_angles_from_geo(geo):
-    # mid_vec_a = Vector(geo[4, -1, :] - geo[9, -1, :]).normalized()
     mid_vec_b = Vector(geo[8, -1, :] - geo[7, -1, :]).normalized()
-    # norm_vec = mid_vec_b.cross(mid_vec_a).normalized()
 
     # tilt_angle is the angle of mid_vec_b with x/y plane
     tilt_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
@@ -1115,28 +1113,28 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # --- Exit aperture (rotated and shifted) --- #
         exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
 
-        # Calculate correct translation
+        # DEBUG: Display points used for angles
+        # p1 = SIPointSphere(name="P1")
+        # p1.create_geo_str(geo[4, -1, :])
+        # p1.color = "GREEN"
+        # p2 = SIPointSphere(name="P2")
+        # p2.create_geo_str(geo[7, -1, :])
+        # p2.color = "BLUE"
+        # p3 = SIPointSphere(name="P3")
+        # p3.create_geo_str(geo[8, -1, :])
+        # p3.color = "RED"
+        # p4 = SIPointSphere(name="P4")
+        # p4.create_geo_str(geo[9, -1, :])
+        # p4.color = "BLACK"
+        #
+        # assy.add_electrode(p1)
+        # assy.add_electrode(p2)
+        # assy.add_electrode(p3)
+        # assy.add_electrode(p4)
+
+        # Calculate correct rotation and translation
         tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
         norm_vec = Vector(trj[-1] - trj[-2]).normalized()
-
-        # DEBUG: Display points used for angles
-        p1 = SIPointSphere(name="P1")
-        p1.create_geo_str(geo[4, -1, :])
-        p1.color = "GREEN"
-        p2 = SIPointSphere(name="P2")
-        p2.create_geo_str(geo[7, -1, :])
-        p2.color = "BLUE"
-        p3 = SIPointSphere(name="P3")
-        p3.create_geo_str(geo[8, -1, :])
-        p3.color = "RED"
-        p4 = SIPointSphere(name="P4")
-        p4.create_geo_str(geo[9, -1, :])
-        p4.color = "BLACK"
-
-        assy.add_electrode(p1)
-        assy.add_electrode(p2)
-        assy.add_electrode(p3)
-        assy.add_electrode(p4)
 
         translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
                               trj[-1][1] + norm_vec[1] * b_gap,
