@@ -1041,7 +1041,7 @@ def get_norm_vec_and_angles_from_geo(geo):
     tilt_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
 
     # face angle is the angle of norm_vec with x/z plane
-    mid_vec_b[2] = 0.0
+    mid_vec_b = Vector(np.array([mid_vec_b[0], mid_vec_b[1], 0.0]))
     face_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(Y_AXIS))
 
     return norm_vec, tilt_angle, face_angle
