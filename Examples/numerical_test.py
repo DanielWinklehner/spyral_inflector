@@ -55,19 +55,26 @@ print("Calculating field took {:.4f} s".format(time.time() - ts))
 with open('timing.txt', 'a') as outfile:
     outfile.write("Generating electric field took {:.4f} s\n".format(time.time() - ts))
 
+# Demonstrating saving/loading
+si.save('my_inflector.pickle')
+
+new_inflector = SpiralInflector()
+new_inflector.load('my_inflector.pickle')
+
+new_inflector.calculate_potential()
+new_inflector.calculate_efield()
+
 ts = time.time()
 
-si.track(r_start=np.array([0.0, 0.0, -0.15]),
-         v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-         nsteps=15000,
-         dt=1e-11)
+new_inflector.track(r_start=np.array([0.0, 0.0, -0.15]),
+                    v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+                    nsteps=15000,
+                    dt=1e-11)
 
 print("Tracking took {:.4f} s".format(time.time() - ts))
 
 with open('timing.txt', 'a') as outfile:
     outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
-
-si.save()
 
 # ts = time.time()
 #
