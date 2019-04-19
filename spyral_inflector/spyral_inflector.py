@@ -421,6 +421,8 @@ class SpiralInflector(object):
         with open(fname, 'rb') as infile:
             save_obj = pickle.load(infile)
 
+            self._method = save_obj["method"]
+
             for key, val in save_obj["params_analytic"]:
                 self._params_analytic[key] = val
 
@@ -443,7 +445,7 @@ class SpiralInflector(object):
                 self._variables_optimization[key] = val
 
         # TODO: What sort of initialization needs to happen?
-                
+
         return 0
 
     # Function wrappers below
