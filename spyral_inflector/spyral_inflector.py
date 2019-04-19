@@ -475,7 +475,7 @@ class SpiralInflector(object):
     def save_geo_files(self):
         return save_geo_files(self)
 
-    def export_aperature_geometry(self, **kwargs):
+    def export_aperture_geometry(self, **kwargs):
         return export_aperture_geometry(self, **kwargs)
 
     def export_electrode_geometry(self, **kwargs):
@@ -565,10 +565,10 @@ if __name__ == "__main__":
 
     ts = time.time()
     print("Calculating electric field...")
-    calculate_efield(si,
-                     res=0.002,
-                     limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                     domain_decomp=(7, 7, 7))
+    si.calculate_potential(res=0.002,
+                           limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
+                           domain_decomp=(7, 7, 7))
+    si.calculate_efield()
     print("Calculating field took {:.4f} s".format(time.time() - ts))
 
     with open('timing.txt', 'a') as outfile:
@@ -576,18 +576,17 @@ if __name__ == "__main__":
 
     ts = time.time()
 
-    track(si,
-          r_start=np.array([0.0, 0.0, -0.15]),
-          v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-          nsteps=15000,
-          dt=1e-11)
+    si.track(r_start=np.array([0.0, 0.0, -0.15]),
+             v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+             nsteps=15000,
+             dt=1e-11)
 
     print("Tracking took {:.4f} s".format(time.time() - ts))
 
     with open('timing.txt', 'a') as outfile:
         outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
 
-    draw_geometry(si, show=True, filename='auto')
-    export_electrode_geometry(si, fname='electrode_macro.ivb')
-    export_aperture_geometry(si, fname='aperture_macro.ivb')
-    save_geo_files(si)
+    si.draw_geometry(show=True, filename='auto')
+    si.export_electrode_geometry(fname='electrode_macro.ivb')
+    si.export_aperture_geometry(fname='aperture_macro.ivb')
+    si.save_geo_files()
