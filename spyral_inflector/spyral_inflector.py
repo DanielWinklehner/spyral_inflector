@@ -111,6 +111,7 @@ class SpiralInflector(object):
 
         # TODO: Add new variables from the calculate_potential function
         self._variables_bempp = {"objects": {},  # A dictionary of objects (apertures, electrodes)
+                                 "limits": None,
                                  "full mesh": None,  # Full mesh of the geometry
                                  "i": None,  # A running 3-index for mesh generation
                                  "f_space": None,  # BEM++ Function Space
@@ -444,7 +445,8 @@ class SpiralInflector(object):
             for key, val in save_obj["variables_optimization"].items():
                 self._variables_optimization[key] = val
 
-        # TODO: What sort of initialization needs to happen?
+        self.initialize()
+        # TODO: Calculate potential if it needs to?
 
         return 0
 
