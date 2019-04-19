@@ -109,15 +109,15 @@ class SpiralInflector(object):
             if key in kwargs.keys():
                 self._params_bempp[key] = kwargs[key]
 
-        # TODO: Add new variables from the calculate_potential function
         self._variables_bempp = {"objects": {},  # A dictionary of objects (apertures, electrodes)
-                                 "limits": None,
+                                 "limits": None,  # BEM++ Potential/E-Field Limits
                                  "full mesh": None,  # Full mesh of the geometry
                                  "i": None,  # A running 3-index for mesh generation
                                  "f_space": None,  # BEM++ Function Space
                                  "operator": None,  # BEM++ Operator
                                  "grid_fun": None,  # BEM++ Grid Function
                                  "solution": None,  # The BEM++ solution
+                                 "n_fun_coeff": None,  # BEM++ Neumann coefficients from the solution
                                  "ef_itp": None,  # Interpolator object for E-Field
                                  }
 
