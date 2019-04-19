@@ -46,8 +46,8 @@ class SpiralInflector(object):
         # --- Program Variables -------------------------------------------------------------------------------------- #
         self._method = method  # Either analytical or numerical
 
-        assert self._method in ["analytical", "numerical"], \
-            "Spiral inflector method must be 'analytical' or 'numerical'!"
+        # assert self._method in ["analytical", "numerical"], \
+        #     "Spiral inflector method must be 'analytical' or 'numerical'!"
 
         self._debug = debug
         self._outp_folder = outp_folder
@@ -109,7 +109,9 @@ class SpiralInflector(object):
             if key in kwargs.keys():
                 self._params_bempp[key] = kwargs[key]
 
+        # TODO: Add new variables from the calculate_potential function
         self._variables_bempp = {"objects": {},  # A dictionary of objects (apertures, electrodes)
+                                 "limits": None,
                                  "full mesh": None,  # Full mesh of the geometry
                                  "i": None,  # A running 3-index for mesh generation
                                  "f_space": None,  # BEM++ Function Space
@@ -390,6 +392,63 @@ class SpiralInflector(object):
         elif key in self._params_exp:
 
             self._params_exp[key] = value
+
+    def save(self, fname):
+        import pickle
+
+        saved_bempp_vars = {}
+        saved_bempp_vars["full mesh"] = self._variables_bempp["full mesh"]
+        saved_bempp_vars["n_fun_coeff"] = self._variables_bempp["n_fun_coeff"]
+        saved_bempp_vars["limits"] = self._variables_bempp["limits"]
+
+        save_obj = {"method": self._method,
+                    "params_analytic": self._params_analytic,
+                    "variables_analytic": self._variables_analytic,
+                    "params_bempp": self._params_bempp,
+                    "variables_bempp": saved_bempp_vars,
+                    "params_track": self._params_track,
+                    "variables_track": self._variables_track,
+                    "variables_optimization": self._variables_optimization}
+
+        # TODO: File dialog or something
+        with open(fname, 'wb') as outfile:
+            pickle.dump(save_obj, outfile)
+
+        return 0
+
+    def load(self, fname):
+        import pickle
+
+        with open(fname, 'rb') as infile:
+            save_obj = pickle.load(infile)
+
+            self._method = save_obj["method"]
+
+            for key, val in save_obj["params_analytic"].items():
+                self._params_analytic[key] = val
+
+            for key, val in save_obj["variables_analytic"].items():
+                self._variables_analytic[key] = val
+
+            for key, val in save_obj["params_bempp"].items():
+                self._params_bempp[key] = val
+
+            for key, val in save_obj["variables_bempp"].items():
+                self._variables_bempp[key] = val
+
+            for key, val in save_obj["params_track"].items():
+                self._params_track[key] = val
+
+            for key, val in save_obj["variables_track"].items():
+                self._variables_track[key] = val
+
+            for key, val in save_obj["variables_optimization"].items():
+                self._variables_optimization[key] = val
+
+        self.initialize()
+        # TODO: Calculate potential if it needs to?
+
+        return 0
 
     # Function wrappers below
     def calculate_efield(self):
