@@ -46,8 +46,8 @@ class SpiralInflector(object):
         # --- Program Variables -------------------------------------------------------------------------------------- #
         self._method = method  # Either analytical or numerical
 
-        assert self._method in ["analytical", "numerical"], \
-            "Spiral inflector method must be 'analytical' or 'numerical'!"
+        # assert self._method in ["analytical", "numerical"], \
+        #     "Spiral inflector method must be 'analytical' or 'numerical'!"
 
         self._debug = debug
         self._outp_folder = outp_folder
@@ -423,25 +423,25 @@ class SpiralInflector(object):
 
             self._method = save_obj["method"]
 
-            for key, val in save_obj["params_analytic"]:
+            for key, val in save_obj["params_analytic"].items():
                 self._params_analytic[key] = val
 
-            for key, val in save_obj["variables_analytic"]:
+            for key, val in save_obj["variables_analytic"].items():
                 self._variables_analytic[key] = val
 
-            for key, val in save_obj["params_bempp"]:
+            for key, val in save_obj["params_bempp"].items():
                 self._params_bempp[key] = val
 
-            for key, val in save_obj["variables_bempp"]:
+            for key, val in save_obj["variables_bempp"].items():
                 self._variables_bempp[key] = val
 
-            for key, val in save_obj["params_track"]:
+            for key, val in save_obj["params_track"].items():
                 self._params_track[key] = val
 
-            for key, val in save_obj["variables_track"]:
+            for key, val in save_obj["variables_track"].items():
                 self._variables_track[key] = val
 
-            for key, val in save_obj["variables_optimization"]:
+            for key, val in save_obj["variables_optimization"].items():
                 self._variables_optimization[key] = val
 
         # TODO: What sort of initialization needs to happen?
