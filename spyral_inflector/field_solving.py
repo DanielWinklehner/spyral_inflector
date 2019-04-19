@@ -164,11 +164,12 @@ def calculate_potential(si,
                         res=0.002,
                         domain_decomp=(4, 4, 4),
                         overlap=0):
-    # TODO: Save mesh data, so it doesn't need the full mesh (data should be savable)
-    # TODO: Things to think about: what data will be saved/imported?
     # TODO: Add some of the debug stuff back in
 
     limits = np.array(limits)
+
+    if None in limits and si._variables_bempp["limits"] is not None:
+        limits = si._variables_bempp["limits"]
 
     if limits.shape != (3, 2):
         print("Wrong shape of limits: {}. "
