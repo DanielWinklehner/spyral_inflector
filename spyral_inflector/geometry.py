@@ -80,7 +80,7 @@ class SIPointSphere(PyElectrode):
         """
 
         center = np.asarray(center)
-        assert center.shape == (3, ), "Got wrong dimension of {} for center, should be (3, )".format(center.shape)
+        assert center.shape == (3,), "Got wrong dimension of {} for center, should be (3, )".format(center.shape)
 
         geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
@@ -242,7 +242,7 @@ class SITrajectory(PyElectrode):
 
         points = np.asarray(points)
 
-        assert points.ndim == 2 and points[0, :].shape == (3, ), "points have wrong shape = {}".format(points.shape)
+        assert points.ndim == 2 and points[0, :].shape == (3,), "points have wrong shape = {}".format(points.shape)
 
         # Reduce number of points to use in spline to max_points
         points = points[::int(np.ceil(len(points)) / max_points), :]
@@ -270,6 +270,7 @@ Spline({}) = {{ {}:{} }};
             self.generate_from_geo_str(geo_str=geo_str)
 
         return geo_str
+
 
 # def generate_aperture_geometry(si, electrode_type):
 #
@@ -1191,12 +1192,15 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
     leaf_view = assy.get_bempp_mesh()
 
-    bempp_vars["full mesh"] = bempp.api.grid.grid_from_element_data(leaf_view["verts"],
-                                                                    leaf_view["elems"],
-                                                                    leaf_view["domns"])
+    bempp_vars["full mesh"] = {"verts": leaf_view["verts"],
+                               "elems": leaf_view["elems"],
+                               "domns": leaf_view["domns"]}
 
     if si.debug:
-        bempp_vars["full mesh"].plot()
+        _full_mesh = bempp.api.grid_from_element_data(leaf_view["verts"],
+                                                      leaf_view["elems"],
+                                                      leaf_view["domns"])
+        _full_mesh.plot()
 
     si.bempp_variables = bempp_vars
 

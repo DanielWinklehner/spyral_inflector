@@ -35,8 +35,8 @@ si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                "zmax": 80e-3,
                                                "voltage": 0.0})
 
-generate_meshed_model(si)
-solve_bempp(si)
+si.generate_meshed_model()
+si.solve_bempp()
 
 # ts = time.time()
 # optimize_fringe(si, maxiter=2, tol=0.02, res=0.005)
@@ -44,10 +44,12 @@ solve_bempp(si)
 
 ts = time.time()
 print("Calculating electric field...")
-calculate_efield(si,
-                 res=0.002,
-                 limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                 domain_decomp=(3, 3, 3))
+
+si.calculate_potential(res=0.002,
+                       limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
+                       domain_decomp=(3, 3, 3))
+
+si.calculate_efield()
 print("Calculating field took {:.4f} s".format(time.time() - ts))
 
 with open('timing.txt', 'a') as outfile:
@@ -55,11 +57,10 @@ with open('timing.txt', 'a') as outfile:
 
 ts = time.time()
 
-track(si,
-      r_start=np.array([0.0, 0.0, -0.15]),
-      v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-      nsteps=15000,
-      dt=1e-11)
+si.track(r_start=np.array([0.0, 0.0, -0.15]),
+         v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+         nsteps=15000,
+         dt=1e-11)
 
 print("Tracking took {:.4f} s".format(time.time() - ts))
 
@@ -92,7 +93,7 @@ with open('timing.txt', 'a') as outfile:
 # with open('timing.txt', 'a') as outfile:
 #     outfile.write("Fast tracking with termination took {:.4f} s\n".format(time.time() - ts))
 
-draw_geometry(si, freq=30, show=True, filename='auto', aux_trajectories=None)
+si.draw_geometry(freq=30, show=True, filename='auto', aux_trajectories=None)
 # export_electrode_geometry(si, fname='electrode_macro.ivb')
 # export_aperture_geometry(si, fname='aperture_macro.ivb')
 # save_geo_files(si)

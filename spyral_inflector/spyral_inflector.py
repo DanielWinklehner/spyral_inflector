@@ -392,8 +392,11 @@ class SpiralInflector(object):
             self._params_exp[key] = value
 
     # Function wrappers below
-    def calculate_efield(self, **kwargs):
-        return calculate_efield(self, **kwargs)
+    def calculate_efield(self):
+        return calculate_efield(self)
+
+    def calculate_potential(self, **kwargs):
+        return calculate_potential(self, **kwargs)
 
     def solve_bempp(self):
         return solve_bempp(self)

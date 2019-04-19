@@ -55,12 +55,14 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         # Calculate E-Field upwards of starting point
         xs, ys, zs = _trj[0]
 
-        si.calculate_efield(limits=((xs - 0.5 * _hcl, xs + 0.5 * _hcl),
-                                    (ys - 0.5 * _hcl, ys + 0.5 * _hcl),
-                                    (zs - 1.9 * _hcl, zs + 0.1 * _hcl)),
-                            res=res,
-                            domain_decomp=(4, 4, 4),
-                            overlap=0)
+        si.calculate_potential(limits=((xs - 0.5 * _hcl, xs + 0.5 * _hcl),
+                                       (ys - 0.5 * _hcl, ys + 0.5 * _hcl),
+                                       (zs - 1.9 * _hcl, zs + 0.1 * _hcl)),
+                               res=res,
+                               domain_decomp=(4, 4, 4),
+                               overlap=0)
+
+        si.calculate_efield()
 
         _r, _v = si.track(r_start=_trj[0],  # Use starting point of design particle
                           v_start=-_v_des[0],  # Reverse direction of design particle
@@ -135,12 +137,14 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
 
         # Calculate E-Field
         # TODO: Better way to determine the fringe field region
-        si.calculate_efield(limits=((xs - 2.0 * _hcl, xs + 2.0 * _hcl),
-                                    (ys - 2.0 * _hcl, ys + 2.0 * _hcl),
-                                    (zs - _hcl, zs + _hcl)),
-                            res=res,
-                            domain_decomp=(4, 4, 4),
-                            overlap=0)
+        si.calculate_potential(limits=((xs - 2.0 * _hcl, xs + 2.0 * _hcl),
+                                       (ys - 2.0 * _hcl, ys + 2.0 * _hcl),
+                                       (zs - _hcl, zs + _hcl)),
+                               res=res,
+                               domain_decomp=(4, 4, 4),
+                               overlap=0)
+
+        si.calculate_efield()
 
         _r, _v = si.track(r_start=rs,  # Use point close to exit along design particle
                           v_start=vs,  # Regular direction of design particle
