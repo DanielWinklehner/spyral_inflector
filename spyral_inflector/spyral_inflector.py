@@ -393,7 +393,7 @@ class SpiralInflector(object):
 
             self._params_exp[key] = value
 
-    def save(self):
+    def save(self, fname):
         import pickle
 
         saved_bempp_vars = {}
@@ -411,7 +411,7 @@ class SpiralInflector(object):
                     "variables_optimization": self._variables_optimization}
 
         # TODO: File dialog or something
-        with open('test_save_obj.pickle', 'wb') as outfile:
+        with open(fname, 'wb') as outfile:
             pickle.dump(save_obj, outfile)
 
         return 0
