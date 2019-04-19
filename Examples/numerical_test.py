@@ -67,6 +67,8 @@ print("Tracking took {:.4f} s".format(time.time() - ts))
 with open('timing.txt', 'a') as outfile:
     outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
 
+si.save()
+
 # ts = time.time()
 #
 # fast_track(si,

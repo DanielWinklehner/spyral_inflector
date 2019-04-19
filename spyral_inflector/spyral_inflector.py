@@ -109,6 +109,7 @@ class SpiralInflector(object):
             if key in kwargs.keys():
                 self._params_bempp[key] = kwargs[key]
 
+        # TODO: Add new variables from the calculate_potential function
         self._variables_bempp = {"objects": {},  # A dictionary of objects (apertures, electrodes)
                                  "full mesh": None,  # Full mesh of the geometry
                                  "i": None,  # A running 3-index for mesh generation
@@ -390,6 +391,60 @@ class SpiralInflector(object):
         elif key in self._params_exp:
 
             self._params_exp[key] = value
+
+    def save(self):
+        import pickle
+
+        saved_bempp_vars = {}
+        saved_bempp_vars["full mesh"] = self._variables_bempp["full mesh"]
+        saved_bempp_vars["n_fun_coeff"] = self._variables_bempp["n_fun_coeff"]
+        saved_bempp_vars["limits"] = self._variables_bempp["limits"]
+
+        save_obj = {"method": self._method,
+                    "params_analytic": self._params_analytic,
+                    "variables_analytic": self._variables_analytic,
+                    "params_bempp": self._params_bempp,
+                    "variables_bempp": saved_bempp_vars,
+                    "params_track": self._params_track,
+                    "variables_track": self._variables_track,
+                    "variables_optimization": self._variables_optimization}
+
+        # TODO: File dialog or something
+        with open('test_save_obj.pickle', 'wb') as outfile:
+            pickle.dump(save_obj, outfile)
+
+        return 0
+
+    def load(self, fname):
+        import pickle
+
+        with open(fname, 'rb') as infile:
+            save_obj = pickle.load(infile)
+
+            for key, val in save_obj["params_analytic"]:
+                self._params_analytic[key] = val
+
+            for key, val in save_obj["variables_analytic"]:
+                self._variables_analytic[key] = val
+
+            for key, val in save_obj["params_bempp"]:
+                self._params_bempp[key] = val
+
+            for key, val in save_obj["variables_bempp"]:
+                self._variables_bempp[key] = val
+
+            for key, val in save_obj["params_track"]:
+                self._params_track[key] = val
+
+            for key, val in save_obj["variables_track"]:
+                self._variables_track[key] = val
+
+            for key, val in save_obj["variables_optimization"]:
+                self._variables_optimization[key] = val
+
+        # TODO: What sort of initialization needs to happen?
+                
+        return 0
 
     # Function wrappers below
     def calculate_efield(self):
