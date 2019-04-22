@@ -14,6 +14,8 @@ XYZ = range(3)
 def calculate_efield(si):
     assert si._variables_bempp["ef_phi"] is not None, "Please calculate the potential first!"
 
+    print("Calculating the electric field... ", end="")
+
     _d = si._variables_bempp["d"]
     _n = si._variables_bempp["n"]
     phi = si._variables_bempp["ef_phi"]
@@ -35,6 +37,10 @@ def calculate_efield(si):
                           })
 
     si._variables_bempp["ef_itp"] = _field
+
+    print("Done!")
+
+    return 0
 
 
 # def calculate_efield(si,
@@ -176,6 +182,7 @@ def calculate_potential(si,
               "Must be ((xmin, xmax), (ymin, ymax), (zmin, zmax)) = (3, 2).".format(limits.shape))
         return 1
 
+    print("Now calculating the electrostatic potential... ", end="")
     _ts = time.time()
 
     _mesh_data = si._variables_bempp["full mesh"]
@@ -186,7 +193,11 @@ def calculate_potential(si,
                                                   _mesh_data["domns"])
 
     dp0_space = bempp.api.function_space(_mesh, "DP", 0)
-    n_fun = bempp.api.GridFunction(dp0_space, coefficients=_n_fun_coeff)
+
+    if si._variables_bempp["solution"] is None:
+        n_fun = bempp.api.GridFunction(dp0_space, coefficients=_n_fun_coeff)
+    else:
+        n_fun = si._variables_bempp["solution"]
 
     # noinspection PyUnresolvedReferences
     all_vert = _mesh_data["verts"]
@@ -260,6 +271,8 @@ def calculate_potential(si,
     si._variables_bempp["d"] = _d
     si._variables_bempp["n"] = _n
     si._variables_bempp["limits"] = limits
+
+    print("Done!")
 
     return 0
 

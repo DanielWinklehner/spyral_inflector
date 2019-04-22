@@ -104,9 +104,9 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     #     print("Using x rotation angle of {:.4f} deg.".format(np.rad2deg(si._variables_optimization["x_rot"])))
 
     # Construct the rotation matrix
-    rot = np.array([[1.0, 0.0, 0.0],
-                    [0.0, np.cos(si._variables_optimization["x_rot"]), -np.sin(si._variables_optimization["x_rot"])],
-                    [0.0, np.sin(si._variables_optimization["x_rot"]), np.cos(si._variables_optimization["x_rot"])]])
+    # rot = np.array([[1.0, 0.0, 0.0],
+    #                 [0.0, np.cos(si._variables_optimization["x_rot"]), -np.sin(si._variables_optimization["x_rot"])],
+    #                 [0.0, np.sin(si._variables_optimization["x_rot"]), np.cos(si._variables_optimization["x_rot"])]])
 
     # --- Optimize exit fringe --- #
     deviation = 1e20  # Some large number as initialization
@@ -127,8 +127,8 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         _v_des = si._variables_analytic["v_design"]  # type: np.ndarray
 
         # Rotate the initial trajectory point and velocity
-        _trj = np.matmul(rot, _trj.T).T
-        _v_des = np.matmul(rot, _v_des.T).T
+        # _trj = np.matmul(rot, _trj.T).T
+        # _v_des = np.matmul(rot, _v_des.T).T
 
         _ns = si._params_analytic["ns"]  # type: int
         start_idx = int(0.9 * _ns)  # start the tracking "10 percent" into the spiral inflector exit
