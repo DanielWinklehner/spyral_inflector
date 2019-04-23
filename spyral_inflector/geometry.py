@@ -626,7 +626,7 @@ def generate_analytical_geometry(si):
 
         # Rotation/flip
         if not ((si._variables_analytic["bf_design"] > 0.0) ^ (_ion.q() > 0.0)):
-            if si._debug:
+            if si.debug:
                 print("Flipping direction of cyclotron motion...", end="")
             vy = -vy
 
@@ -1039,9 +1039,9 @@ def get_norm_vec_and_angles_from_geo(geo):
     # tilt_angle is the angle of mid_vec_b with x/y plane
     tilt_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
 
-    # face angle is the angle of norm_vec with x/z plane
-    mid_vec_b = Vector([mid_vec_b[0], mid_vec_b[1], 0.0])
-    face_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(Y_AXIS))
+    # face angle is the angle of mid_vec_b projected into x/y plane with x/z plane
+    temp_vec = Vector([mid_vec_b[0], mid_vec_b[1], 0.0])
+    face_angle = 0.5 * np.pi - temp_vec.angle_with(Vector(Y_AXIS))
 
     return tilt_angle, face_angle
 
