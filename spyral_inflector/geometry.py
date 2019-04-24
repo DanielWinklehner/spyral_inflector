@@ -280,6 +280,13 @@ class SIHousing(PyElectrode):
         assert parent is not None, "This class requires a parent."
 
         self._parent = parent
+        self._aperture_params = None
+
+    def set_aperture_params(self, parameters):
+        self._aperture_params = parameters
+
+    def set_aperture_rot_angles(self, angles):
+        self._tilt_angle, self._face_angle = angles
 
     def gen_convex_hull(self, geo, gap, thickness):
         from scipy.spatial import ConvexHull
@@ -343,16 +350,31 @@ class SIHousing(PyElectrode):
         if self._debug:
             plt.show()
 
-        #
-        # s = self.create_geo_string(pts_in, pts_out)
-        # with open('housing.geo', 'w') as outfile:
-        #     outfile.write(s)
-
         return pts_in, pts_out
 
-    def create_geo_str(self, geo, zmin, zmax, gap, thickness, h=0.005, load=True):
+    # def make_aperture_volume(self, zmax):
+    #
+    #
+    #     return geo_str
+
+    def create_geo_str(self, geo, trj, zmin, zmax, gap, thickness, h=0.005, load=True):
 
         pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness)
+
+        dz = self._aperture_params["thickness"]
+        r = self._aperture_params["radius"]
+        a = self._aperture_params["length"]
+        b = self._aperture_params["width"]
+        t_gap = self._aperture_params["top_distance"]
+        b_gap = self._aperture_params["bottom_distance"]
+
+        norm_vec = Vector(trj[-1] - trj[-2]).normalized()
+
+        translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
+                              trj[-1][1] + norm_vec[1] * b_gap,
+                              0.0])
+
+        hole_type = self._aperture_params["hole_type"]
 
         geo_str = """SetFactory("OpenCASCADE");
                 // Geometry.NumSubEdges = 100; // nicer display of curve
@@ -392,10 +414,36 @@ class SIHousing(PyElectrode):
         geo_str += "Surface(1) = {1};\n"
         geo_str += "Surface(2) = {2};\n"
 
+        geo_str += "// Adding subtraction object for aperture hole\n"
+
         geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 1 }}; }}\n".format(zmax - zmin)
         geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 2 }}; }}\n".format(zmax - zmin)
 
-        geo_str += "BooleanDifference(3) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
+        # geo_str = 'SetFactory("OpenCASCADE");\n'
+
+        geo_str += "// Tool to subtract\n"
+        if hole_type == "rectangle":
+            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
+        elif hole_type == "ellipse":
+            geo_str += "Disk(10000) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * a, 0.5 * b)
+            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 10000 }}; }}\n".format(0.1)  # To be robust
+
+            geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 3 }}; }}\n".format(
+                np.pi / 2.0)
+            geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 3 }}; }}\n".format(
+                self._tilt_angle)
+            geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 3 }}; }}\n".format(
+                self._face_angle)
+
+            geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ 3 }}; }}\n".format(translate[0],
+                                                                                  translate[1],
+                                                                                  -zmin)
+
+        # ap_str = self.make_aperture_volume(zmax)
+        # geo_str += ap_str
+
+        geo_str += "BooleanDifference(50) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
+        geo_str += "BooleanDifference(75) = { Volume{50}; Delete; }{ Volume{3}; Delete; };\n"
 
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
@@ -1221,6 +1269,39 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     assy.add_electrode(anode)
     assy.add_electrode(cathode)
 
+    tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+
+    if bempp_pars["make_housing"]:
+        zmin = bempp_pars["housing_params"]["zmin"]
+        zmax = bempp_pars["housing_params"]["zmax"]
+        gap = bempp_pars["housing_params"]["gap"]
+        thickness = bempp_pars["housing_params"]["thickness"]
+        voltage = bempp_pars["housing_params"]["voltage"]
+
+        housing = SIHousing(parent=si, name="Housing", voltage=voltage)
+
+        angles = (tilt_angle, face_angle)
+        housing.set_aperture_params(bempp_pars["aperture_params"])
+        housing.set_aperture_rot_angles(angles)
+
+        translate = np.array([0.0, 0.0, zmin])
+        housing.set_translation(translate, absolute=True)
+        s = housing.create_geo_str(geo=geo,
+                                   trj=trj,
+                                   zmin=zmin,
+                                   zmax=zmax,
+                                   gap=gap,
+                                   thickness=thickness,
+                                   h=h,
+                                   load=True)
+
+        housing.color = "GREEN"
+
+        with open('testing.geo', 'w') as outfile:
+            outfile.write(s)
+
+        assy.add_electrode(housing)
+
     if si.bempp_parameters["make_aperture"]:
         # Base aperture parameters:
         voltage = bempp_pars["aperture_params"]["voltage"]
@@ -1230,6 +1311,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         b = bempp_pars["aperture_params"]["width"]
         t_gap = bempp_pars["aperture_params"]["top_distance"]
         b_gap = bempp_pars["aperture_params"]["bottom_distance"]
+        hole_type = bempp_pars["aperture_params"]["hole_type"]
 
         # --- Entrance aperture --- #
         # TODO: May have to be rotated more with entrance of SI
@@ -1240,53 +1322,55 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         entrance_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Z_AXIS, absolute=True)
 
         # Create geo string and load
-        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
+        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True)
         entrance_aperture.color = "GREEN"
 
-        # --- Exit aperture (rotated and shifted) --- #
-        exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
-
-        # DEBUG: Display points used for angles
-        # p1 = SIPointSphere(name="P1")
-        # p1.create_geo_str(geo[4, -1, :])
-        # p1.color = "GREEN"
-        # p2 = SIPointSphere(name="P2")
-        # p2.create_geo_str(geo[7, -1, :])
-        # p2.color = "BLUE"
-        # p3 = SIPointSphere(name="P3")
-        # p3.create_geo_str(geo[8, -1, :])
-        # p3.color = "RED"
-        # p4 = SIPointSphere(name="P4")
-        # p4.create_geo_str(geo[9, -1, :])
-        # p4.color = "BLACK"
-        #
-        # assy.add_electrode(p1)
-        # assy.add_electrode(p2)
-        # assy.add_electrode(p3)
-        # assy.add_electrode(p4)
-
-        # Calculate correct rotation and translation
-        tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
-        norm_vec = Vector(trj[-1] - trj[-2]).normalized()
-
-        translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
-                              trj[-1][1] + norm_vec[1] * b_gap,
-                              0.0])
-        exit_aperture.set_translation(translate, absolute=True)
-
-        # Calculate correct rotation
-        exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)  # upright
-        exit_aperture.set_rotation_angle_axis(angle=tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
-        exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
-
-        # Create geo string and load
-        exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type="ellipse", h=h, load=True)
-        exit_aperture.color = "GREEN"
-
         assy.add_electrode(entrance_aperture)
-        assy.add_electrode(exit_aperture)
 
-    if bempp_pars["make_cylinder"]:
+        # --- Exit aperture (rotated and shifted) --- #
+        if not bempp_pars["make_housing"]:
+            exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
+
+            # DEBUG: Display points used for angles
+            # p1 = SIPointSphere(name="P1")
+            # p1.create_geo_str(geo[4, -1, :])
+            # p1.color = "GREEN"
+            # p2 = SIPointSphere(name="P2")
+            # p2.create_geo_str(geo[7, -1, :])
+            # p2.color = "BLUE"
+            # p3 = SIPointSphere(name="P3")
+            # p3.create_geo_str(geo[8, -1, :])
+            # p3.color = "RED"
+            # p4 = SIPointSphere(name="P4")
+            # p4.create_geo_str(geo[9, -1, :])
+            # p4.color = "BLACK"
+            #
+            # assy.add_electrode(p1)
+            # assy.add_electrode(p2)
+            # assy.add_electrode(p3)
+            # assy.add_electrode(p4)
+
+            # Calculate correct rotation and translation
+            tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+            norm_vec = Vector(trj[-1] - trj[-2]).normalized()
+
+            translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
+                                  trj[-1][1] + norm_vec[1] * b_gap,
+                                  0.0])
+            exit_aperture.set_translation(translate, absolute=True)
+
+            # Calculate correct rotation
+            exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)  # upright
+            exit_aperture.set_rotation_angle_axis(angle=tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
+            exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
+
+            # Create geo string and load
+            exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True)
+            exit_aperture.color = "GREEN"
+
+            assy.add_electrode(exit_aperture)
+
+    if bempp_pars["make_cylinder"] and not bempp_pars["make_housing"]:
         # Base cylinder parameters:
         r = bempp_pars["cylinder_params"]["radius"]
         zmin = bempp_pars["cylinder_params"]["zmin"]
@@ -1299,28 +1383,6 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True)
 
         assy.add_electrode(outer_cylinder)
-
-    if bempp_pars["make_housing"]:
-        zmin = bempp_pars["housing_params"]["zmin"]
-        zmax = bempp_pars["housing_params"]["zmax"]
-        gap = bempp_pars["housing_params"]["gap"]
-        thickness = bempp_pars["housing_params"]["thickness"]
-        voltage = bempp_pars["housing_params"]["voltage"]
-
-        housing = SIHousing(parent=si, name="Housing", voltage=voltage)
-        translate = np.array([0.0, 0.0, zmin])
-        housing.set_translation(translate, absolute=True)
-        housing.create_geo_str(geo=geo,
-                               zmin=analytic_vars["height"],
-                               zmax=zmax,
-                               gap=gap,
-                               thickness=thickness,
-                               h=h,
-                               load=True)
-
-        housing.color = "GREEN"
-
-        assy.add_electrode(housing)
 
     if si.debug:
         assy.show(show_screen=True)

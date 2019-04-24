@@ -97,6 +97,7 @@ class SpiralInflector(object):
                                                   "width": None,
                                                   "top_distance": None,
                                                   "bottom_distance": None,
+                                                  "hole_type": "ellipse",  # TODO: Set this somewhere
                                                   "voltage": 0.0},
                               "make_cylinder": False,  # Cylindrical housing
                               "cylinder_params": {"radius": None,
