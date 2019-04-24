@@ -281,11 +281,8 @@ class SIHousing(PyElectrode):
 
         self._parent = parent
 
-    def gen_convex_hull(self, gap, thickness):
+    def gen_convex_hull(self, geo, gap, thickness):
         from scipy.spatial import ConvexHull
-
-        p = self._parent._variables_analytic
-        geo = p["geo"]
 
         geo_list = []
         for i in range(9):
@@ -296,10 +293,9 @@ class SIHousing(PyElectrode):
         hull_pts = points[hull.vertices, :]
 
         hull_pts = np.concatenate((hull_pts, hull_pts[0, :][np.newaxis, :]), axis=0)
+
         if self._debug:
             plt.plot(hull_pts[:, 0], hull_pts[:, 1][:, np.newaxis], 'r--')
-
-        # TODO: This should come from new SI parameters
 
         # Idea: use the convex hull, generate points in a circle around each point of the hull and perform
         # another convex hull on that new set of points.
@@ -354,11 +350,9 @@ class SIHousing(PyElectrode):
 
         return pts_in, pts_out
 
-    def create_geo_str(self, zmin, zmax, gap, thickness, load=True):
+    def create_geo_str(self, geo, zmin, zmax, gap, thickness, h=0.005, load=True):
 
-        pts_in, pts_out = self.gen_convex_hull(gap, thickness)
-
-        h = self._parent._params_bempp["h"]
+        pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness)
 
         geo_str = """SetFactory("OpenCASCADE");
                 // Geometry.NumSubEdges = 100; // nicer display of curve
@@ -1316,7 +1310,13 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         housing = SIHousing(parent=si, name="Housing", voltage=voltage)
         translate = np.array([0.0, 0.0, zmin])
         housing.set_translation(translate, absolute=True)
-        housing.create_geo_str(zmin=analytic_vars["height"], zmax=zmax, gap=gap, thickness=thickness)
+        housing.create_geo_str(geo=geo,
+                               zmin=analytic_vars["height"],
+                               zmax=zmax,
+                               gap=gap,
+                               thickness=thickness,
+                               h=h,
+                               load=True)
 
         housing.color = "GREEN"
 
