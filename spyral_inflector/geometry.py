@@ -272,6 +272,143 @@ Spline({}) = {{ {}:{} }};
         return geo_str
 
 
+class SIHousing(PyElectrode):
+
+    def __init__(self, parent=None, name="Spiral Inflector Housing", voltage=0):
+        super().__init__(name=name, voltage=voltage)
+
+        assert parent is not None, "This class requires a parent."
+
+        self._parent = parent
+
+    def gen_convex_hull(self, gap, thickness):
+        from scipy.spatial import ConvexHull
+
+        p = self._parent._variables_analytic
+        geo = p["geo"]
+
+        geo_list = []
+        for i in range(9):
+            geo_list.append(geo[i, :, :2])
+        points = np.concatenate(geo_list)
+
+        hull = ConvexHull(points)
+        hull_pts = points[hull.vertices, :]
+
+        hull_pts = np.concatenate((hull_pts, hull_pts[0, :][np.newaxis, :]), axis=0)
+        if self._debug:
+            plt.plot(hull_pts[:, 0], hull_pts[:, 1][:, np.newaxis], 'r--')
+
+        # TODO: This should come from new SI parameters
+
+        # Idea: use the convex hull, generate points in a circle around each point of the hull and perform
+        # another convex hull on that new set of points.
+        def method_two():
+            total_pts = []
+            circle_pts = []
+            circle_res = 48
+            for i in range(circle_res):
+                circle_pts.append(gap * np.array([np.cos(i * 2 * np.pi / circle_res),
+                                                  np.sin(i * 2 * np.pi / circle_res)]))
+
+            for pt in hull_pts:
+                for cpt in circle_pts:
+                    total_pts.append(pt + cpt)
+
+            total_pts = np.array(total_pts)
+
+            new_hull_inner = ConvexHull(total_pts)
+            new_hull_pts_inner = total_pts[new_hull_inner.vertices, :]
+            if self._debug:
+                plt.plot(new_hull_pts_inner[:, 0], new_hull_pts_inner[:, 1], 'g')
+
+            total_pts = []
+            circle_pts = []
+            circle_res = 48
+            for i in range(circle_res):
+                circle_pts.append((gap + thickness) * np.array([np.cos(i * 2 * np.pi / circle_res),
+                                                                np.sin(i * 2 * np.pi / circle_res)]))
+
+            for pt in hull_pts:
+                for cpt in circle_pts:
+                    total_pts.append(pt + cpt)
+
+            total_pts = np.array(total_pts)
+
+            new_hull_outer = ConvexHull(total_pts)
+            new_hull_pts_outer = total_pts[new_hull_outer.vertices, :]
+            if self._debug:
+                plt.plot(new_hull_pts_outer[:, 0], new_hull_pts_outer[:, 1], 'g')
+
+            return new_hull_pts_inner, new_hull_pts_outer
+
+        pts_in, pts_out = method_two()
+
+        if self._debug:
+            plt.show()
+
+        #
+        # s = self.create_geo_string(pts_in, pts_out)
+        # with open('housing.geo', 'w') as outfile:
+        #     outfile.write(s)
+
+        return pts_in, pts_out
+
+    def create_geo_str(self, zmin, zmax, gap, thickness, load=True):
+
+        pts_in, pts_out = self.gen_convex_hull(gap, thickness)
+
+        h = self._parent._params_bempp["h"]
+
+        geo_str = """SetFactory("OpenCASCADE");
+                // Geometry.NumSubEdges = 100; // nicer display of curve
+                Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+                """.format(h)
+
+        geo_str += "// Outside points\n"
+        n_pts_out = np.shape(pts_out)[0]
+
+        for i, pt in enumerate(pts_out):
+            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i, pt[0], pt[1])
+
+        geo_str += "// Outside lines\n"
+        n_lines_out = n_pts_out  # Should be the same number
+
+        for i in range(n_lines_out - 1):
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(i, i, i + 1)
+        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1, n_pts_out - 1, 0)  # Connect last point to first point
+
+        geo_str += "// Inside points\n"
+        n_pts_in = np.shape(pts_in)[0]
+
+        for i, pt in enumerate(pts_in):
+            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + n_pts_out, pt[0], pt[1])
+
+        geo_str += "// Inside lines\n"
+        n_lines_in = n_pts_in  # Should be the same number
+
+        for i in range(n_lines_in - 1):
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(i + n_lines_out, i + n_pts_out, i + 1 + n_pts_out)
+        # Connect last point to first point
+        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1 + n_lines_out, i + 1 + n_pts_out, n_pts_out)
+
+        geo_str += "Line Loop(1) = {{ {}:{} }};\n".format(0, n_lines_out - 1)
+        geo_str += "Line Loop(2) = {{ {}:{} }};\n".format(n_lines_out, n_lines_out + n_lines_in - 1)
+
+        geo_str += "Surface(1) = {1};\n"
+        geo_str += "Surface(2) = {2};\n"
+
+        geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 1 }}; }}\n".format(zmax - zmin)
+        geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 2 }}; }}\n".format(zmax - zmin)
+
+        geo_str += "BooleanDifference(3) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
+
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
+
+
 # def generate_aperture_geometry(si, electrode_type):
 #
 #     # Check if all parameters are set
@@ -609,6 +746,7 @@ def generate_analytical_geometry(si):
     for thickness in [0.0, si._params_analytic["dx"]]:
 
         end_distance = 2.0 * thickness + gap  # End to end distance of electrodes in (m)
+        # TODO: Aspect ratio should be a parameter that can be set -PWCalculation of Spiral loflector Orbits
         aspect_ratio = 2.5 * (gap / end_distance)
 
         # Distance between electrodes at inflection angle theta
@@ -1167,6 +1305,22 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True)
 
         assy.add_electrode(outer_cylinder)
+
+    if bempp_pars["make_housing"]:
+        zmin = bempp_pars["housing_params"]["zmin"]
+        zmax = bempp_pars["housing_params"]["zmax"]
+        gap = bempp_pars["housing_params"]["gap"]
+        thickness = bempp_pars["housing_params"]["thickness"]
+        voltage = bempp_pars["housing_params"]["voltage"]
+
+        housing = SIHousing(parent=si, name="Housing", voltage=voltage)
+        translate = np.array([0.0, 0.0, zmin])
+        housing.set_translation(translate, absolute=True)
+        housing.create_geo_str(zmin=analytic_vars["height"], zmax=zmax, gap=gap, thickness=thickness)
+
+        housing.color = "GREEN"
+
+        assy.add_electrode(housing)
 
     if si.debug:
         assy.show(show_screen=True)

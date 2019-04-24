@@ -58,18 +58,18 @@ with open('timing.txt', 'a') as outfile:
 # Demonstrating saving/loading
 si.save('my_inflector.pickle')
 
-new_inflector = SpiralInflector()
-new_inflector.load('my_inflector.pickle')
-
-new_inflector.calculate_potential()
-new_inflector.calculate_efield()
-
-ts = time.time()
-
-new_inflector.track(r_start=np.array([0.0, 0.0, -0.15]),
-                    v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-                    nsteps=15000,
-                    dt=1e-11)
+# new_inflector = SpiralInflector()
+# new_inflector.load('my_inflector.pickle')
+#
+# new_inflector.calculate_potential()
+# new_inflector.calculate_efield()
+#
+# ts = time.time()
+#
+# new_inflector.track(r_start=np.array([0.0, 0.0, -0.15]),
+#                     v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+#                     nsteps=15000,
+#                     dt=1e-11)
 
 print("Tracking took {:.4f} s".format(time.time() - ts))
 
@@ -102,7 +102,7 @@ with open('timing.txt', 'a') as outfile:
 # with open('timing.txt', 'a') as outfile:
 #     outfile.write("Fast tracking with termination took {:.4f} s\n".format(time.time() - ts))
 
-new_inflector.draw_geometry(show=True, filename='auto', aux_trajectories=None)
+si.draw_geometry(show=True, filename='auto', aux_trajectories=None)
 # export_electrode_geometry(si, fname='electrode_macro.ivb')
 # export_aperture_geometry(si, fname='aperture_macro.ivb')
 # save_geo_files(si)

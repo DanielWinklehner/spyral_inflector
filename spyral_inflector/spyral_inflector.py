@@ -102,7 +102,13 @@ class SpiralInflector(object):
                               "cylinder_params": {"radius": None,
                                                   "zmin": None,
                                                   "zmax": None,
-                                                  "voltage": 0.0}
+                                                  "voltage": 0.0},
+                              "make_housing": False,  # Convex hull housing
+                              "housing_params": {"zmin": None,
+                                                 "zmax": None,
+                                                 "gap": None,
+                                                 "thickness": None,
+                                                 "voltage": 0.0}
                               }
 
         for key in self._params_bempp.keys():
