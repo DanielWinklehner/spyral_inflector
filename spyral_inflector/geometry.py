@@ -352,11 +352,6 @@ class SIHousing(PyElectrode):
 
         return pts_in, pts_out
 
-    # def make_aperture_volume(self, zmax):
-    #
-    #
-    #     return geo_str
-
     def create_geo_str(self, geo, trj, zmin, zmax, gap, thickness, h=0.005, load=True):
 
         pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness)
@@ -376,9 +371,13 @@ class SIHousing(PyElectrode):
 
         hole_type = self._aperture_params["hole_type"]
 
+        # TODO: ToleranceBoolean is important for the aperture hole. This was tested from 1T to about 2.4T and
+        # TODO: seems to work... 3T did not. -PW
         geo_str = """SetFactory("OpenCASCADE");
-                // Geometry.NumSubEdges = 100; // nicer display of curve
-                Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+Geometry.NumSubEdges = 100; // nicer display of curve
+Geometry.ToleranceBoolean = 1E-5;
+Geometry.Tolerance = 1E-10;
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
                 """.format(h)
 
         geo_str += "// Outside points\n"
@@ -411,39 +410,36 @@ class SIHousing(PyElectrode):
         geo_str += "Line Loop(1) = {{ {}:{} }};\n".format(0, n_lines_out - 1)
         geo_str += "Line Loop(2) = {{ {}:{} }};\n".format(n_lines_out, n_lines_out + n_lines_in - 1)
 
-        geo_str += "Surface(1) = {1};\n"
-        geo_str += "Surface(2) = {2};\n"
-
-        geo_str += "// Adding subtraction object for aperture hole\n"
+        geo_str += "Plane Surface(1) = {1, 2};\n"
+        geo_str += "// Plane Surface(2) = {2};\n"
 
         geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 1 }}; }}\n".format(zmax - zmin)
-        geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 2 }}; }}\n".format(zmax - zmin)
+        geo_str += "// Extrude {{ 0, 0, {} }} {{ Surface{{ 2 }}; }}\n".format(zmax - zmin)
 
         # geo_str = 'SetFactory("OpenCASCADE");\n'
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
-            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
+            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b,
+                                                                           -dz, a,
+                                                                           b, 2 * dz)
         elif hole_type == "ellipse":
-            geo_str += "Disk(10000) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * a, 0.5 * b)
-            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 10000 }}; }}\n".format(0.1)  # To be robust
+            geo_str += "Disk(5000) = {{ 0, 0, 0, {}, {} }};\n".format(0.5 * a + 5E-9, 0.5 * b + 5E-9)
+            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 5000 }}; }}\n".format(0.1)  # To be robust
 
-            geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 3 }}; }}\n".format(
+            geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
                 np.pi / 2.0)
-            geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 3 }}; }}\n".format(
+            geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
                 self._tilt_angle)
-            geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 3 }}; }}\n".format(
+            geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
                 self._face_angle)
 
-            geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ 3 }}; }}\n".format(translate[0],
+            geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ 2 }}; }}\n".format(translate[0],
                                                                                   translate[1],
                                                                                   -zmin)
 
-        # ap_str = self.make_aperture_volume(zmax)
-        # geo_str += ap_str
-
         geo_str += "BooleanDifference(50) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
-        geo_str += "BooleanDifference(75) = { Volume{50}; Delete; }{ Volume{3}; Delete; };\n"
+        geo_str += "// BooleanDifference(75) = { Volume{50}; Delete; }{ Volume{3}; Delete; };\n"
 
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
