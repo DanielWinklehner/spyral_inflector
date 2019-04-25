@@ -421,22 +421,22 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
             geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b,
-                                                                           -dz, a,
-                                                                           b, 2 * dz)
+                                                                           0.0, a,
+                                                                           b, 0.1)
         elif hole_type == "ellipse":
             geo_str += "Disk(5000) = {{ 0, 0, 0, {}, {} }};\n".format(0.5 * a + 5E-9, 0.5 * b + 5E-9)
             geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 5000 }}; }}\n".format(0.1)  # To be robust
 
-            geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
-                np.pi / 2.0)
-            geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
-                self._tilt_angle)
-            geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
-                self._face_angle)
+        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
+            np.pi / 2.0)
+        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
+            self._tilt_angle)
+        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
+            self._face_angle)
 
-            geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ 2 }}; }}\n".format(translate[0],
-                                                                                  translate[1],
-                                                                                  -zmin)
+        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ 2 }}; }}\n".format(translate[0],
+                                                                              translate[1],
+                                                                              -zmin)
 
         geo_str += "BooleanDifference(50) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
         geo_str += "// BooleanDifference(75) = { Volume{50}; Delete; }{ Volume{3}; Delete; };\n"
@@ -1366,7 +1366,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
             assy.add_electrode(exit_aperture)
 
-    if bempp_pars["make_cylinder"] and not bempp_pars["make_housing"]:
+    if bempp_pars["make_cylinder"]:
         # Base cylinder parameters:
         r = bempp_pars["cylinder_params"]["radius"]
         zmin = bempp_pars["cylinder_params"]["zmin"]
