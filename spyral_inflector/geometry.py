@@ -274,13 +274,15 @@ Spline({}) = {{ {}:{} }};
 
 class SIHousing(PyElectrode):
 
-    def __init__(self, parent=None, name="Spiral Inflector Housing", voltage=0):
+    def __init__(self, parent=None, name="Spiral Inflector Housing", voltage=0, experimental=False):
         super().__init__(name=name, voltage=voltage)
 
         assert parent is not None, "This class requires a parent."
 
         self._parent = parent
         self._aperture_params = None
+
+        self._experimental = experimental
 
     def set_aperture_params(self, parameters):
         self._aperture_params = parameters
@@ -340,15 +342,42 @@ class SIHousing(PyElectrode):
 
             new_hull_outer = ConvexHull(total_pts)
             new_hull_pts_outer = total_pts[new_hull_outer.vertices, :]
-            if self._debug:
-                plt.plot(new_hull_pts_outer[:, 0], new_hull_pts_outer[:, 1], 'g')
+
+            if self._experimental:
+                tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+                face_vector = np.array([np.cos(face_angle), np.sin(face_angle), 0.0])
+                norm_vector = np.cross(face_vector, np.array([0.0, 0.0, 1.0]))
+
+                new_point_a_in = geo[2, -1, :2] + norm_vector[:2] * gap
+                new_point_b_in = geo[8, -1, :2] + norm_vector[:2] * gap
+
+                new_point_a_out = geo[2, -1, :2] + norm_vector[:2] * (gap + thickness)
+                new_point_b_out = geo[8, -1, :2] + norm_vector[:2] * (gap + thickness)
+
+                plt.scatter(new_point_a_in[0], new_point_a_in[1], color='r')
+                plt.scatter(new_point_b_in[0], new_point_b_in[1], color='r')
+
+                new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_a_in])
+                new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_b_in])
+
+                new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_a_out])
+                new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_b_out])
+
+
+            # if self._debug:
+            plt.plot(new_hull_pts_outer[:, 0], new_hull_pts_outer[:, 1], 'g')
+
+            plt.plot(geo[0, :, 0], geo[0, :, 1], color='r')
+            plt.plot(geo[1, :, 0], geo[1, :, 1], color='g')
+            plt.plot(geo[2, :, 0], geo[2, :, 1], color='b')
+            plt.plot(geo[3, :, 0], geo[3, :, 1], color='m')
 
             return new_hull_pts_inner, new_hull_pts_outer
 
         pts_in, pts_out = method_two()
 
-        if self._debug:
-            plt.show()
+        # if self._debug:
+        plt.show()
 
         return pts_in, pts_out
 
@@ -374,7 +403,7 @@ class SIHousing(PyElectrode):
         # TODO: ToleranceBoolean is important for the aperture hole. This was tested from 1T to about 2.4T and
         # TODO: seems to work... 3T did not. -PW
         geo_str = """SetFactory("OpenCASCADE");
-Geometry.NumSubEdges = 100; // nicer display of curve
+// Geometry.NumSubEdges = 100; // nicer display of curve
 Geometry.ToleranceBoolean = 1E-5;
 Geometry.Tolerance = 1E-10;
 Mesh.CharacteristicLengthMax = {};  // maximum mesh size
@@ -420,9 +449,14 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
-            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b,
-                                                                           0.0, a,
-                                                                           b, 0.1)
+            if self._experimental:
+                geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b,
+                                                                               -0.025, a,
+                                                                               b, 0.05)
+            else:
+                geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b,
+                                                                               0.0, a,
+                                                                               b, 0.1)
         elif hole_type == "ellipse":
             geo_str += "Disk(5000) = {{ 0, 0, 0, {}, {} }};\n".format(0.5 * a + 5E-9, 0.5 * b + 5E-9)
             geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 5000 }}; }}\n".format(0.1)  # To be robust
