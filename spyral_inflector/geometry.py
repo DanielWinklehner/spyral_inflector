@@ -363,21 +363,15 @@ class SIHousing(PyElectrode):
                 new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_a_out])
                 new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_b_out])
 
-
-            # if self._debug:
-            plt.plot(new_hull_pts_outer[:, 0], new_hull_pts_outer[:, 1], 'g')
-
-            plt.plot(geo[0, :, 0], geo[0, :, 1], color='r')
-            plt.plot(geo[1, :, 0], geo[1, :, 1], color='g')
-            plt.plot(geo[2, :, 0], geo[2, :, 1], color='b')
-            plt.plot(geo[3, :, 0], geo[3, :, 1], color='m')
+            if self._debug:
+                plt.plot(new_hull_pts_outer[:, 0], new_hull_pts_outer[:, 1], 'g')
 
             return new_hull_pts_inner, new_hull_pts_outer
 
         pts_in, pts_out = method_two()
 
-        # if self._debug:
-        plt.show()
+        if self._debug:
+            plt.show()
 
         return pts_in, pts_out
 
