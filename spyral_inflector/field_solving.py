@@ -279,7 +279,10 @@ def calculate_potential(si,
 
 def solve_bempp(si):
     bempp_vars = si.bempp_variables
+    bempp_params = si.bempp_parameters
+
     electrodes = bempp_vars["objects"].electrodes
+    gmres_tol = bempp_params["gmres_tol"]
 
     if bempp_vars["full mesh"] is None:
         print("Please generate a mesh before solving with BEM++!")
@@ -315,7 +318,7 @@ def solve_bempp(si):
         dirichlet_fun.plot()
 
     # Solve
-    sol, info = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=1e-5, use_strong_form=True)
+    sol, info = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, use_strong_form=True)
 
     print("Done!")
 

@@ -277,6 +277,9 @@ class SIHousing(PyElectrode):
     def __init__(self, parent=None, name="Spiral Inflector Housing", voltage=0, experimental=False):
         super().__init__(name=name, voltage=voltage)
 
+        # TODO: Intersections between housing and top aperture during optimization!
+        # TODO: Is this from shifts? -PW
+
         assert parent is not None, "This class requires a parent."
 
         self._parent = parent
@@ -344,6 +347,8 @@ class SIHousing(PyElectrode):
             new_hull_pts_outer = total_pts[new_hull_outer.vertices, :]
 
             if self._experimental:
+                # TODO: This may only work for a positive tilt angle, if it's negative then
+                # TODO: the 2, 8 indices for geo will be different (3 and 7?) -PW
                 tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
                 face_vector = np.array([np.cos(face_angle), np.sin(face_angle), 0.0])
                 norm_vector = np.cross(face_vector, np.array([0.0, 0.0, 1.0]))
@@ -375,7 +380,7 @@ class SIHousing(PyElectrode):
 
         return pts_in, pts_out
 
-    def create_geo_str(self, geo, trj, zmin, zmax, gap, thickness, h=0.005, load=True):
+    def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True):
 
         pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness)
 
@@ -385,6 +390,10 @@ class SIHousing(PyElectrode):
         b = self._aperture_params["width"]
         t_gap = self._aperture_params["top_distance"]
         b_gap = self._aperture_params["bottom_distance"]
+
+        if span:
+            zmin = np.min(geo[:, :, 2])
+            zmax = np.max(geo[:, :, 2])
 
         norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
@@ -1301,8 +1310,10 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         gap = bempp_pars["housing_params"]["gap"]
         thickness = bempp_pars["housing_params"]["thickness"]
         voltage = bempp_pars["housing_params"]["voltage"]
+        experimental = bempp_pars["housing_params"]["experimental"]
+        span = bempp_pars["housing_params"]["span"]
 
-        housing = SIHousing(parent=si, name="Housing", voltage=voltage)
+        housing = SIHousing(parent=si, name="Housing", voltage=voltage, experimental=experimental)
 
         angles = (tilt_angle, face_angle)
         housing.set_aperture_params(bempp_pars["aperture_params"])
@@ -1310,19 +1321,17 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         translate = np.array([0.0, 0.0, zmin])
         housing.set_translation(translate, absolute=True)
-        s = housing.create_geo_str(geo=geo,
-                                   trj=trj,
-                                   zmin=zmin,
-                                   zmax=zmax,
-                                   gap=gap,
-                                   thickness=thickness,
-                                   h=h,
-                                   load=True)
+        housing.create_geo_str(geo=geo,
+                               trj=trj,
+                               zmin=zmin,
+                               zmax=zmax,
+                               span=span,
+                               gap=gap,
+                               thickness=thickness,
+                               h=h,
+                               load=True)
 
         housing.color = "GREEN"
-
-        with open('testing.geo', 'w') as outfile:
-            outfile.write(s)
 
         assy.add_electrode(housing)
 

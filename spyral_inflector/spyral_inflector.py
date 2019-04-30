@@ -90,7 +90,8 @@ class SpiralInflector(object):
 
         # --- Parameters used by the BEM++ potential and field calculation ------------------------------------------- #
         self._params_bempp = {"h": None,  # the desired mesh spacing for BEM++ mesh generation
-                              "make_aperture": False,  # Make apertures at the exit and anetrnace
+                              "make_aperture": False,  # Make apertures at the exit and entrance
+                              "gmres_tol": 1E-4,  # Tolerance used to calculate the BEMPP solution
                               "aperture_params": {"thickness": None,
                                                   "radius": None,
                                                   "length": None,
@@ -99,7 +100,7 @@ class SpiralInflector(object):
                                                   "bottom_distance": None,
                                                   "hole_type": "ellipse",  # TODO: Set this somewhere
                                                   "voltage": 0.0},
-                              "make_cylinder": False,  # Cylindrical housing
+                              "make_cylinder": False,  # Cylindrical boundary
                               "cylinder_params": {"radius": None,
                                                   "zmin": None,
                                                   "zmax": None,
@@ -107,9 +108,11 @@ class SpiralInflector(object):
                               "make_housing": False,  # Convex hull housing
                               "housing_params": {"zmin": None,
                                                  "zmax": None,
+                                                 "span": False,  # TODO: Set this somewhere
                                                  "gap": None,
                                                  "thickness": None,
-                                                 "voltage": 0.0}
+                                                 "voltage": 0.0,
+                                                 "experimental": False}  # TODO: Set this somewhere
                               }
 
         for key in self._params_bempp.keys():
