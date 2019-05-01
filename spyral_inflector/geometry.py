@@ -311,10 +311,11 @@ class SIHousing(PyElectrode):
 
         # Idea: use the convex hull, generate points in a circle around each point of the hull and perform
         # another convex hull on that new set of points.
+
         def method_two():
             total_pts = []
             circle_pts = []
-            circle_res = 48
+            circle_res = 16
             for i in range(circle_res):
                 circle_pts.append(gap * np.array([np.cos(i * 2 * np.pi / circle_res),
                                                   np.sin(i * 2 * np.pi / circle_res)]))
@@ -327,12 +328,10 @@ class SIHousing(PyElectrode):
 
             new_hull_inner = ConvexHull(total_pts)
             new_hull_pts_inner = total_pts[new_hull_inner.vertices, :]
-            if self._debug:
-                plt.plot(new_hull_pts_inner[:, 0], new_hull_pts_inner[:, 1], 'g')
 
             total_pts = []
             circle_pts = []
-            circle_res = 48
+            circle_res = 16
             for i in range(circle_res):
                 circle_pts.append((gap + thickness) * np.array([np.cos(i * 2 * np.pi / circle_res),
                                                                 np.sin(i * 2 * np.pi / circle_res)]))
@@ -353,32 +352,41 @@ class SIHousing(PyElectrode):
                 face_vector = np.array([np.cos(face_angle), np.sin(face_angle), 0.0])
                 norm_vector = np.cross(face_vector, np.array([0.0, 0.0, 1.0]))
 
-                new_point_a_in = geo[2, -1, :2] + norm_vector[:2] * gap
+                # new_point_a_in = geo[2, -1, :2] + norm_vector[:2] * gap
                 new_point_b_in = geo[8, -1, :2] + norm_vector[:2] * gap
 
-                new_point_a_out = geo[2, -1, :2] + norm_vector[:2] * (gap + thickness)
+                # new_point_a_out = geo[2, -1, :2] + norm_vector[:2] * (gap + thickness)
                 new_point_b_out = geo[8, -1, :2] + norm_vector[:2] * (gap + thickness)
 
-                plt.scatter(new_point_a_in[0], new_point_a_in[1], color='r')
-                plt.scatter(new_point_b_in[0], new_point_b_in[1], color='r')
-
-                new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_a_in])
+                # new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_a_in])
                 new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_b_in])
 
-                new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_a_out])
+                # new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_a_out])
                 new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_b_out])
-
-            if self._debug:
-                plt.plot(new_hull_pts_outer[:, 0], new_hull_pts_outer[:, 1], 'g')
 
             return new_hull_pts_inner, new_hull_pts_outer
 
         pts_in, pts_out = method_two()
 
-        if self._debug:
-            plt.show()
+        pts_in = self.sort_points_by_angle(pts_in)
+        pts_out = self.sort_points_by_angle(pts_out)
 
         return pts_in, pts_out
+
+    def sort_points_by_angle(self, points):
+        angles = []
+        for i, point in enumerate(points):
+            theta = np.arctan2(point[1], point[0])
+            angles.append((i, theta))
+
+        angles.sort(key=lambda tup: tup[1])
+
+        new_points = []
+        for tup in angles:
+            pt = points[tup[0]]
+            new_points.append(pt)
+
+        return np.array(new_points)
 
     def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True):
 
@@ -446,6 +454,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         geo_str += "// Plane Surface(2) = {2};\n"
 
         geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 1 }}; }}\n".format(zmax - zmin)
+        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ 1 }}; }}\n".format(zmin)
         geo_str += "// Extrude {{ 0, 0, {} }} {{ Surface{{ 2 }}; }}\n".format(zmax - zmin)
 
         # geo_str = 'SetFactory("OpenCASCADE");\n'
@@ -473,7 +482,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ 2 }}; }}\n".format(translate[0],
                                                                               translate[1],
-                                                                              -zmin)
+                                                                              0.0)
 
         geo_str += "BooleanDifference(50) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
         geo_str += "// BooleanDifference(75) = { Volume{50}; Delete; }{ Volume{3}; Delete; };\n"
@@ -1319,8 +1328,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         housing.set_aperture_params(bempp_pars["aperture_params"])
         housing.set_aperture_rot_angles(angles)
 
-        translate = np.array([0.0, 0.0, zmin])
-        housing.set_translation(translate, absolute=True)
+        # translate = np.array([0.0, 0.0, zmin])
+        # housing.set_translation(translate, absolute=True)
         housing.create_geo_str(geo=geo,
                                trj=trj,
                                zmin=zmin,

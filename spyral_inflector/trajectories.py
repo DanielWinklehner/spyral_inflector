@@ -171,8 +171,9 @@ def generate_analytical_trajectory(si):
         si._variables_analytic["trj_design"][:, 1] = -si._variables_analytic["trj_design"][:, 1]
 
     # If there is a known shift, apply it now...
-    if si._variables_track["shift"] is not None:
-        si._variables_analytic["trj_design"] += si._variables_track["shift"]
+    # TODO: Commented this out due to possible shifting error -PW
+    # if si._variables_track["shift"] is not None:
+    #     si._variables_analytic["trj_design"] += si._variables_track["shift"]
 
     # TODO: This is a work in progress
     # if si._variables_optimization["x_rot"] is not None and si._params_exp["y_opt"]:
@@ -316,8 +317,9 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     si._variables_analytic["trj_design"] = r
 
     # If there is a known shift, apply it now...
-    if si._variables_track["shift"] is not None:
-        si._variables_analytic["trj_design"] += si._variables_track["shift"]
+    # TODO: Commented this out due to possible shifting error -PW
+    # if si._variables_track["shift"] is not None:
+    #     si._variables_analytic["trj_design"] += si._variables_track["shift"]
 
     si._params_analytic["ns"] = len(r[:, 0])
 
