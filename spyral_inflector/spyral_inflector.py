@@ -63,6 +63,7 @@ class SpiralInflector(object):
                                  "gap": None,  # The gap between the two electrodes (m)
                                  "tilt": None,  # The tilt angle of the exit of the spiral inflector (degrees)
                                  "dx": None,  # The thickness of the spiral inflector electrodes (m)
+                                 "aspect_ratio": None,  # Aspect ratio between electrode width and thickness
                                  "sigma": None,  # The "v-shape" of the electrodes (m)
                                  "ns": None,  # Resolution of the analytical solution (steps along beam trajectory s)
                                  "b_lim": np.deg2rad(np.array([0.0, 90.0])),  # Limits of the curvature
@@ -541,6 +542,7 @@ if __name__ == "__main__":
                          gap=18e-3,
                          tilt=27.0,
                          dx=10e-3,
+                         aspect_ratio=2.5,
                          sigma=1.5E-3,
                          ns=60,
                          debug=False)
