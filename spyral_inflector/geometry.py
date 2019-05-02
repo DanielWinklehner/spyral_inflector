@@ -610,6 +610,7 @@ def generate_analytical_geometry(si):
     ns = si._params_analytic["ns"]  # type: int
     gap = si._params_analytic["gap"]  # type: float
     sigma = si._params_analytic["sigma"]  # type: float
+    aspect_ratio = si._params_analytic["aspect_ratio"]  # type: float
     kp = si._variables_analytic["kp"]  # type: float
     b = si._variables_analytic["b"]  # type: np.ndarray
     cp = si._variables_analytic["c+"]  # type: float
@@ -619,8 +620,6 @@ def generate_analytical_geometry(si):
     for thickness in [0.0, si._params_analytic["dx"]]:
 
         end_distance = 2.0 * thickness + gap  # End to end distance of electrodes in (m)
-        # TODO: Aspect ratio should be a parameter that can be set -PWCalculation of Spiral loflector Orbits
-        aspect_ratio = 2.5 * (gap / end_distance)
 
         # Distance between electrodes at inflection angle theta
         d = end_distance * np.ones(ns) / (np.sqrt(1.0 + ((kp ** 2.0) * (np.sin(b)) ** 2.0)))
@@ -697,7 +696,7 @@ def generate_analytical_geometry(si):
         # Construction of the electrodes
         edge_lines = np.zeros((5, ns, 3))
 
-        xi = 0.5 * aspect_ratio * end_distance
+        xi = 0.5 * aspect_ratio * gap
 
         if si._params_analytic["rotation"] != 0.0:
             for i in range(si._params_analytic["ns"]):
@@ -757,6 +756,7 @@ def generate_numerical_geometry(si):
     ns = si._params_analytic["ns"]  # type: int
     gap = si._params_analytic["gap"]  # type: float
     sigma = si._params_analytic["sigma"]  # type: float
+    aspect_ratio = si._params_analytic["aspect_ratio"]  # type: float
     kp = si._variables_analytic["kp"]  # type: float
 
     b = si._variables_analytic["b"]  # type: np.ndarray
@@ -767,7 +767,6 @@ def generate_numerical_geometry(si):
     for thickness in [0.0, si._params_analytic["dx"]]:
 
         end_distance = 2.0 * thickness + gap  # End to end distance of electrodes in (m)
-        aspect_ratio = 2.5 * (gap / end_distance)
 
         # Distance between electrodes at inflection angle theta
         d = end_distance * np.ones(ns) / (np.sqrt(1.0 + ((kp ** 2.0) * (np.sin(b)) ** 2.0)))
@@ -830,7 +829,7 @@ def generate_numerical_geometry(si):
         # Construction of the electrodes
         edge_lines = np.zeros((5, ns, 3))
 
-        xi = 0.5 * aspect_ratio * end_distance
+        xi = 0.5 * aspect_ratio * gap
 
         # TODO: This is a work in progress
         # if si._variables_optimization["x_rot"] is not None and si._params_exp["y_opt"]:
