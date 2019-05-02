@@ -231,7 +231,7 @@ class SITrajectory(PyElectrode):
         print("Can't generate a mesh from a PyWire")
         return 1
 
-    def create_geo_str(self, points, max_points, load=True):
+    def create_geo_str(self, points, max_points=None, load=True):
         """
         Create a geo string for gmsh
         :param points: np array of points along the trajectory
@@ -245,7 +245,8 @@ class SITrajectory(PyElectrode):
         assert points.ndim == 2 and points[0, :].shape == (3,), "points have wrong shape = {}".format(points.shape)
 
         # Reduce number of points to use in spline to max_points
-        points = points[::int(np.ceil(len(points)) / max_points), :]
+        if max_points is not None:
+            points = points[::int(np.ceil(len(points)) / max_points), :]
 
         geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
