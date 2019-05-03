@@ -15,7 +15,7 @@ class SIAperture(PyElectrode):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
 
-    def create_geo_str(self, r, dz, a, b, hole_type="ellipse", h=0.005, load=True):
+    def create_geo_str(self, r, dz, a, b, hole_type="ellipse", h=0.005, load=True, header=True):
         """
 
         Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
@@ -31,13 +31,17 @@ class SIAperture(PyElectrode):
         :param h: desired mesh resolution
         :param load: Flag whether to also load from geo string directly.
                      Cave: If False, geo str will not be saved internally!
+        :param header: Flag whether to include the header for the geo string.
         :return gmsh_str: the string object for gmsh
         """
 
-        geo_str = """SetFactory("OpenCASCADE");
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
 Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
+        else:
+            geo_str = ""
 
         geo_str += "// Base plate\n"
         geo_str += "Cylinder(1) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(-0.5 * dz, dz, r)
@@ -66,7 +70,7 @@ class SIPointSphere(PyElectrode):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
 
-    def create_geo_str(self, center, r=0.001, h=0.005, load=True):
+    def create_geo_str(self, center, r=0.001, h=0.005, load=True, header=True):
         """
 
         Creates the geo string for a small sphere to show important vertices
@@ -76,16 +80,20 @@ class SIPointSphere(PyElectrode):
         :param h: desired mesh resolution
         :param load: Flag whether to also load from geo string directly.
                      Cave: If False, geo str will not be saved internally!
+        :param header: Flag whether to include the header for the geo string.
         :return gmsh_str: the string object for gmsh
         """
 
         center = np.asarray(center)
         assert center.shape == (3,), "Got wrong dimension of {} for center, should be (3, )".format(center.shape)
 
-        geo_str = """SetFactory("OpenCASCADE");
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
 Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
+        else:
+            geo_str = ""
 
         geo_str += "// Base plate\n"
         geo_str += "Sphere(1) = {{ {}, {}, {}, {} }};\n".format(center[0], center[1], center[2], r)
@@ -102,7 +110,7 @@ class SICylinder(PyElectrode):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
 
-    def create_geo_str(self, r, dz, h=0.005, load=True):
+    def create_geo_str(self, r, dz, h=0.005, load=True, header=True):
         """
 
         Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
@@ -115,13 +123,17 @@ class SICylinder(PyElectrode):
         :param h: desired mesh resolution
         :param load: Flag whether to also load from geo string directly.
                      Cave: If False, geo str will not be saved internally!
+        :param header: Flag whether to include the header for the geo string.
         :return gmsh_str: the string object for gmsh
         """
 
-        geo_str = """SetFactory("OpenCASCADE");
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
 Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
+        else:
+            geo_str = ""
 
         geo_str += "// Cylinder\n"
         geo_str += "Cylinder(1) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(-0.5 * dz, dz, r)
@@ -138,7 +150,7 @@ class SIElectrode(PyElectrode):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
 
-    def create_geo_str(self, raw_geo, elec_type, h=0.005, load=True):
+    def create_geo_str(self, raw_geo, elec_type, h=0.005, load=True, header=True):
         """
 
         Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
@@ -151,6 +163,7 @@ class SIElectrode(PyElectrode):
         :param h: desired mesh resolution
         :param load: Flag whether to also load from geo string directly.
                      Cave: If False, geo str will not be saved internally!
+        :param header: Flag whether to include the header for the geo string.
         :return gmsh_str: the string object for gmsh
         """
 
@@ -158,10 +171,13 @@ class SIElectrode(PyElectrode):
             print("SIElectrode could not understand electrode type {}. Must be 'Anode' or 'Cathode'".format(type))
             return 1
 
-        geo_str = """SetFactory("OpenCASCADE");
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
 Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
+        else:
+            geo_str = ""
 
         new_pt = 1
         new_ln = 1
@@ -245,12 +261,13 @@ class SITrajectory(PyElectrode):
         print("Can't generate a mesh from a PyWire")
         return 1
 
-    def create_geo_str(self, points, max_points, load=True):
+    def create_geo_str(self, points, max_points, load=True, header=True):
         """
         Create a geo string for gmsh
         :param points: np array of points along the trajectory
         :param max_points: maximum number of points to use if max is larger than num points all are used
         :param load: immediately load the geo str as an occ object
+        :param header: Flag whether to include the header for the geo string.
         :return:
         """
 
@@ -261,9 +278,13 @@ class SITrajectory(PyElectrode):
         # Reduce number of points to use in spline to max_points
         points = points[::int(np.ceil(len(points)) / max_points), :]
 
-        geo_str = """SetFactory("OpenCASCADE");
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
 """
+        else:
+            geo_str = ""
+
         new_pt = 1
         new_ln = 1
 
@@ -402,8 +423,8 @@ class SIHousing(PyElectrode):
 
         return np.array(new_points)
 
-    def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True):
-
+    def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True, header=True):
+        # TODO: Doc string -PW
         pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness)
 
         dz = self._aperture_params["thickness"]
@@ -427,12 +448,15 @@ class SIHousing(PyElectrode):
 
         # TODO: ToleranceBoolean is important for the aperture hole. This was tested from 1T to about 2.4T and
         # TODO: seems to work... 3T did not. -PW
-        geo_str = """SetFactory("OpenCASCADE");
+
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
 // Geometry.NumSubEdges = 100; // nicer display of curve
 Geometry.ToleranceBoolean = 1E-5;
 Geometry.Tolerance = 1E-10;
-Mesh.CharacteristicLengthMax = {};  // maximum mesh size
-                """.format(h)
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
+        else:
+            geo_str = ""
 
         geo_str += "// Outside points\n"
         n_pts_out = np.shape(pts_out)[0]
@@ -505,315 +529,6 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             self.generate_from_geo_str(geo_str=geo_str)
 
         return geo_str
-
-
-# def generate_aperture_geometry(si, electrode_type):
-#
-#     # Check if all parameters are set
-#     abort_flag = False
-#     for key, item in si._params_bempp["aperture_params"].items():
-#         if item is None:
-#             print("Item 'aperture_params/{}' is not set in BEM++ parameters!".format(key))
-#             abort_flag = True
-#     if abort_flag:
-#         return 1
-#
-#     h = si._params_bempp["h"]
-#     geo_str = """SetFactory("OpenCASCADE");
-#     Geometry.NumSubEdges = 100; // nicer display of curve
-#     Mesh.CharacteristicLengthMax = {};
-#             """.format(h * 1.5)
-#
-#     geo_str += "// Create Plate \n"
-#
-#     geo = si._variables_analytic["geo"]
-#     trj = si._variables_analytic["trj_design"]  # type: np.ndarray
-#     thickness = si._params_bempp["aperture_params"]["thickness"]
-#     radius = si._params_bempp["aperture_params"]["radius"]
-#     length = si._params_bempp["aperture_params"]["length"]
-#     width = si._params_bempp["aperture_params"]["width"]
-#     top_gap = si._params_bempp["aperture_params"]["top_distance"]
-#     bottom_gap = si._params_bempp["aperture_params"]["bottom_distance"]
-#     voltage = si._params_bempp["aperture_params"]["voltage"]
-#
-#     if electrode_type == "top_aperture":
-#         zmin = trj[0, 2] + top_gap
-#         geo_str += "Cylinder(1) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n".format(zmin,
-#                                                                                   thickness,
-#                                                                                   radius)
-#     elif electrode_type == "bottom_aperture":
-#         i = -1
-#     else:
-#         print("You must specify either 'top_aperture' or 'bottom_aperture'!")
-#         return 1
-#
-#     geo_str += "BooleanDifference{ Volume{1}; Delete; }{ Volume{2}; Delete; }\n"
-#
-#     geo_str += """
-# s() = Surface "*";
-# """.format(self._domain_idx)
-#
-#     if reverse_normals:
-#         geo_str += """
-# ReverseMesh Surface { s() };
-# """
-#
-#     gmsh_str = """SetFactory("OpenCASCADE");
-# Geometry.NumSubEdges = 100; // nicer display of curve
-# h = {};
-# """.format(h * 1.5)
-#
-#     # Note: These mid-vectors are swapped compared to the ones in the VB macro!
-#     mid_vec_a = (geo[4, i, :] - geo[9, i, :])
-#     mid_vec_b = (geo[8, i, :] - geo[7, i, :])
-#
-#     mid_vec_a /= np.linalg.norm(mid_vec_a)
-#     mid_vec_b /= np.linalg.norm(mid_vec_b)
-#
-#     norm_vec = np.cross(mid_vec_b, mid_vec_a)
-#     norm_vec /= np.linalg.norm(norm_vec)
-#
-#     if i == 0:
-#         offset_a = -norm_vec * aperture_distance_top
-#         offset_b = -norm_vec * (aperture_distance_top + thickness)
-#     else:
-#         offset_a = norm_vec * aperture_distance_bottom
-#         offset_b = norm_vec * (aperture_distance_bottom + thickness)
-#
-#     gmsh_str += """
-# Point(1) = {{ {}, {}, {}, h }};
-# Point(2) = {{ {}, {}, {}, h }};
-# Point(3) = {{ {}, {}, {}, h }};
-# Point(4) = {{ {}, {}, {}, h }};
-# Point(5) = {{ {}, {}, {}, h }};""".format(
-#         trj[i, 0] + offset_a[0],
-#         trj[i, 1] + offset_a[1],
-#         trj[i, 2] + offset_a[2],
-#         trj[i, 0] + offset_a[0] + mid_vec_a[0] * radius,
-#         trj[i, 1] + offset_a[1] + mid_vec_a[1] * radius,
-#         trj[i, 2] + offset_a[2] + mid_vec_a[2] * radius,
-#         trj[i, 0] + offset_a[0] + mid_vec_b[0] * radius,
-#         trj[i, 1] + offset_a[1] + mid_vec_b[1] * radius,
-#         trj[i, 2] + offset_a[2] + mid_vec_b[2] * radius,
-#         trj[i, 0] + offset_a[0] - mid_vec_a[0] * radius,
-#         trj[i, 1] + offset_a[1] - mid_vec_a[1] * radius,
-#         trj[i, 2] + offset_a[2] - mid_vec_a[2] * radius,
-#         trj[i, 0] + offset_a[0] - mid_vec_b[0] * radius,
-#         trj[i, 1] + offset_a[1] - mid_vec_b[1] * radius,
-#         trj[i, 2] + offset_a[2] - mid_vec_b[2] * radius)
-#
-#     gmsh_str += """
-# Point(6) = {{ {}, {}, {}, h }};
-# Point(7) = {{ {}, {}, {}, h }};
-# Point(8) = {{ {}, {}, {}, h }};
-# Point(9) = {{ {}, {}, {}, h }};
-# Point(10) = {{ {}, {}, {}, h }};""".format(
-#         trj[i, 0] + offset_b[0],
-#         trj[i, 1] + offset_b[1],
-#         trj[i, 2] + offset_b[2],
-#         trj[i, 0] + offset_b[0] + mid_vec_a[0] * radius,
-#         trj[i, 1] + offset_b[1] + mid_vec_a[1] * radius,
-#         trj[i, 2] + offset_b[2] + mid_vec_a[2] * radius,
-#         trj[i, 0] + offset_b[0] + mid_vec_b[0] * radius,
-#         trj[i, 1] + offset_b[1] + mid_vec_b[1] * radius,
-#         trj[i, 2] + offset_b[2] + mid_vec_b[2] * radius,
-#         trj[i, 0] + offset_b[0] - mid_vec_a[0] * radius,
-#         trj[i, 1] + offset_b[1] - mid_vec_a[1] * radius,
-#         trj[i, 2] + offset_b[2] - mid_vec_a[2] * radius,
-#         trj[i, 0] + offset_b[0] - mid_vec_b[0] * radius,
-#         trj[i, 1] + offset_b[1] - mid_vec_b[1] * radius,
-#         trj[i, 2] + offset_b[2] - mid_vec_b[2] * radius)
-#
-#     gmsh_str += """
-# Point(11) = {{ {}, {}, {}, h }};
-# Point(12) = {{ {}, {}, {}, h }};
-# Point(13) = {{ {}, {}, {}, h }};
-# Point(14) = {{ {}, {}, {}, h }};""".format(
-#         trj[i, 0] + offset_a[0] + mid_vec_a[0] * width / 2.0 + mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_a[1] + mid_vec_a[1] * width / 2.0 + mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_a[2] + mid_vec_a[2] * width / 2.0 + mid_vec_b[2] * length / 2.0,
-#         trj[i, 0] + offset_a[0] - mid_vec_a[0] * width / 2.0 + mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_a[1] - mid_vec_a[1] * width / 2.0 + mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_a[2] - mid_vec_a[2] * width / 2.0 + mid_vec_b[2] * length / 2.0,
-#         trj[i, 0] + offset_a[0] - mid_vec_a[0] * width / 2.0 - mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_a[1] - mid_vec_a[1] * width / 2.0 - mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_a[2] - mid_vec_a[2] * width / 2.0 - mid_vec_b[2] * length / 2.0,
-#         trj[i, 0] + offset_a[0] + mid_vec_a[0] * width / 2.0 - mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_a[1] + mid_vec_a[1] * width / 2.0 - mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_a[2] + mid_vec_a[2] * width / 2.0 - mid_vec_b[2] * length / 2.0)
-#
-#     gmsh_str += """
-# Point(15) = {{ {}, {}, {}, h }};
-# Point(16) = {{ {}, {}, {}, h }};
-# Point(17) = {{ {}, {}, {}, h }};
-# Point(18) = {{ {}, {}, {}, h }};""".format(
-#         trj[i, 0] + offset_b[0] + mid_vec_a[0] * width / 2.0 + mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_b[1] + mid_vec_a[1] * width / 2.0 + mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_b[2] + mid_vec_a[2] * width / 2.0 + mid_vec_b[2] * length / 2.0,
-#         trj[i, 0] + offset_b[0] - mid_vec_a[0] * width / 2.0 + mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_b[1] - mid_vec_a[1] * width / 2.0 + mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_b[2] - mid_vec_a[2] * width / 2.0 + mid_vec_b[2] * length / 2.0,
-#         trj[i, 0] + offset_b[0] - mid_vec_a[0] * width / 2.0 - mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_b[1] - mid_vec_a[1] * width / 2.0 - mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_b[2] - mid_vec_a[2] * width / 2.0 - mid_vec_b[2] * length / 2.0,
-#         trj[i, 0] + offset_b[0] + mid_vec_a[0] * width / 2.0 - mid_vec_b[0] * length / 2.0,
-#         trj[i, 1] + offset_b[1] + mid_vec_a[1] * width / 2.0 - mid_vec_b[1] * length / 2.0,
-#         trj[i, 2] + offset_b[2] + mid_vec_a[2] * width / 2.0 - mid_vec_b[2] * length / 2.0)
-#
-#     gmsh_str += """
-# Circle(1) = { 2, 1, 3 };
-# Circle(2) = { 3, 1, 4 };
-# Circle(3) = { 4, 1, 5 };
-# Circle(4) = { 5, 1, 2 };
-#
-# Circle(5) = { 7, 6, 8 };
-# Circle(6) = { 8, 6, 9 };
-# Circle(7) = { 9, 6, 10 };
-# Circle(8) = { 10, 6, 7 };
-#
-# // Skip Lines 9, 10, 11 because I messed up -PW
-#
-# Line(11) = { 11, 12 };
-# Line(12) = { 12, 13 };
-# Line(13) = { 13, 14 };
-# Line(14) = { 14, 11 };
-#
-# Line(15) = { 15, 16 };
-# Line(16) = { 16, 17 };
-# Line(17) = { 17, 18 };
-# Line(18) = { 18, 15 };
-#
-# Line(19) = { 11, 15 };
-# Line(20) = { 12, 16 };
-# Line(21) = { 13, 17 };
-# Line(22) = { 14, 18 };
-#
-# Line(23) = { 2, 7 };
-# Line(24) = { 3, 8 };
-# Line(25) = { 4, 9 };
-# Line(26) = { 5, 10 };
-#
-# Line Loop(1) = { 1, 2, 3, 4 };
-# Line Loop(2) = { 5, 6, 7, 8 };
-#
-# Line Loop(3) = { 11, 12, 13, 14 };
-# Line Loop(4) = { 15, 16, 17, 18 };
-#
-# Line Loop(5) = { 1, 24, -5, -23 };
-# Line Loop(6) = { 2, 25, -6, -24 };
-# Line Loop(7) = { 3, 26, -7, -25 };
-# Line Loop(8) = { 4, 23, -8, -26 };
-#
-# Line Loop(9) = { 11, 20, -15, -19 };
-# Line Loop(10) = { 12, 21, -16, -20 };
-# Line Loop(11) = { 13, 22, -17, -21 };
-# Line Loop(12) = { 14, 19, -18, -22 };
-#
-# Plane Surface(1) = { 1, 3 };
-# Plane Surface(2) = { 2, 4 };
-#
-# Ruled Surface(3) = { 5 };
-# Ruled Surface(4) = { 6 };
-# Ruled Surface(5) = { 7 };
-# Ruled Surface(6) = { 8 };
-#
-# Plane Surface(7) = { 9 };
-# Plane Surface(8) = { 10 };
-# Plane Surface(9) = { 11 };
-# Plane Surface(10) = { 12 };
-# """
-#
-#     si._variables_bempp["objects"][electrode_type] = {"gmsh_str": gmsh_str, "voltage": voltage}
-#
-#     if si._debug:
-#         print(gmsh_str)
-#
-#     return 0
-
-
-# def generate_cylinder_geometry(si):
-#     # Check if all parameters are set
-#     abort_flag = False
-#     for key, item in si._params_bempp["cylinder_params"].items():
-#         if item is None:
-#             print("Item 'aperture_params/{}' is not set in BEM++ parameters!".format(key))
-#             abort_flag = True
-#     if abort_flag:
-#         return 1
-#
-#     h = si._params_bempp["h"]
-#     radius = si._params_bempp["cylinder_params"]["radius"]
-#     zmin = si._params_bempp["cylinder_params"]["zmin"]
-#     zmax = si._params_bempp["cylinder_params"]["zmax"]
-#     voltage = si._params_bempp["cylinder_params"]["voltage"]
-#     electrode_type = "cylinder"
-#
-#     gmsh_str = """SetFactory("OpenCASCADE");
-# Geometry.NumSubEdges = 100; // nicer display of curve
-# h = {};
-# """.format(h * 5)
-#
-#     gmsh_str += """
-# Point(1) = {{ {}, {}, {}, h }};
-# Point(2) = {{ {}, {}, {}, h }};
-# Point(3) = {{ {}, {}, {}, h }};
-# Point(4) = {{ {}, {}, {}, h }};
-# Point(5) = {{ {}, {}, {}, h }};""".format(0.0, 0.0, zmin,
-#                                           radius, 0.0, zmin,
-#                                           0.0, radius, zmin,
-#                                           -radius, 0.0, zmin,
-#                                           0.0, -radius, zmin)
-#
-#     gmsh_str += """
-# Point(6) = {{ {}, {}, {}, h }};
-# Point(7) = {{ {}, {}, {}, h }};
-# Point(8) = {{ {}, {}, {}, h }};
-# Point(9) = {{ {}, {}, {}, h }};
-# Point(10) = {{ {}, {}, {}, h }};""".format(0.0, 0.0, zmax,
-#                                            radius, 0.0, zmax,
-#                                            0.0, radius, zmax,
-#                                            -radius, 0.0, zmax,
-#                                            0.0, -radius, zmax)
-#
-#     gmsh_str += """
-# Circle(1) = { 2, 1, 3 };
-# Circle(2) = { 3, 1, 4 };
-# Circle(3) = { 4, 1, 5 };
-# Circle(4) = { 5, 1, 2 };
-#
-# Circle(5) = { 7, 6, 8 };
-# Circle(6) = { 8, 6, 9 };
-# Circle(7) = { 9, 6, 10 };
-# Circle(8) = { 10, 6, 7 };
-#
-# Line(23) = { 2, 7 };
-# Line(24) = { 3, 8 };
-# Line(25) = { 4, 9 };
-# Line(26) = { 5, 10 };
-#
-# Line Loop(1) = { 1, 2, 3, 4 };
-# Line Loop(2) = { 5, 6, 7, 8 };
-#
-# Line Loop(5) = { 1, 24, -5, -23 };
-# Line Loop(6) = { 2, 25, -6, -24 };
-# Line Loop(7) = { 3, 26, -7, -25 };
-# Line Loop(8) = { 4, 23, -8, -26 };
-#
-# Plane Surface(1) = { 1 };
-# Plane Surface(2) = { 2 };
-#
-# Ruled Surface(3) = { 5 };
-# Ruled Surface(4) = { 6 };
-# Ruled Surface(5) = { 7 };
-# Ruled Surface(6) = { 8 };
-# """
-#
-#     si._variables_bempp["objects"][electrode_type] = {"gmsh_str": gmsh_str, "voltage": voltage}
-#
-#     if si._debug:
-#         print(gmsh_str)
-#
-#     return 0
 
 
 def generate_analytical_geometry(si):
@@ -1113,161 +828,6 @@ def generate_numerical_geometry(si):
 
     return si._variables_analytic["geo"]
 
-
-# def generate_spiral_electrode_geometry(si, electrode_type):
-#     abort_flag = False
-#     for key, item in si._params_bempp.items():
-#         if item is None:
-#             print("Item {} is not set in BEM++ parameters!".format(key))
-#             abort_flag = True
-#     if abort_flag:
-#         return 1
-#
-#     if si._variables_analytic["geo"] is None:
-#         print("No analytic geometry generated yet... starting now...")
-#         si.generate_geometry()
-#
-#     si._variables_bempp["i"] = [1, 1, 1]
-#
-#     voltage = 0.0
-#
-#     if electrode_type is "anode":
-#         k = 0
-#         invert = True
-#         voltage = si._params_analytic["volt"]
-#     elif electrode_type is "cathode":
-#         k = 5
-#         invert = False
-#         voltage = -si._params_analytic["volt"]
-#
-#     geo = si._variables_analytic["geo"]  # type: np.ndarray
-#
-#     h = si._params_bempp["h"]
-#     gmsh_str = """
-# Geometry.NumSubEdges = 100; // nicer display of curve
-# """
-#
-#     ly = geo.shape[1]
-#
-#     for i in range(ly):
-#
-#         for j in [0, 2, 3, 1, 4]:
-#
-#             if i < 3 or i > ly - 4:
-#
-#                 gmsh_str += _gmsh_point(si, geo[j + k, i, :], h=h)
-#
-#             else:
-#
-#                 gmsh_str += _gmsh_point(si, geo[j + k, i, :])
-#
-#             si._variables_bempp["i"][0] += 1
-#
-#             if j != 0:
-#                 gmsh_str += _gmsh_line(si, si._variables_bempp["i"][0] - 2,
-#                                        si._variables_bempp["i"][0] - 1)
-#                 si._variables_bempp["i"][1] += 1
-#
-#             if j == 4:
-#
-#                 gmsh_str += _gmsh_line(si, si._variables_bempp["i"][0] - 1,
-#                                        si._variables_bempp["i"][0] - 5)
-#                 si._variables_bempp["i"][1] += 1
-#
-#                 if i == 0:  # Electrode end #1
-#
-#                     gmsh_str += _gmsh_surface(si, [-(si._variables_bempp["i"][1] - 5),
-#                                                    -(si._variables_bempp["i"][1] - 4),
-#                                                    -(si._variables_bempp["i"][1] - 3),
-#                                                    -(si._variables_bempp["i"][1] - 2),
-#                                                    -(si._variables_bempp["i"][1] - 1)],
-#                                               'Plane', invert)
-#                 if i == ly - 1:  # Electrode end #2
-#
-#                     gmsh_str += _gmsh_surface(si, [(si._variables_bempp["i"][1] - 8),
-#                                                    (si._variables_bempp["i"][1] - 6),
-#                                                    (si._variables_bempp["i"][1] - 4),
-#                                                    (si._variables_bempp["i"][1] - 2),
-#                                                    (si._variables_bempp["i"][1] - 1)],
-#                                               'Plane', invert)
-#             if i > 0:
-#
-#                 gmsh_str += _gmsh_line(si, si._variables_bempp["i"][0] - 1,
-#                                        si._variables_bempp["i"][0] - 6)
-#                 si._variables_bempp["i"][1] += 1
-#
-#                 if i == 1:
-#
-#                     if j == 2:
-#
-#                         gmsh_str += _gmsh_surface(si, [si._variables_bempp["i"][1] - 8,
-#                                                        -(si._variables_bempp["i"][1] - 1),
-#                                                        -(si._variables_bempp["i"][1] - 2),
-#                                                        si._variables_bempp["i"][1] - 3],
-#                                                   'Ruled', invert)
-#                     elif j == 3:
-#
-#                         gmsh_str += _gmsh_surface(si, [si._variables_bempp["i"][1] - 9,
-#                                                        -(si._variables_bempp["i"][1] - 1),
-#                                                        -(si._variables_bempp["i"][1] - 2),
-#                                                        si._variables_bempp["i"][1] - 3],
-#                                                   'Ruled', invert)
-#                     elif j == 1:
-#
-#                         gmsh_str += _gmsh_surface(si, [si._variables_bempp["i"][1] - 10,
-#                                                        -(si._variables_bempp["i"][1] - 1),
-#                                                        -(si._variables_bempp["i"][1] - 2),
-#                                                        si._variables_bempp["i"][1] - 3],
-#                                                   'Ruled', invert)
-#                     elif j == 4:
-#
-#                         gmsh_str += _gmsh_surface(si, [si._variables_bempp["i"][1] - 12,
-#                                                        -(si._variables_bempp["i"][1] - 1),
-#                                                        -(si._variables_bempp["i"][1] - 3),
-#                                                        si._variables_bempp["i"][1] - 4],
-#                                                   'Ruled', invert)
-#                 elif i > 1:
-#
-#                     if j == 0:
-#
-#                         if i == 2:
-#                             c = 0
-#                         else:
-#                             c = 1
-#
-#                         gmsh_str += _gmsh_surface(si, [(si._variables_bempp["i"][1] - 12 - c),
-#                                                        (si._variables_bempp["i"][1] - 2),
-#                                                        -(si._variables_bempp["i"][1] - 3),
-#                                                        -(si._variables_bempp["i"][1] - 11)],
-#                                                   'Ruled', invert)
-#                     elif j != 0 and j != 4:
-#
-#                         gmsh_str += _gmsh_surface(si, [si._variables_bempp["i"][1] - 12,
-#                                                        -(si._variables_bempp["i"][1] - 1),
-#                                                        -(si._variables_bempp["i"][1] - 2),
-#                                                        si._variables_bempp["i"][1] - 3],
-#                                                   'Ruled', invert)
-#                     elif j == 4:
-#
-#                         gmsh_str += _gmsh_surface(si, [si._variables_bempp["i"][1] - 13,
-#                                                        -(si._variables_bempp["i"][1] - 1),
-#                                                        -(si._variables_bempp["i"][1] - 3),
-#                                                        si._variables_bempp["i"][1] - 4],
-#                                                   'Ruled', invert)
-#
-#                         if i == ly - 1:
-#                             gmsh_str += _gmsh_surface(si, [(si._variables_bempp["i"][1] - 12),
-#                                                            (si._variables_bempp["i"][1] - 1),
-#                                                            -(si._variables_bempp["i"][1] - 2),
-#                                                            -(si._variables_bempp["i"][1] - 10)],
-#                                                       'Ruled', invert)
-#
-#     si._variables_bempp["objects"][electrode_type] = {"gmsh_str": gmsh_str, "voltage": voltage}
-#
-#     if si._debug:
-#         print(gmsh_str)
-#
-#     return 0
 
 def get_norm_vec_and_angles_from_geo(geo):
     mid_vec_b = Vector(geo[8, -1, :] - geo[7, -1, :]).normalized()
