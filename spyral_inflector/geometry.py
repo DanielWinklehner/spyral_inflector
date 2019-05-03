@@ -284,7 +284,8 @@ class SITrajectory(PyElectrode):
         assert points.ndim == 2 and points[0, :].shape == (3,), "points have wrong shape = {}".format(points.shape)
 
         # Reduce number of points to use in spline to max_points
-        points = points[::int(np.ceil(len(points)) / max_points), :]
+        if max_points is not None:
+            points = points[::int(np.ceil(len(points)) / max_points), :]
 
         if header:
             geo_str = """SetFactory("OpenCASCADE");
@@ -522,7 +523,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
                                                                                 -0.5 * a, -0.5 * b,
                                                                                 0.0, a,
                                                                                 b, 0.1)
-        elif hole_type == "ellipse":  # TODO: Assign the extrude to a volume #, this won't work with an offset.
+        elif hole_type == "ellipse":  # TODO: The ellipse probably doesn't work -PW
             geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
             geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(2 + offset, 0.1, 500 + offset)  # To be robust
 
@@ -933,8 +934,9 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                                thickness=thickness,
                                h=h,
                                load=True)
-        with open('housing_geo_str.geo', 'w') as f:
-            f.write(s)
+
+        # with open('housing_geo_str.geo', 'w') as f:
+        #     f.write(s)
 
         housing.color = "GREEN"
 
