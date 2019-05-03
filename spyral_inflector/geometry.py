@@ -845,14 +845,14 @@ def get_norm_vec_and_angles_from_geo(geo):
 def generate_solid_assembly(si, apertures=None, cylinder=None):
     analytic_pars = si.analytic_parameters
     analytic_vars = si.analytic_variables
-    bempp_pars = si.bempp_parameters
-    bempp_vars = si.bempp_variables
+    numerical_pars = si.numerical_parameters
+    numerical_vars = si.numerical_variables
 
     if apertures is not None:
-        bempp_pars["make_aperture"] = apertures
+        numerical_pars["make_aperture"] = apertures
 
     if cylinder is not None:
-        bempp_pars["make_cylinder"] = cylinder
+        numerical_pars["make_cylinder"] = cylinder
 
     if analytic_vars["geo"] is None:
         print("No geometry generated yet... starting now...")
@@ -860,7 +860,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
     #  --- Create Electrode objects
     abort_flag = False
-    for key, item in bempp_pars.items():
+    for key, item in numerical_pars.items():
         if item is None:
             print("Item {} is not set in BEM++ parameters!".format(key))
             abort_flag = True
@@ -870,7 +870,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     geo = analytic_vars["geo"]
     trj = analytic_vars["trj_design"]
     voltage = analytic_pars["volt"]
-    h = bempp_pars["h"]
+    h = numerical_pars["h"]
 
     anode = SIElectrode(name="SI Anode", voltage=voltage)
     anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True)
@@ -887,19 +887,19 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
     tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
 
-    if bempp_pars["make_housing"]:
-        zmin = bempp_pars["housing_params"]["zmin"]
-        zmax = bempp_pars["housing_params"]["zmax"]
-        gap = bempp_pars["housing_params"]["gap"]
-        thickness = bempp_pars["housing_params"]["thickness"]
-        voltage = bempp_pars["housing_params"]["voltage"]
-        experimental = bempp_pars["housing_params"]["experimental"]
-        span = bempp_pars["housing_params"]["span"]
+    if numerical_pars["make_housing"]:
+        zmin = numerical_pars["housing_params"]["zmin"]
+        zmax = numerical_pars["housing_params"]["zmax"]
+        gap = numerical_pars["housing_params"]["gap"]
+        thickness = numerical_pars["housing_params"]["thickness"]
+        voltage = numerical_pars["housing_params"]["voltage"]
+        experimental = numerical_pars["housing_params"]["experimental"]
+        span = numerical_pars["housing_params"]["span"]
 
         housing = SIHousing(parent=si, name="Housing", voltage=voltage, experimental=experimental)
 
         angles = (tilt_angle, face_angle)
-        housing.set_aperture_params(bempp_pars["aperture_params"])
+        housing.set_aperture_params(numerical_pars["aperture_params"])
         housing.set_aperture_rot_angles(angles)
 
         # translate = np.array([0.0, 0.0, zmin])
@@ -918,16 +918,16 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         assy.add_electrode(housing)
 
-    if si.bempp_parameters["make_aperture"]:
+    if si.numerical_parameters["make_aperture"]:
         # Base aperture parameters:
-        voltage = bempp_pars["aperture_params"]["voltage"]
-        dz = bempp_pars["aperture_params"]["thickness"]
-        r = bempp_pars["aperture_params"]["radius"]
-        a = bempp_pars["aperture_params"]["length"]
-        b = bempp_pars["aperture_params"]["width"]
-        t_gap = bempp_pars["aperture_params"]["top_distance"]
-        b_gap = bempp_pars["aperture_params"]["bottom_distance"]
-        hole_type = bempp_pars["aperture_params"]["hole_type"]
+        voltage = numerical_pars["aperture_params"]["voltage"]
+        dz = numerical_pars["aperture_params"]["thickness"]
+        r = numerical_pars["aperture_params"]["radius"]
+        a = numerical_pars["aperture_params"]["length"]
+        b = numerical_pars["aperture_params"]["width"]
+        t_gap = numerical_pars["aperture_params"]["top_distance"]
+        b_gap = numerical_pars["aperture_params"]["bottom_distance"]
+        hole_type = numerical_pars["aperture_params"]["hole_type"]
 
         # --- Entrance aperture --- #
         # TODO: May have to be rotated more with entrance of SI
@@ -944,7 +944,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         assy.add_electrode(entrance_aperture)
 
         # --- Exit aperture (rotated and shifted) --- #
-        if not bempp_pars["make_housing"]:
+        if not numerical_pars["make_housing"]:
             exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
 
             # DEBUG: Display points used for angles
@@ -986,12 +986,12 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
             assy.add_electrode(exit_aperture)
 
-    if bempp_pars["make_cylinder"]:
+    if numerical_pars["make_cylinder"]:
         # Base cylinder parameters:
-        r = bempp_pars["cylinder_params"]["radius"]
-        zmin = bempp_pars["cylinder_params"]["zmin"]
-        zmax = bempp_pars["cylinder_params"]["zmax"]
-        voltage = bempp_pars["cylinder_params"]["voltage"]
+        r = numerical_pars["cylinder_params"]["radius"]
+        zmin = numerical_pars["cylinder_params"]["zmin"]
+        zmax = numerical_pars["cylinder_params"]["zmax"]
+        voltage = numerical_pars["cylinder_params"]["voltage"]
 
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage)
         translate = np.array([0.0, 0.0, zmin])
@@ -1003,12 +1003,12 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     if si.debug:
         assy.show(show_screen=True)
 
-    bempp_vars["objects"] = assy
+    numerical_vars["objects"] = assy
 
     si.analytic_parameters = analytic_pars
     si.analytic_variables = analytic_vars
-    si.bempp_parameters = bempp_pars
-    si.bempp_variables = bempp_vars
+    si.numerical_parameters = numerical_pars
+    si.numerical_variables = numerical_vars
 
     return assy
 
@@ -1018,13 +1018,13 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
     generate_solid_assembly(si, apertures, cylinder)
 
-    bempp_vars = si.bempp_variables
+    numerical_vars = si.numerical_variables
 
-    assy = bempp_vars["objects"]
+    assy = numerical_vars["objects"]
 
-    leaf_view = assy.get_bempp_mesh()
+    leaf_view = assy.get_numerical_mesh()
 
-    bempp_vars["full mesh"] = {"verts": leaf_view["verts"],
+    numerical_vars["full mesh"] = {"verts": leaf_view["verts"],
                                "elems": leaf_view["elems"],
                                "domns": leaf_view["domns"]}
 
@@ -1034,20 +1034,20 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
                                                       leaf_view["domns"])
         _full_mesh.plot()
 
-    si.bempp_variables = bempp_vars
+    si.numerical_variables = numerical_vars
 
-    return bempp_vars["full mesh"]
+    return numerical_vars["full mesh"]
 
 
 def export_aperture_geometry(si, fname="aperture_macro.ivb"):
     geo = si._variables_analytic["geo"] * 100.0  # Scaling for inventor
     trj = si._variables_analytic["trj_design"] * 100.0  # type: np.ndarray
-    thickness = si._params_bempp["aperture_params"]["thickness"] * 100.0
-    radius = si._params_bempp["aperture_params"]["radius"] * 100.0
-    length = si._params_bempp["aperture_params"]["length"] * 100.0
-    width = si._params_bempp["aperture_params"]["width"] * 100.0
-    aperture_distance_top = si._params_bempp["aperture_params"]["top_distance"] * 100.0
-    aperture_distance_bottom = si._params_bempp["aperture_params"]["bottom_distance"] * 100.0
+    thickness = si._params_numerical["aperture_params"]["thickness"] * 100.0
+    radius = si._params_numerical["aperture_params"]["radius"] * 100.0
+    length = si._params_numerical["aperture_params"]["length"] * 100.0
+    width = si._params_numerical["aperture_params"]["width"] * 100.0
+    aperture_distance_top = si._params_numerical["aperture_params"]["top_distance"] * 100.0
+    aperture_distance_bottom = si._params_numerical["aperture_params"]["bottom_distance"] * 100.0
     # voltage = si._params_numerical["aperture_params"]["voltage"]
 
     aperture_string = """Sub createApertures()
@@ -1291,7 +1291,7 @@ def save_geo_files(si, filename=None):
     else:
         folder = os.path.split(filename)[0]
 
-    for name, electrode in si._variables_bempp["objects"].items():
+    for name, electrode in si._variables_numerical["objects"].items():
         if si._debug:
             print("Working on {}".format(name))
 
