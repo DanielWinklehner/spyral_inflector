@@ -238,7 +238,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             self.generate_from_geo_str(geo_str=geo_str)
 
         print("Number of surfaces")
-        print(new_loop - f)
+        print(new_loop)
 
         return geo_str
 
@@ -1048,7 +1048,7 @@ def export_aperture_geometry(si, fname="aperture_macro.ivb"):
     width = si._params_bempp["aperture_params"]["width"] * 100.0
     aperture_distance_top = si._params_bempp["aperture_params"]["top_distance"] * 100.0
     aperture_distance_bottom = si._params_bempp["aperture_params"]["bottom_distance"] * 100.0
-    # voltage = si._params_bempp["aperture_params"]["voltage"]
+    # voltage = si._params_numerical["aperture_params"]["voltage"]
 
     aperture_string = """Sub createApertures()
 Dim oApp As Application

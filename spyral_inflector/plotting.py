@@ -25,14 +25,14 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
         si.generate_geometry()
 
     analytic_vars = si.analytic_variables
-    bempp_vars = si.bempp_variables
+    numerical_vars = si.numerical_variables
     track_vars = si.track_variables
     shift = track_vars["shift"]
 
     # --- Plot with pythonocc-core Qt5 Window --- #
     # Electrodes (PyElectrodeAssembly.show() returns an instance of the display)
-    bempp_vars["objects"].set_translation(shift, absolute=True)  # TODO: This should be applied as part of calculation
-    display, start_display = bempp_vars["objects"].show()
+    numerical_vars["objects"].set_translation(shift, absolute=True)  # TODO: This should be applied as part of calculation
+    display, start_display = numerical_vars["objects"].show()
 
     # Trajectories
     occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
@@ -76,7 +76,7 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
 
 
 def plot_potential(si, limits=(-0.1, 0.1, -0.1, 0.1), orientation="xy", **kwargs):
-    if si._variables_bempp["solution"] is None:
+    if si._variables_numerical["solution"] is None:
         print("No BEM++ solution in memory to plot from.")
         return 1
 
@@ -90,8 +90,8 @@ def plot_potential(si, limits=(-0.1, 0.1, -0.1, 0.1), orientation="xy", **kwargs
     else:
         offset = 0.0
 
-    sol = si._variables_bempp["solution"]
-    f_space = si._variables_bempp["f_space"]
+    sol = si._variables_numerical["solution"]
+    f_space = si._variables_numerical["f_space"]
 
     plot_grid = np.mgrid[limits[0]:limits[1]:n_grid_points * 1j,
                 limits[2]:limits[3]:n_grid_points * 1j]
@@ -169,5 +169,5 @@ def plot_trajectories(si, trajectories=None):
 
 
 def draw_mesh(si):
-    if si._variables_bempp["full mesh"] is not None:
-        si._variables_bempp["full mesh"].plot()
+    if si._variables_numerical["full mesh"] is not None:
+        si._variables_numerical["full mesh"].plot()

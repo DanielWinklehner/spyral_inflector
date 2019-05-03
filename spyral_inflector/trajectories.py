@@ -8,7 +8,7 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
     # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
-    if si._variables_bempp["ef_itp"] is None:
+    if si._variables_numerical["ef_itp"] is None:
         print("No E-Field has been generated. Cannot track!")
         return 1
 
@@ -17,7 +17,7 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     else:
-        efield1 = si._variables_bempp["ef_itp"]  # type: Field
+        efield1 = si._variables_numerical["ef_itp"]  # type: Field
 
     if omit_b:
         bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
@@ -50,7 +50,7 @@ def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=Fa
     # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
-    if si._variables_bempp["ef_itp"] is None:
+    if si._variables_numerical["ef_itp"] is None:
         print("No E-Field has been generated. Cannot track!")
         return 1
 
@@ -59,7 +59,7 @@ def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=Fa
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     else:
-        efield1 = si._variables_bempp["ef_itp"]  # type: Field
+        efield1 = si._variables_numerical["ef_itp"]  # type: Field
 
     if omit_b:
         bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
@@ -82,7 +82,7 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
     # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
-    if si._variables_bempp["ef_itp"] is None:
+    if si._variables_numerical["ef_itp"] is None:
         print("No E-Field has been generated. Cannot track!")
         return 1
 
@@ -91,7 +91,7 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     else:
-        efield1 = si._variables_bempp["ef_itp"]  # type: Field
+        efield1 = si._variables_numerical["ef_itp"]  # type: Field
 
     if omit_b:
         bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})

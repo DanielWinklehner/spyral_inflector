@@ -12,15 +12,15 @@ XYZ = range(3)
 
 
 def calculate_efield(si):
-    assert si._variables_bempp["ef_phi"] is not None, "Please calculate the potential first!"
+    assert si._variables_numerical["ef_phi"] is not None, "Please calculate the potential first!"
 
     print("Calculating the electric field... ", end="")
 
-    _d = si._variables_bempp["d"]
-    _n = si._variables_bempp["n"]
-    phi = si._variables_bempp["ef_phi"]
+    _d = si._variables_numerical["d"]
+    _n = si._variables_numerical["n"]
+    phi = si._variables_numerical["ef_phi"]
 
-    limits = si._variables_bempp["limits"]
+    limits = si._variables_numerical["limits"]
 
     _r = np.array([np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ])
 
@@ -36,7 +36,7 @@ def calculate_efield(si):
                                                        bounds_error=False, fill_value=0.0)
                           })
 
-    si._variables_bempp["ef_itp"] = _field
+    si._variables_numerical["ef_itp"] = _field
 
     print("Done!")
 
@@ -70,17 +70,17 @@ def calculate_efield(si):
 #               "Must be ((xmin, xmax), (ymin, ymax), (zmin, zmax)) = (3, 2).".format(limits.shape))
 #         return 1
 #
-#     if si._variables_bempp["solution"] is None:
+#     if si._variables_numerical["solution"] is None:
 #         print("Please solve with BEM++ before calculating the E-Field")
 #         return 1
 #
 #     _ts = time.time()
 #
-#     sol = si._variables_bempp["solution"]
-#     fsp = si._variables_bempp["f_space"]
+#     sol = si._variables_numerical["solution"]
+#     fsp = si._variables_numerical["f_space"]
 #
 #     # noinspection PyUnresolvedReferences
-#     all_vert = si._variables_bempp["full mesh"].leaf_view.vertices
+#     all_vert = si._variables_numerical["full mesh"].leaf_view.vertices
 #
 #     # get limits from electrodes
 #     limits_elec = np.array([[np.min(all_vert[i, :]), np.max(all_vert[i, :])] for i in range(3)])
@@ -174,8 +174,8 @@ def calculate_potential(si,
 
     limits = np.array(limits)
 
-    if None in limits and si._variables_bempp["limits"] is not None:
-        limits = si._variables_bempp["limits"]
+    if None in limits and si._variables_numerical["limits"] is not None:
+        limits = si._variables_numerical["limits"]
 
     if limits.shape != (3, 2):
         print("Wrong shape of limits: {}. "
@@ -185,8 +185,8 @@ def calculate_potential(si,
     print("Now calculating the electrostatic potential... ", end="")
     _ts = time.time()
 
-    _mesh_data = si._variables_bempp["full mesh"]
-    _n_fun_coeff = si._variables_bempp["n_fun_coeff"]
+    _mesh_data = si._variables_numerical["full mesh"]
+    _n_fun_coeff = si._variables_numerical["n_fun_coeff"]
 
     _mesh = bempp.api.grid.grid_from_element_data(_mesh_data["verts"],
                                                   _mesh_data["elems"],
@@ -194,10 +194,10 @@ def calculate_potential(si,
 
     dp0_space = bempp.api.function_space(_mesh, "DP", 0)
 
-    if si._variables_bempp["solution"] is None:
+    if si._variables_numerical["solution"] is None:
         n_fun = bempp.api.GridFunction(dp0_space, coefficients=_n_fun_coeff)
     else:
-        n_fun = si._variables_bempp["solution"]
+        n_fun = si._variables_numerical["solution"]
 
     # noinspection PyUnresolvedReferences
     all_vert = _mesh_data["verts"]
@@ -267,10 +267,10 @@ def calculate_potential(si,
 
     # TODO: Distribute results to other nodes -DW
 
-    si._variables_bempp["ef_phi"] = pot
-    si._variables_bempp["d"] = _d
-    si._variables_bempp["n"] = _n
-    si._variables_bempp["limits"] = limits
+    si._variables_numerical["ef_phi"] = pot
+    si._variables_numerical["d"] = _d
+    si._variables_numerical["n"] = _n
+    si._variables_numerical["limits"] = limits
 
     print("Done!")
 
@@ -278,19 +278,19 @@ def calculate_potential(si,
 
 
 def solve_bempp(si):
-    bempp_vars = si.bempp_variables
-    bempp_params = si.bempp_parameters
+    numerical_vars = si.numerical_variables
+    bempp_params = si.numerical_parameters
 
-    electrodes = bempp_vars["objects"].electrodes
+    electrodes = numerical_vars["objects"].electrodes
     gmres_tol = bempp_params["gmres_tol"]
 
-    if bempp_vars["full mesh"] is None:
+    if numerical_vars["full mesh"] is None:
         print("Please generate a mesh before solving with BEM++!")
         return 1
 
     print("Generating necessary BEM++ operators, function spaces. Solving... ", end="")
 
-    _mesh_data = si._variables_bempp["full mesh"]
+    _mesh_data = si._variables_numerical["full mesh"]
 
     _mesh = bempp.api.grid.grid_from_element_data(_mesh_data["verts"],
                                                   _mesh_data["elems"],
@@ -311,8 +311,8 @@ def solve_bempp(si):
         result[0] = domain_mapping[domain_index]
 
     dirichlet_fun = bempp.api.GridFunction(dp0_space, fun=f)
-    bempp_vars["grid_fun"] = dirichlet_fun
-    bempp_vars["d_fun_coeff"] = dirichlet_fun.coefficients
+    numerical_vars["grid_fun"] = dirichlet_fun
+    numerical_vars["d_fun_coeff"] = dirichlet_fun.coefficients
 
     if si.debug:
         dirichlet_fun.plot()
@@ -323,11 +323,11 @@ def solve_bempp(si):
     print("Done!")
 
     # Save results
-    bempp_vars["solution"] = sol
-    bempp_vars["n_fun_coeff"] = sol.coefficients
-    bempp_vars["f_space"] = dp0_space
-    bempp_vars["operator"] = slp
+    numerical_vars["solution"] = sol
+    numerical_vars["n_fun_coeff"] = sol.coefficients
+    numerical_vars["f_space"] = dp0_space
+    numerical_vars["operator"] = slp
 
-    si.bempp_variables = bempp_vars
+    si.numerical_variables = numerical_vars
 
     return 0
