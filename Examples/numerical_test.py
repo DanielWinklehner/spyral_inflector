@@ -21,19 +21,31 @@ si.initialize()
 # draw_geometry(si, freq=10, show=True)
 
 si.set_parameter(key="h", value=0.005)  # Mesh characteristic length
-si.set_parameter(key="make_aperture", value=False)
+si.set_parameter(key="make_aperture", value=True)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
                                                "length": 45e-3,
                                                "width": 18e-3,
                                                "top_distance": 5e-3,
                                                "bottom_distance": 10e-3,
+                                               "hole_type": "rectangle",
                                                "voltage": 0.0})
 si.set_parameter(key="make_cylinder", value=False)
 si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                "zmin": -150e-3,
                                                "zmax": 80e-3,
                                                "voltage": 0.0})
+
+si.set_parameter(key="make_housing",
+                 value=True)
+si.set_parameter(key="housing_params",
+                 value={"zmin": -0.12,
+                        "zmax": 0.03,
+                        "span": True,
+                        "gap": 10E-3,
+                        "thickness": 5E-3,
+                        "voltage": 0.0,
+                        "experimental": True})
 
 si.generate_meshed_model()
 si.solve_bempp()

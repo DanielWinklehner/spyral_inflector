@@ -39,12 +39,14 @@ def orthogonal_proj(zfront, zback):
 class SpiralInflector(object):
     def __init__(self,
                  method="analytical",
+                 solver="bempp",
                  debug=False,
                  outp_folder="",
                  **kwargs):
 
         # --- Program Variables -------------------------------------------------------------------------------------- #
         self._method = method  # Either analytical or numerical
+        self._solver = solver  # Either bempp or fenics
 
         # assert self._method in ["analytical", "numerical"], \
         #     "Spiral inflector method must be 'analytical' or 'numerical'!"

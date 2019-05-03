@@ -11,9 +11,10 @@ Z_AXIS = np.array([0, 0, 1], float)
 
 
 class SIAperture(PyElectrode):
-    def __init__(self, parent=None, name="New Aperture", voltage=0):
+    def __init__(self, parent=None, name="New Aperture", voltage=0, offset=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
+        self._offset = offset
 
     def create_geo_str(self, r, dz, a, b, hole_type="ellipse", h=0.005, load=True, header=True):
         """
@@ -35,6 +36,8 @@ class SIAperture(PyElectrode):
         :return gmsh_str: the string object for gmsh
         """
 
+        offset = self._offset
+
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
@@ -44,19 +47,21 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             geo_str = ""
 
         geo_str += "// Base plate\n"
-        geo_str += "Cylinder(1) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(-0.5 * dz, dz, r)
+        geo_str += "Cylinder({}) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(1 + offset, -0.5 * dz, dz, r)
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
-            geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b, -dz, a, b, 2 * dz)
+            geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(2 + offset, -0.5 * a, -0.5 * b, -dz, a, b,
+                                                                            2 * dz)
         elif hole_type == "ellipse":
-            geo_str += "Disk(100) = {{ 0, 0, {}, {}, {} }};\n".format(-dz, 0.5 * a, 0.5 * b)
-            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 100 }}; }}\n".format(2 * dz)
+            geo_str += "Disk({}) = {{ 0, 0, {}, {}, {} }};\n".format(100 + offset, -dz, 0.5 * a, 0.5 * b)
+            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(100 + offset, 2 * dz)
         else:
             print("Don't understand hole type {}!".format(hole_type))
             return 1
 
-        geo_str += "\nBooleanDifference(3) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
+        geo_str += "\nBooleanDifference({}) = {{ Volume{{ {} }}; Delete; }}{{ Volume{{ {} }}; Delete; }};\n".format(
+            3 + offset, 1 + offset, 2 + offset)
 
         # Call function in PyElectrode module we inherit from if 'load' is not False
         if load:
@@ -66,9 +71,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
 
 class SIPointSphere(PyElectrode):
-    def __init__(self, parent=None, name="New Aperture", voltage=0):
+    def __init__(self, parent=None, name="New Aperture", voltage=0, offset=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
+        self._offset = offset
 
     def create_geo_str(self, center, r=0.001, h=0.005, load=True, header=True):
         """
@@ -84,6 +90,8 @@ class SIPointSphere(PyElectrode):
         :return gmsh_str: the string object for gmsh
         """
 
+        offset = self._offset
+
         center = np.asarray(center)
         assert center.shape == (3,), "Got wrong dimension of {} for center, should be (3, )".format(center.shape)
 
@@ -96,7 +104,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             geo_str = ""
 
         geo_str += "// Base plate\n"
-        geo_str += "Sphere(1) = {{ {}, {}, {}, {} }};\n".format(center[0], center[1], center[2], r)
+        geo_str += "Sphere({}) = {{ {}, {}, {}, {} }};\n".format(1 + offset, center[0], center[1], center[2], r)
 
         # Call function in PyElectrode module we inherit from if 'load' is not False
         if load:
@@ -106,11 +114,13 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
 
 class SICylinder(PyElectrode):
-    def __init__(self, parent=None, name="New Cylinder", voltage=0):
+    def __init__(self, parent=None, name="New Cylinder", voltage=0, offset=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
+        self._offset = offset
 
     def create_geo_str(self, r, dz, h=0.005, load=True, header=True):
+        # TODO: This docstring is incorrect -PW
         """
 
         Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
@@ -127,6 +137,8 @@ class SICylinder(PyElectrode):
         :return gmsh_str: the string object for gmsh
         """
 
+        offset = self._offset
+
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
@@ -136,7 +148,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             geo_str = ""
 
         geo_str += "// Cylinder\n"
-        geo_str += "Cylinder(1) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(-0.5 * dz, dz, r)
+        geo_str += "Cylinder({}) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(1 + offset, -0.5 * dz, dz, r)
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
@@ -146,9 +158,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
 
 class SIElectrode(PyElectrode):
-    def __init__(self, parent=None, name="New Spiral Electrode", voltage=10000):
+    def __init__(self, parent=None, name="New Spiral Electrode", voltage=10000, offset=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
+        self._offset = offset
 
     def create_geo_str(self, raw_geo, elec_type, h=0.005, load=True, header=True):
         """
@@ -166,6 +179,9 @@ class SIElectrode(PyElectrode):
         :param header: Flag whether to include the header for the geo string.
         :return gmsh_str: the string object for gmsh
         """
+
+        f = self._offset  # Normally I use offset = self._offset, but there are a lot of uses of it so to keep
+        # it short, I will use f here. -PW
 
         if elec_type not in ["anode", "cathode"]:
             print("SIElectrode could not understand electrode type {}. Must be 'Anode' or 'Cathode'".format(type))
@@ -187,50 +203,39 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         # Shift the index in geo object for anode or cathode...
         if elec_type == "anode":
             k = 0
-            f = 0
         elif elec_type == "cathode":
             k = 5
-            f = 1000
 
         num_sections = len(raw_geo[0, :, 0])
 
         for j in range(num_sections):
             for i in range(5):
-                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt+f,
+                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt + f,
                                                                     raw_geo[i + k, j, 0],
                                                                     raw_geo[i + k, j, 1],
                                                                     raw_geo[i + k, j, 2])
                 new_pt += 1
 
             # For each section, add the lines
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 0+f, (j * 5) + 4+f, (j * 5) + 2+f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 1+f, (j * 5) + 3+f, (j * 5) + 1+f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 2+f, (j * 5) + 3+f, (j * 5) + 4+f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3+f, (j * 5) + 5+f, (j * 5) + 2+f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4+f, (j * 5) + 1+f, (j * 5) + 5+f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 0 + f, (j * 5) + 4 + f, (j * 5) + 2 + f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 1 + f, (j * 5) + 3 + f, (j * 5) + 1 + f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 2 + f, (j * 5) + 3 + f, (j * 5) + 4 + f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3 + f, (j * 5) + 5 + f, (j * 5) + 2 + f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4 + f, (j * 5) + 1 + f, (j * 5) + 5 + f)
 
             new_ln += 5
 
-            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop+f,
-                                                                         (j * 5) + 3+f,
-                                                                         (j * 5) + 2+f,
-                                                                         (j * 5) + 5+f,
-                                                                         (j * 5) + 4+f,
-                                                                         (j * 5) + 1+f)
-            # geo_str += "Line Loop({}) = {{ {}, {}, {}, {}, {} }};\n".format(new_loop,
-            #                                                                 (j * 5) + 3,
-            #                                                                 (j * 5) + 2,
-            #                                                                 (j * 5) + 5,
-            #                                                                 (j * 5) + 4,
-            #                                                                 (j * 5) + 1)
-            # geo_str += "Surface({});\n\n".format(new_loop)
+            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop + f,
+                                                                         (j * 5) + 3 + f,
+                                                                         (j * 5) + 2 + f,
+                                                                         (j * 5) + 5 + f,
+                                                                         (j * 5) + 4 + f,
+                                                                         (j * 5) + 1 + f)
 
             new_loop += 1
 
-        if elec_type == "anode":
-            geo_str += "Ruled ThruSections({}) = {{ 1:{} }};".format(new_vol+f, new_loop - 1+f)
-        elif elec_type == "cathode":
-            geo_str += "Ruled ThruSections({}) = {{ 1001:{} }};".format(new_vol+f, new_loop - 1+f)
+        geo_str += "Ruled ThruSections({}) = {{ {}:{} }};".format(new_vol + f, 1 + f, new_loop - 1 + f)
+
         new_vol += 1
 
         # Call function in PyElectrode module we inherit from if load is not False
@@ -246,9 +251,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 # Geometrically, trajectories have much in common with electrodes...
 class SITrajectory(PyElectrode):
 
-    def __init__(self, parent=None, name="New Spiral Electrode", voltage=0):
+    def __init__(self, parent=None, name="New Spiral Electrode", voltage=0, offset=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
+        self._offset = offset
 
     # --- Override some of the PyElectrode functions that don't make sense for a wire --- #
     @staticmethod
@@ -271,6 +277,8 @@ class SITrajectory(PyElectrode):
         :return:
         """
 
+        offset = self._offset
+
         points = np.asarray(points)
 
         assert points.ndim == 2 and points[0, :].shape == (3,), "points have wrong shape = {}".format(points.shape)
@@ -290,15 +298,15 @@ Geometry.NumSubEdges = 100; // nicer display of curve
 
         geo_str += "// Center Spline:\n"
         for _x, _y, _z in points:
-            geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt, _x, _y, _z)
+            geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt + offset, _x, _y, _z)
             new_pt += 1
 
         geo_str += """
 Spline({}) = {{ {}:{} }}; 
-""".format(new_ln, 1, new_pt - 1)
+""".format(new_ln + offset, 1 + offset, new_pt - 1 + offset)
 
         # Immediately delete the points used up in the spline
-        geo_str += "Recursive Delete {{ Point{{ {}:{} }}; }}\n".format(1, new_pt - 1)
+        geo_str += "Recursive Delete {{ Point{{ {}:{} }}; }}\n".format(1 + offset, new_pt - 1 + offset)
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
@@ -309,7 +317,7 @@ Spline({}) = {{ {}:{} }};
 
 class SIHousing(PyElectrode):
 
-    def __init__(self, parent=None, name="Spiral Inflector Housing", voltage=0, experimental=False):
+    def __init__(self, parent=None, name="Spiral Inflector Housing", voltage=0, offset=0, experimental=False):
         super().__init__(name=name, voltage=voltage)
 
         # TODO: Intersections between housing and top aperture during optimization!
@@ -318,6 +326,8 @@ class SIHousing(PyElectrode):
         assert parent is not None, "This class requires a parent."
 
         self._parent = parent
+        self._offset = offset
+
         self._aperture_params = None
 
         self._experimental = experimental
@@ -425,6 +435,9 @@ class SIHousing(PyElectrode):
 
     def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True, header=True):
         # TODO: Doc string -PW
+
+        offset = self._offset
+
         pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness)
 
         dz = self._aperture_params["thickness"]
@@ -456,74 +469,80 @@ Geometry.ToleranceBoolean = 1E-5;
 Geometry.Tolerance = 1E-10;
 Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         else:
-            geo_str = ""
+            geo_str = "Geometry.ToleranceBoolean = 1E-5;\n"
 
         geo_str += "// Outside points\n"
         n_pts_out = np.shape(pts_out)[0]
 
         for i, pt in enumerate(pts_out):
-            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i, pt[0], pt[1])
+            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + offset, pt[0], pt[1])
 
         geo_str += "// Outside lines\n"
         n_lines_out = n_pts_out  # Should be the same number
 
         for i in range(n_lines_out - 1):
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(i, i, i + 1)
-        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1, n_pts_out - 1, 0)  # Connect last point to first point
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(i + offset, i + offset, i + 1 + offset)
+        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1 + offset, n_pts_out - 1 + offset,
+                                                       0 + offset)  # Connect last point to first point
 
         geo_str += "// Inside points\n"
         n_pts_in = np.shape(pts_in)[0]
 
         for i, pt in enumerate(pts_in):
-            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + n_pts_out, pt[0], pt[1])
+            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + n_pts_out + offset, pt[0] + offset, pt[1] + offset)
 
         geo_str += "// Inside lines\n"
         n_lines_in = n_pts_in  # Should be the same number
 
         for i in range(n_lines_in - 1):
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(i + n_lines_out, i + n_pts_out, i + 1 + n_pts_out)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(i + n_lines_out + offset, i + n_pts_out + offset,
+                                                           i + 1 + n_pts_out + offset)
         # Connect last point to first point
-        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1 + n_lines_out, i + 1 + n_pts_out, n_pts_out)
+        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1 + n_lines_out + offset, i + 1 + n_pts_out + offset,
+                                                       n_pts_out + offset)
 
-        geo_str += "Line Loop(1) = {{ {}:{} }};\n".format(0, n_lines_out - 1)
-        geo_str += "Line Loop(2) = {{ {}:{} }};\n".format(n_lines_out, n_lines_out + n_lines_in - 1)
+        geo_str += "Line Loop({}) = {{ {}:{} }};\n".format(1 + offset, 0 + offset, n_lines_out - 1 + offset)
+        geo_str += "Line Loop({}) = {{ {}:{} }};\n".format(2 + offset, n_lines_out + offset,
+                                                           n_lines_out + n_lines_in - 1 + offset)
 
-        geo_str += "Plane Surface(1) = {1, 2};\n"
-        geo_str += "// Plane Surface(2) = {2};\n"
+        geo_str += "Plane Surface({}) = {{ {}, {} }};\n".format(1 + offset, 1 + offset, 2 + offset)
 
-        geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 1 }}; }}\n".format(zmax - zmin)
-        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ 1 }}; }}\n".format(zmin)
-        geo_str += "// Extrude {{ 0, 0, {} }} {{ Surface{{ 2 }}; }}\n".format(zmax - zmin)
+        geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(zmax - zmin, 1 + offset)
+        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ {} }}; }}\n".format(zmin, 1 + offset)
+        geo_str += "// Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(zmax - zmin, 2 + offset)
 
         # geo_str = 'SetFactory("OpenCASCADE");\n'
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
             if self._experimental:
-                geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b,
-                                                                               -0.025, a,
-                                                                               b, 0.05)
+                geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(2 + offset,
+                                                                                -0.5 * a, -0.5 * b,
+                                                                                -0.025, a,
+                                                                                b, 0.05)
             else:
-                geo_str += "Box(2) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(-0.5 * a, -0.5 * b,
-                                                                               0.0, a,
-                                                                               b, 0.1)
+                geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(2 + offset,
+                                                                                -0.5 * a, -0.5 * b,
+                                                                                0.0, a,
+                                                                                b, 0.1)
         elif hole_type == "ellipse":
-            geo_str += "Disk(5000) = {{ 0, 0, 0, {}, {} }};\n".format(0.5 * a + 5E-9, 0.5 * b + 5E-9)
-            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ 5000 }}; }}\n".format(0.1)  # To be robust
+            geo_str += "Disk({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
+            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(0.1, 500 + offset)  # To be robust
 
-        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
-            np.pi / 2.0)
-        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
-            self._tilt_angle)
-        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ 2 }}; }}\n".format(
-            self._face_angle)
+        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            np.pi / 2.0, 2 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            self._tilt_angle, 2 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            self._face_angle, 2 + offset)
 
-        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ 2 }}; }}\n".format(translate[0],
-                                                                              translate[1],
-                                                                              0.0)
+        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate[0],
+                                                                               translate[1],
+                                                                               0.0,
+                                                                               2 + offset)
 
-        geo_str += "BooleanDifference(50) = { Volume{1}; Delete; }{ Volume{2}; Delete; };\n"
-        geo_str += "// BooleanDifference(75) = { Volume{50}; Delete; }{ Volume{3}; Delete; };\n"
+        geo_str += "BooleanDifference({}) = {{ Volume {{ {} }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
+            50 + offset, 1 + offset, 2 + offset)
 
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
@@ -1022,11 +1041,11 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
     assy = numerical_vars["objects"]
 
-    leaf_view = assy.get_numerical_mesh()
+    leaf_view = assy.get_bempp_mesh()
 
     numerical_vars["full mesh"] = {"verts": leaf_view["verts"],
-                               "elems": leaf_view["elems"],
-                               "domns": leaf_view["domns"]}
+                                   "elems": leaf_view["elems"],
+                                   "domns": leaf_view["domns"]}
 
     if si.debug:
         _full_mesh = bempp.api.grid_from_element_data(leaf_view["verts"],
