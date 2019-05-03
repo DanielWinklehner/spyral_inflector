@@ -489,7 +489,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         n_pts_in = np.shape(pts_in)[0]
 
         for i, pt in enumerate(pts_in):
-            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + n_pts_out + offset, pt[0] + offset, pt[1] + offset)
+            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + n_pts_out + offset, pt[0], pt[1])
 
         geo_str += "// Inside lines\n"
         n_lines_in = n_pts_in  # Should be the same number
@@ -507,11 +507,8 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
 
         geo_str += "Plane Surface({}) = {{ {}, {} }};\n".format(1 + offset, 1 + offset, 2 + offset)
 
-        geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(zmax - zmin, 1 + offset)
-        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ {} }}; }}\n".format(zmin, 1 + offset)
-        geo_str += "// Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(zmax - zmin, 2 + offset)
-
-        # geo_str = 'SetFactory("OpenCASCADE");\n'
+        geo_str += "housing_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(zmax - zmin, 1 + offset)
+        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[1] }}; }}\n".format(zmin)
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
@@ -525,24 +522,21 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
                                                                                 -0.5 * a, -0.5 * b,
                                                                                 0.0, a,
                                                                                 b, 0.1)
-        elif hole_type == "ellipse":
-            geo_str += "Disk({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
-            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(0.1, 500 + offset)  # To be robust
+        elif hole_type == "ellipse":  # TODO: Assign the extrude to a volume #, this won't work with an offset.
+            geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
+            geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(2 + offset, 0.1, 500 + offset)  # To be robust
 
-        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            np.pi / 2.0, 2 + offset)
-        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            self._tilt_angle, 2 + offset)
-        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            self._face_angle, 2 + offset)
+        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(np.pi / 2.0, 2 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(self._tilt_angle, 2 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(self._face_angle, 2 + offset)
 
         geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate[0],
-                                                                               translate[1],
-                                                                               0.0,
-                                                                               2 + offset)
+                                                                                            translate[1],
+                                                                                            0.0,
+                                                                                            2 + offset)
 
-        geo_str += "BooleanDifference({}) = {{ Volume {{ {} }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
-            50 + offset, 1 + offset, 2 + offset)
+        geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[1] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
+            50 + offset, 2 + offset)
 
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
@@ -891,11 +885,17 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     voltage = analytic_pars["volt"]
     h = numerical_pars["h"]
 
-    anode = SIElectrode(name="SI Anode", voltage=voltage)
+    anode_offset = 0
+    cathode_offset = 1000
+    housing_offset = 2000
+    exit_offset = 2000
+    entrance_offset = 3000
+
+    anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
     anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True)
     anode.color = "RED"
 
-    cathode = SIElectrode(name="SI Cathode", voltage=-voltage)
+    cathode = SIElectrode(name="SI Cathode", voltage=-voltage, offset=cathode_offset)
     cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True)
     anode.color = "BLUE"
 
@@ -915,7 +915,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         experimental = numerical_pars["housing_params"]["experimental"]
         span = numerical_pars["housing_params"]["span"]
 
-        housing = SIHousing(parent=si, name="Housing", voltage=voltage, experimental=experimental)
+        housing = SIHousing(parent=si, name="Housing", voltage=voltage,
+                            offset=housing_offset, experimental=experimental)
 
         angles = (tilt_angle, face_angle)
         housing.set_aperture_params(numerical_pars["aperture_params"])
@@ -923,7 +924,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         # translate = np.array([0.0, 0.0, zmin])
         # housing.set_translation(translate, absolute=True)
-        housing.create_geo_str(geo=geo,
+        s = housing.create_geo_str(geo=geo,
                                trj=trj,
                                zmin=zmin,
                                zmax=zmax,
@@ -932,6 +933,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                                thickness=thickness,
                                h=h,
                                load=True)
+        with open('housing_geo_str.geo', 'w') as f:
+            f.write(s)
 
         housing.color = "GREEN"
 
@@ -950,7 +953,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         # --- Entrance aperture --- #
         # TODO: May have to be rotated more with entrance of SI
-        entrance_aperture = SIAperture(name="Entrance Aperture", voltage=voltage)
+        entrance_aperture = SIAperture(name="Entrance Aperture", voltage=voltage, offset=entrance_offset)
 
         # Calculate correct translation
         entrance_aperture.set_translation(np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz]), absolute=True)
@@ -964,7 +967,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         # --- Exit aperture (rotated and shifted) --- #
         if not numerical_pars["make_housing"]:
-            exit_aperture = SIAperture(name="Exit Aperture", voltage=0)
+            exit_aperture = SIAperture(name="Exit Aperture", voltage=0, offset=exit_offset)
 
             # DEBUG: Display points used for angles
             # p1 = SIPointSphere(name="P1")
