@@ -171,44 +171,58 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         # Shift the index in geo object for anode or cathode...
         if elec_type == "anode":
             k = 0
+            f = 0
         elif elec_type == "cathode":
             k = 5
+            f = 1000
 
         num_sections = len(raw_geo[0, :, 0])
 
         for j in range(num_sections):
             for i in range(5):
-                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt,
+                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt+f,
                                                                     raw_geo[i + k, j, 0],
                                                                     raw_geo[i + k, j, 1],
                                                                     raw_geo[i + k, j, 2])
                 new_pt += 1
 
             # For each section, add the lines
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 0, (j * 5) + 4, (j * 5) + 2)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 1, (j * 5) + 3, (j * 5) + 1)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 2, (j * 5) + 3, (j * 5) + 4)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3, (j * 5) + 5, (j * 5) + 2)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4, (j * 5) + 1, (j * 5) + 5)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 0+f, (j * 5) + 4+f, (j * 5) + 2+f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 1+f, (j * 5) + 3+f, (j * 5) + 1+f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 2+f, (j * 5) + 3+f, (j * 5) + 4+f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3+f, (j * 5) + 5+f, (j * 5) + 2+f)
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4+f, (j * 5) + 1+f, (j * 5) + 5+f)
 
             new_ln += 5
 
-            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop,
-                                                                         (j * 5) + 3,
-                                                                         (j * 5) + 2,
-                                                                         (j * 5) + 5,
-                                                                         (j * 5) + 4,
-                                                                         (j * 5) + 1)
+            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop+f,
+                                                                         (j * 5) + 3+f,
+                                                                         (j * 5) + 2+f,
+                                                                         (j * 5) + 5+f,
+                                                                         (j * 5) + 4+f,
+                                                                         (j * 5) + 1+f)
+            # geo_str += "Line Loop({}) = {{ {}, {}, {}, {}, {} }};\n".format(new_loop,
+            #                                                                 (j * 5) + 3,
+            #                                                                 (j * 5) + 2,
+            #                                                                 (j * 5) + 5,
+            #                                                                 (j * 5) + 4,
+            #                                                                 (j * 5) + 1)
+            # geo_str += "Surface({});\n\n".format(new_loop)
 
             new_loop += 1
 
-        geo_str += "Ruled ThruSections({}) = {{ 1:{} }};".format(new_vol, new_loop - 1)
-
+        if elec_type == "anode":
+            geo_str += "Ruled ThruSections({}) = {{ 1:{} }};".format(new_vol+f, new_loop - 1+f)
+        elif elec_type == "cathode":
+            geo_str += "Ruled ThruSections({}) = {{ 1001:{} }};".format(new_vol+f, new_loop - 1+f)
         new_vol += 1
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
+
+        print("Number of surfaces")
+        print(new_loop - f)
 
         return geo_str
 
