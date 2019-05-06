@@ -488,6 +488,9 @@ class SpiralInflector(object):
     def solve_bempp(self):
         return solve_bempp(self)
 
+    def solve_fenics(self):
+        return solve_fenics(self)
+
     # def generate_aperture_geometry(self, *args):
     #     return generate_aperture_geometry(self, *args)
     #

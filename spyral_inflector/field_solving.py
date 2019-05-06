@@ -331,3 +331,59 @@ def solve_bempp(si):
     si.numerical_variables = numerical_vars
 
     return 0
+
+
+def solve_fenics(si):
+
+    # from mpi4py import MPI
+    # comm = MPI.COMM_WORLD
+    # rank = comm.Get_rank()
+
+    import fenics as fn
+    fn.set_log_level(13)
+
+
+    numerical_vars = si.numerical_variables
+    full_mesh = numerical_vars["full_mesh"]
+
+    mesh = full_mesh[0]
+    markers = full_mesh[1]
+    boundaries = full_mesh[2]
+
+    dx = fn.Measure('dx', domain=mesh, subdomain_data=markers)
+    V = fn.FunctionSpace(mesh, 'P', 1)
+
+    volt = si.get_parameter("volt")
+
+    # Build boundary conditions
+    bcs = []
+    for i in range(1, 1000):  # Anode
+        bcs.append(fn.DirichletBC(V, fn.Constant(volt), boundaries, i))
+    for i in range(1000, 2000):  # Cathode
+        bcs.append(fn.DirichletBC(V, fn.Constant(-volt), boundaries, i))
+    for i in range(2000, 3000):  # Entrance Aperture
+        bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))
+    for i in range(3000, 4000):  # Exit Aperture/Housing
+        bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))
+    for i in range(4000, 5000):  # Cylinder/Boundary
+        bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))
+
+    # Test and trial functions
+    u = fn.TrialFunction(V)
+    v = fn.TestFunction(V)
+
+    # Bilinear form (I think)
+    a = fn.dot(fn.grad(u), fn.grad(v)) * dx
+
+    L = fn.Constant('0.0') * v * dx
+    u = fn.Function(V)
+
+    fn.solve(a == L, u, bcs)
+
+    electric_field = -fn.grad(u)
+
+    potentialFile = fn.File('output/potential.pvd')
+    potentialFile << u
+
+    vtkfile = fn.File('output/e_field.pvd')
+    vtkfile << fn.project(electric_field)

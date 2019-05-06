@@ -21,7 +21,7 @@ si.initialize()
 # si.generate_geometry()
 # draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.005)  # Mesh characteristic length
+si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=True)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
@@ -49,6 +49,7 @@ si.set_parameter(key="housing_params",
                         "experimental": True})
 
 si.generate_meshed_model()
+si.solve_fenics()
 
 # si.solve_bempp()
 
