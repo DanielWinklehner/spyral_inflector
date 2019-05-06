@@ -5,6 +5,7 @@ h2p.calculate_from_energy_mev(0.07 / h2p.a())
 
 si = SpiralInflector(ion=h2p,
                      method="numerical",
+                     solver="fenics",
                      volt=12000,
                      gap=20e-3,
                      tilt=27.0,
@@ -47,10 +48,8 @@ si.set_parameter(key="housing_params",
                         "voltage": 0.0,
                         "experimental": True})
 
-si.generate_solid_assembly()
-si.generate_vacuum_space()
+si.generate_meshed_model()
 
-# si.generate_meshed_model()
 # si.solve_bempp()
 
 # ts = time.time()

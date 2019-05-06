@@ -42,7 +42,6 @@ Volume (1) = {2, 1, 3};
 """
 
 mesh = fn.Mesh("working_example.xml")
-
 markers = fn.MeshFunction('size_t', mesh, 'working_example_physical_region.xml')
 boundaries = fn.MeshFunction('size_t', mesh, 'working_example_facet_region.xml')
 dx = fn.Measure('dx', domain=mesh, subdomain_data=markers)

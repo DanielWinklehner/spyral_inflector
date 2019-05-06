@@ -119,7 +119,7 @@ class SICylinder(PyElectrode):
         self._parent = parent  # the spiral inflector that contains this aperture
         self._offset = offset
 
-    def create_geo_str(self, r, dz, h=0.005, load=True, header=True):
+    def create_geo_str(self, r, zmin, zmax, h=0.005, load=True, header=True):
         # TODO: This docstring is incorrect -PW
         """
 
@@ -148,7 +148,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             geo_str = ""
 
         geo_str += "// Cylinder\n"
-        geo_str += "Cylinder({}) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(1 + offset, -0.5 * dz, dz, r)
+        geo_str += "Cylinder({}) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(1 + offset, zmin, zmax - zmin, r)
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
@@ -1095,7 +1095,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage, offset=cylinder_offset)
         translate = np.array([0.0, 0.0, zmin])
         outer_cylinder.set_translation(translate, absolute=True)
-        outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
+        # outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
+        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=h, load=True, header=False)
 
         assy.add_electrode(outer_cylinder)
 
@@ -1135,15 +1136,26 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
                                                           leaf_view["domns"])
             _full_mesh.plot()
 
-        si.numerical_variables = numerical_vars
-
     elif si._solver == "fenics":
 
+        si.generate_vacuum_space()
+
+        import fenics as fn
         import os
 
         # TODO: BEMPP may be able to do this (below), but I need to check if the filetype version is correct -PW
         os.system('gmsh -3 master_geometry.geo -format msh2 -o master_geometry.msh')
         os.system('dolfin-convert master_geometry.msh master_geometry.xml')
+
+        mesh = fn.Mesh('master_geometry.xml')
+        markers = fn.MeshFunction('size_t', mesh, 'master_geometry_physical_region.xml')
+        boundaries = fn.MeshFunction('size_t', mesh, 'master_geometry_facet_region.xml')
+
+        full_mesh = [mesh, markers, boundaries]
+
+        numerical_vars["full_mesh"] = full_mesh
+
+    si.numerical_variables = numerical_vars
 
     return numerical_vars["full mesh"]
 
