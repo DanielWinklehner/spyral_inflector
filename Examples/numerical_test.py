@@ -30,7 +30,7 @@ si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "bottom_distance": 10e-3,
                                                "hole_type": "rectangle",
                                                "voltage": 0.0})
-si.set_parameter(key="make_cylinder", value=False)
+si.set_parameter(key="make_cylinder", value=True)
 si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                "zmin": -150e-3,
                                                "zmax": 80e-3,
@@ -47,74 +47,22 @@ si.set_parameter(key="housing_params",
                         "voltage": 0.0,
                         "experimental": True})
 
-si.generate_meshed_model()
-si.solve_bempp()
+si.generate_solid_assembly()
+si.generate_vacuum_space()
 
-ts = time.time()
-si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
-print("Optimizing took {:.4f} s".format(time.time() - ts))
-
-ts = time.time()
-print("Calculating electric field...")
-
-si.calculate_potential(res=0.002,
-                       limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                       domain_decomp=(3, 3, 3))
-
-si.calculate_efield()
-print("Calculating field took {:.4f} s".format(time.time() - ts))
-
-with open('timing.txt', 'a') as outfile:
-    outfile.write("Generating electric field took {:.4f} s\n".format(time.time() - ts))
-
-# Demonstrating saving/loading
-si.save('my_inflector.pickle')
-
-# new_inflector = SpiralInflector()
-# new_inflector.load('my_inflector.pickle')
-#
-# new_inflector.calculate_potential()
-# new_inflector.calculate_efield()
-#
-# ts = time.time()
-#
-# new_inflector.track(r_start=np.array([0.0, 0.0, -0.15]),
-#                     v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-#                     nsteps=15000,
-#                     dt=1e-11)
-
-print("Tracking took {:.4f} s".format(time.time() - ts))
-
-with open('timing.txt', 'a') as outfile:
-    outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
+# si.generate_meshed_model()
+# si.solve_bempp()
 
 # ts = time.time()
+# si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
+# print("Optimizing took {:.4f} s".format(time.time() - ts))
 #
-# fast_track(si,
-#            r_start=np.array([0.0, 0.0, -0.15]),
-#            v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-#            nsteps=15000,
-#            dt=1e-11)
-#
-# print("Fast tracking took {:.4f} s".format(time.time() - ts))
-#
-# with open('timing.txt', 'a') as outfile:
-#     outfile.write("Fast tracking took {:.4f} s\n".format(time.time() - ts))
-
 # ts = time.time()
+# print("Calculating electric field...")
 #
-# fast_track_with_termination(si,
-#                             r_start=np.array([0.0, 0.0, -0.15]),
-#                             v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-#                             nsteps=15000,
-#                             dt=1e-11)
+# si.calculate_potential(res=0.002,
+#                        limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
+#                        domain_decomp=(3, 3, 3))
 #
-# print("Fast tracking with termination took {:.4f} s".format(time.time() - ts))
-#
-# with open('timing.txt', 'a') as outfile:
-#     outfile.write("Fast tracking with termination took {:.4f} s\n".format(time.time() - ts))
-
-si.draw_geometry(show=True, filename='auto', aux_trajectories=None)
-# export_electrode_geometry(si, fname='electrode_macro.ivb')
-# export_aperture_geometry(si, fname='aperture_macro.ivb')
-# save_geo_files(si)
+# si.calculate_efield()
+# print("Calculating field took {:.4f} s".format(time.time() - ts))

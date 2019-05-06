@@ -497,6 +497,12 @@ class SpiralInflector(object):
     # def generate_spiral_electrode_geometry(self, *args):
     #     return generate_spiral_electrode_geometry(self, *args)
 
+    def generate_vacuum_space(self):
+        return generate_vacuum_space(self)
+
+    def generate_solid_assembly(self, **kwargs):
+        return generate_solid_assembly(self, **kwargs)
+
     def generate_meshed_model(self, **kwargs):
         return generate_meshed_model(self, **kwargs)
 

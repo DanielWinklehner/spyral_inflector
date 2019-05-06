@@ -525,16 +525,20 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
                                                                                 b, 0.1)
         elif hole_type == "ellipse":  # TODO: The ellipse probably doesn't work -PW
             geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
-            geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(2 + offset, 0.1, 500 + offset)  # To be robust
+            geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(2 + offset, 0.1,
+                                                                                              500 + offset)  # To be robust
 
-        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(np.pi / 2.0, 2 + offset)
-        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(self._tilt_angle, 2 + offset)
-        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(self._face_angle, 2 + offset)
+        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            np.pi / 2.0, 2 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            self._tilt_angle, 2 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            self._face_angle, 2 + offset)
 
         geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate[0],
-                                                                                            translate[1],
-                                                                                            0.0,
-                                                                                            2 + offset)
+                                                                               translate[1],
+                                                                               0.0,
+                                                                               2 + offset)
 
         geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[1] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
             50 + offset, 2 + offset)
@@ -856,6 +860,75 @@ def get_norm_vec_and_angles_from_geo(geo):
     return tilt_angle, face_angle
 
 
+def generate_vacuum_space(si):
+
+    assert si.numerical_parameters["make_cylinder"], "You need a cylinder/boundary to create the vacuum space!"
+
+    numerical_vars = si.numerical_variables
+
+    assy = numerical_vars["objects"]
+
+    master_geo_str = "// Full .geo file for fenics mesh generation\n"
+
+    master_geo_str += assy.get_electrode_by_name("SI Anode")._geo_str
+    master_geo_str += assy.get_electrode_by_name("SI Cathode")._geo_str
+    master_geo_str += assy.get_electrode_by_name("Outer Cylinder")._geo_str
+
+    # for electrode in assy:
+    #     master_geo_str += electrode._geo_str
+
+    # Volumes:
+    # 1 = Anode
+    # 2 = Cathode
+    # 3 = Boundary/Cylinder
+    # 4 = Top/Entrance Aperture
+    # 5 = Bottom/Exit Aperture or Housing
+
+    master_geo_str += """
+//
+//    anode_offset = 0
+//    cathode_offset = 1000
+//    housing_offset = 2000
+//    exit_offset = 2000
+//    entrance_offset = 3000
+//    cylinder_offset = 4000
+//
+
+// Anode
+Physical Volume(1) = {1};
+anode_boundary[] = Boundary { Volume{ 1 }; };
+N_anode = #anode_boundary[];
+For i In {0:N_anode-1}
+    Physical Surface (i+1) = { anode_boundary[i] };
+EndFor
+
+// Cathode
+Physical Volume(2) = {1001};
+cathode_boundary[] = Boundary { Volume{ 1001 }; };
+N_cathode = #cathode_boundary[];
+For k In {0:N_cathode-1}
+    Physical Surface (1000+k) = { cathode_boundary[k] };
+EndFor
+
+// Vacuum Cylinder
+Physical Volume(3) = {4001};
+vacuum_boundary[] = Boundary { Volume{ 4001 }; };
+N_vacuum = #vacuum_boundary[];
+For j In {0:N_vacuum-1}
+    Physical Surface (N_anode +1 + j) = { vacuum_boundary[j] };
+EndFor
+
+// Surface Loop (2) = { vacuum_boundary };
+// Surface Loop (1) = { anode_boundary };
+// Surface Loop (3) = { cathode_boundary };
+
+Delete{ Volume{1, 1001, 4001}; }
+Volume (1) = {3, 1, 2};
+    """
+    with open('master_geometry.geo', 'w') as outfile:
+        outfile.write(master_geo_str)
+
+
 def generate_solid_assembly(si, apertures=None, cylinder=None):
     analytic_pars = si.analytic_parameters
     analytic_vars = si.analytic_variables
@@ -891,13 +964,14 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     housing_offset = 2000
     exit_offset = 2000
     entrance_offset = 3000
+    cylinder_offset = 4000
 
     anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
-    anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True)
+    anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True)
     anode.color = "RED"
 
     cathode = SIElectrode(name="SI Cathode", voltage=-voltage, offset=cathode_offset)
-    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True)
+    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=False)
     anode.color = "BLUE"
 
     # Create an assembly holding all the electrodes
@@ -926,14 +1000,15 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # translate = np.array([0.0, 0.0, zmin])
         # housing.set_translation(translate, absolute=True)
         s = housing.create_geo_str(geo=geo,
-                               trj=trj,
-                               zmin=zmin,
-                               zmax=zmax,
-                               span=span,
-                               gap=gap,
-                               thickness=thickness,
-                               h=h,
-                               load=True)
+                                   trj=trj,
+                                   zmin=zmin,
+                                   zmax=zmax,
+                                   span=span,
+                                   gap=gap,
+                                   thickness=thickness,
+                                   h=h,
+                                   load=True,
+                                   header=False)
 
         # with open('housing_geo_str.geo', 'w') as f:
         #     f.write(s)
@@ -962,7 +1037,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         entrance_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Z_AXIS, absolute=True)
 
         # Create geo string and load
-        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True)
+        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=False)
         entrance_aperture.color = "GREEN"
 
         assy.add_electrode(entrance_aperture)
@@ -1005,7 +1080,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
 
             # Create geo string and load
-            exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True)
+            exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=False)
             exit_aperture.color = "GREEN"
 
             assy.add_electrode(exit_aperture)
@@ -1017,10 +1092,10 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         zmax = numerical_pars["cylinder_params"]["zmax"]
         voltage = numerical_pars["cylinder_params"]["voltage"]
 
-        outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage)
+        outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage, offset=cylinder_offset)
         translate = np.array([0.0, 0.0, zmin])
         outer_cylinder.set_translation(translate, absolute=True)
-        outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True)
+        outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
 
         assy.add_electrode(outer_cylinder)
 
@@ -1044,21 +1119,31 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
     numerical_vars = si.numerical_variables
 
-    assy = numerical_vars["objects"]
+    if si._solver == "bempp":
 
-    leaf_view = assy.get_bempp_mesh()
+        assy = numerical_vars["objects"]
 
-    numerical_vars["full mesh"] = {"verts": leaf_view["verts"],
-                                   "elems": leaf_view["elems"],
-                                   "domns": leaf_view["domns"]}
+        leaf_view = assy.get_bempp_mesh()
 
-    if si.debug:
-        _full_mesh = bempp.api.grid_from_element_data(leaf_view["verts"],
-                                                      leaf_view["elems"],
-                                                      leaf_view["domns"])
-        _full_mesh.plot()
+        numerical_vars["full mesh"] = {"verts": leaf_view["verts"],
+                                       "elems": leaf_view["elems"],
+                                       "domns": leaf_view["domns"]}
 
-    si.numerical_variables = numerical_vars
+        if si.debug:
+            _full_mesh = bempp.api.grid_from_element_data(leaf_view["verts"],
+                                                          leaf_view["elems"],
+                                                          leaf_view["domns"])
+            _full_mesh.plot()
+
+        si.numerical_variables = numerical_vars
+
+    elif si._solver == "fenics":
+
+        import os
+
+        # TODO: BEMPP may be able to do this (below), but I need to check if the filetype version is correct -PW
+        os.system('gmsh -3 master_geometry.geo -format msh2 -o master_geometry.msh')
+        os.system('dolfin-convert master_geometry.msh master_geometry.xml')
 
     return numerical_vars["full mesh"]
 
