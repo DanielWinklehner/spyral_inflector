@@ -899,7 +899,7 @@ Physical Volume(1) = {1};
 anode_boundary[] = Boundary { Volume{ 1 }; };
 N_anode = #anode_boundary[];
 For i In {0:N_anode-1}
-    Physical Surface (i+1) = { anode_boundary[i] };
+    Physical Surface (i + 1) = { anode_boundary[i] };
 EndFor
 
 // Cathode
@@ -907,7 +907,7 @@ Physical Volume(2) = {1001};
 cathode_boundary[] = Boundary { Volume{ 1001 }; };
 N_cathode = #cathode_boundary[];
 For k In {0:N_cathode-1}
-    Physical Surface (1000+k) = { cathode_boundary[k] };
+    Physical Surface (1000 + k) = { cathode_boundary[k] };
 EndFor
 
 // Vacuum Cylinder
@@ -915,7 +915,7 @@ Physical Volume(3) = {4001};
 vacuum_boundary[] = Boundary { Volume{ 4001 }; };
 N_vacuum = #vacuum_boundary[];
 For j In {0:N_vacuum-1}
-    Physical Surface (N_anode +1 + j) = { vacuum_boundary[j] };
+    Physical Surface (4000 + j) = { vacuum_boundary[j] };
 EndFor
 
 // Surface Loop (2) = { vacuum_boundary };
