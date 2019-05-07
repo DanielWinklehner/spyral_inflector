@@ -336,12 +336,7 @@ def solve_bempp(si):
 
 def solve_fenics(si):
 
-    # from mpi4py import MPI
-    # comm = MPI.COMM_WORLD
-    # rank = comm.Get_rank()
-
-    fn.set_log_level(16)
-
+    fn.set_log_level(60)
 
     numerical_vars = si.numerical_variables
     full_mesh = numerical_vars["full_mesh"]
@@ -356,6 +351,7 @@ def solve_fenics(si):
     volt = si.get_parameter("volt")
 
     # Build boundary conditions
+    # TODO: Get the #'s from the meshing stuff
     bcs = []
     for i in range(1, 1000):  # Anode
         bcs.append(fn.DirichletBC(V, fn.Constant(volt), boundaries, i))
@@ -379,7 +375,7 @@ def solve_fenics(si):
     u = fn.Function(V)
 
     _tsi = time.time()
-    fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "lu"})
+    fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "mumps"})
     _tsf = time.time()
     print("Potential solving time: {:.4f}".format(_tsf - _tsi))
 
@@ -387,10 +383,11 @@ def solve_fenics(si):
     print(u(0.0, 0.0, -1E-5))
     print(u(0.0, 0.0, -1E-4))
 
-    electric_field = -fn.grad(u)
+    # electric_field = -fn.grad(u)
+    electric_field = -fn.project(u.dx(0), V, solver_type='cg', preconditioner_type='amg')
 
-    # potentialFile = fn.File('output/potential.pvd')
-    # potentialFile << u
-    #
-    # vtkfile = fn.File('output/e_field.pvd')
-    # vtkfile << fn.project(electric_field)
+    potentialFile = fn.File('output/potential.pvd')
+    potentialFile << u
+
+    vtkfile = fn.File('output/e_field.pvd')
+    vtkfile << fn.project(electric_field)
