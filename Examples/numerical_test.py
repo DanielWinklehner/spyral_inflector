@@ -21,7 +21,7 @@ si.initialize()
 # si.generate_geometry()
 # draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
+si.set_parameter(key="h", value=0.0015)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=True)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
@@ -31,6 +31,7 @@ si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "bottom_distance": 10e-3,
                                                "hole_type": "rectangle",
                                                "voltage": 0.0})
+
 si.set_parameter(key="make_cylinder", value=True)
 si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                "zmin": -150e-3,

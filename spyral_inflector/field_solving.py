@@ -2,6 +2,7 @@ from dans_pymodules import *
 import bempp.api
 # noinspection PyUnresolvedReferences
 from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+import fenics as fn
 
 # Define the directions:
 X = 0
@@ -339,8 +340,7 @@ def solve_fenics(si):
     # comm = MPI.COMM_WORLD
     # rank = comm.Get_rank()
 
-    import fenics as fn
-    fn.set_log_level(13)
+    fn.set_log_level(16)
 
 
     numerical_vars = si.numerical_variables
@@ -378,12 +378,19 @@ def solve_fenics(si):
     L = fn.Constant('0.0') * v * dx
     u = fn.Function(V)
 
-    fn.solve(a == L, u, bcs)
+    _tsi = time.time()
+    fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "lu"})
+    _tsf = time.time()
+    print("Potential solving time: {:.4f}".format(_tsf - _tsi))
+
+    print(u(0.0, 0.0, 0.0))
+    print(u(0.0, 0.0, -1E-5))
+    print(u(0.0, 0.0, -1E-4))
 
     electric_field = -fn.grad(u)
 
-    potentialFile = fn.File('output/potential.pvd')
-    potentialFile << u
-
-    vtkfile = fn.File('output/e_field.pvd')
-    vtkfile << fn.project(electric_field)
+    # potentialFile = fn.File('output/potential.pvd')
+    # potentialFile << u
+    #
+    # vtkfile = fn.File('output/e_field.pvd')
+    # vtkfile << fn.project(electric_field)

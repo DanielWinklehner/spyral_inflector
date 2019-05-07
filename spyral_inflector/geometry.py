@@ -119,7 +119,7 @@ class SICylinder(PyElectrode):
         self._parent = parent  # the spiral inflector that contains this aperture
         self._offset = offset
 
-    def create_geo_str(self, r, zmin, zmax, h=0.005, load=True, header=True):
+    def create_geo_str(self, r, zmin, zmax, h=0.0075, load=True, header=True):
         # TODO: This docstring is incorrect -PW
         """
 
@@ -190,7 +190,7 @@ class SIElectrode(PyElectrode):
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -210,10 +210,11 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         for j in range(num_sections):
             for i in range(5):
-                geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt + f,
-                                                                    raw_geo[i + k, j, 0],
-                                                                    raw_geo[i + k, j, 1],
-                                                                    raw_geo[i + k, j, 2])
+                geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(new_pt + f,
+                                                                        raw_geo[i + k, j, 0],
+                                                                        raw_geo[i + k, j, 1],
+                                                                        raw_geo[i + k, j, 2],
+                                                                        h)
                 new_pt += 1
 
             # For each section, add the lines
@@ -476,7 +477,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         n_pts_out = np.shape(pts_out)[0]
 
         for i, pt in enumerate(pts_out):
-            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + offset, pt[0], pt[1])
+            geo_str += "Point({}) = {{ {}, {}, 0, {}}};\n".format(i + offset, pt[0], pt[1], h)
 
         geo_str += "// Outside lines\n"
         n_lines_out = n_pts_out  # Should be the same number
@@ -861,7 +862,6 @@ def get_norm_vec_and_angles_from_geo(geo):
 
 
 def generate_vacuum_space(si):
-
     assert si.numerical_parameters["make_cylinder"], "You need a cylinder/boundary to create the vacuum space!"
 
     numerical_vars = si.numerical_variables
@@ -1096,7 +1096,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         translate = np.array([0.0, 0.0, zmin])
         outer_cylinder.set_translation(translate, absolute=True)
         # outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
-        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=h, load=True, header=False)
+        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.0075, load=True, header=False)
 
         assy.add_electrode(outer_cylinder)
 
