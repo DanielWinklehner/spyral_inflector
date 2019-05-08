@@ -2,7 +2,7 @@ import bempp.api
 from dans_pymodules import *
 from mpl_toolkits.mplot3d import proj3d
 from .geometry import SITrajectory
-from OCC.AIS import AIS_Shape
+from OCC.Core.AIS import AIS_Shape
 
 colors = MyColors()
 

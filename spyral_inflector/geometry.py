@@ -870,12 +870,12 @@ def generate_vacuum_space(si):
 
     master_geo_str = "// Full .geo file for fenics mesh generation\n"
 
-    master_geo_str += assy.get_electrode_by_name("SI Anode")._geo_str
-    master_geo_str += assy.get_electrode_by_name("SI Cathode")._geo_str
-    master_geo_str += assy.get_electrode_by_name("Outer Cylinder")._geo_str
+    # master_geo_str += assy.get_electrode_by_name("SI Anode")._geo_str
+    # master_geo_str += assy.get_electrode_by_name("SI Cathode")._geo_str
+    # master_geo_str += assy.get_electrode_by_name("Outer Cylinder")._geo_str
 
-    # for electrode in assy:
-    #     master_geo_str += electrode._geo_str
+    for _, electrode in assy.electrodes.items():
+        master_geo_str += electrode._geo_str
 
     # Volumes:
     # 1 = Anode
@@ -959,6 +959,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     voltage = analytic_pars["volt"]
     h = numerical_pars["h"]
 
+    # Variables for fenics solving, won't affect anything BEMPP related (ideally) -PW
     anode_offset = 0
     cathode_offset = 1000
     housing_offset = 2000
@@ -1093,8 +1094,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         voltage = numerical_pars["cylinder_params"]["voltage"]
 
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage, offset=cylinder_offset)
-        translate = np.array([0.0, 0.0, 0,0])
-        outer_cylinder.set_translation(translate, absolute=True)
+        # translate = np.array([0.0, 0.0, 0,0])
+        # outer_cylinder.set_translation(translate, absolute=True)
         # outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
         outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.0025, load=True, header=True)
 

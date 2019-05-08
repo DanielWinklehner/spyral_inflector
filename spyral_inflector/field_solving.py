@@ -2,7 +2,6 @@ from dans_pymodules import *
 import bempp.api
 # noinspection PyUnresolvedReferences
 from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
-import fenics as fn
 
 # Define the directions:
 X = 0
@@ -12,7 +11,7 @@ Z = 2
 XYZ = range(3)
 
 
-class fenics_field_wrapper(object):
+class FenicsField(object):
     def __init__(self, field):
         self._field = field
         self._field.set_allow_extrapolation(True)
@@ -344,6 +343,8 @@ def solve_bempp(si):
 
 
 def solve_fenics(si):
+    import fenics as fn
+
     fn.set_log_level(60)
 
     numerical_vars = si.numerical_variables
@@ -376,41 +377,30 @@ def solve_fenics(si):
     u = fn.TrialFunction(V)
     v = fn.TestFunction(V)
 
-    # Bilinear form (I think)
     a = fn.dot(fn.grad(u), fn.grad(v)) * dx
-
     L = fn.Constant('0.0') * v * dx
+
     u = fn.Function(V)
 
     _tsi = time.time()
+    # TODO: Might benefit from using MUMPS! -PW
     fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "cg", "preconditioner": "ilu"})
     _tsf = time.time()
-    print("Potential solving time: {:.4f}".format(_tsf - _tsi))
+    # print("Potential solving time: {:.4f}".format(_tsf - _tsi))
 
-    # print(u(0.0, 0.0, 0.0))
-    # print(u(0.0, 0.0, -1E-5))
-    # print(u(0.0, 0.0, -1E-4))
-
-    # electric_field = -fn.grad(u)
-
-    # V_vec = fn.VectorFunctionSpace(mesh, 'CG', 1)
     fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
-    # print(type(fenics_field))
 
-    # print(fenics_field((0.0, 0.0, -0.12)))
-
-    electric_field = fenics_field_wrapper(fenics_field)
+    electric_field = FenicsField(fenics_field)
 
     si._variables_numerical["ef_itp"] = electric_field
-    # print(type(electric_field._field))
 
-    potentialFile = fn.File('output/potential.pvd')
-    potentialFile << u
-
-    vtkfile = fn.File('output/e_field.pvd')
-    vtkfile << fenics_field
-
-    meshfile = fn.File('output/mesh.pvd')
-    meshfile << mesh
+    # potentialFile = fn.File('output/potential.pvd')
+    # potentialFile << u
+    #
+    # vtkfile = fn.File('output/e_field.pvd')
+    # vtkfile << fenics_field
+    #
+    # meshfile = fn.File('output/mesh.pvd')
+    # meshfile << mesh
 
     return 0

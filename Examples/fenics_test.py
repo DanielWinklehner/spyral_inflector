@@ -1,71 +1,81 @@
-import fenics as fn
-import os
-import sys
-import meshio
+from spyral_inflector import *
 
+h2p = IonSpecies("H2_1+", 0.035)
+h2p.calculate_from_energy_mev(0.07 / h2p.a())
 
-os.system('gmsh -3 working_example.geo -format msh2 -o working_example.msh')
-# mesh = meshio.read('test_geo.msh')
+si = SpiralInflector(ion=h2p,
+                     method="numerical",
+                     solver="fenics",
+                     volt=12000,
+                     gap=20e-3,
+                     tilt=27.0,
+                     dx=10e-3,
+                     sigma=1.5E-3,
+                     ns=60,
+                     debug=False)
 
+si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
-os.system('dolfin-convert working_example.msh working_example.xml')
+si.initialize()
+
+# si.generate_geometry()
+# draw_geometry(si, freq=10, show=True)
+
+si.set_parameter(key="h", value=0.003)  # Mesh characteristic length
+si.set_parameter(key="make_aperture", value=True)
+si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
+                                               "radius": 50e-3,
+                                               "length": 45e-3,
+                                               "width": 18e-3,
+                                               "top_distance": 5e-3,
+                                               "bottom_distance": 10e-3,
+                                               "hole_type": "rectangle",
+                                               "voltage": 0.0})
+
+si.set_parameter(key="make_cylinder", value=True)
+si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
+                                               "zmin": -250e-3,
+                                               "zmax": 80e-3,
+                                               "voltage": 0.0})
+
+si.set_parameter(key="make_housing",
+                 value=True)
+si.set_parameter(key="housing_params",
+                 value={"zmin": -0.12,
+                        "zmax": 0.03,
+                        "span": True,
+                        "gap": 10E-3,
+                        "thickness": 5E-3,
+                        "voltage": 0.0,
+                        "experimental": True})
+
+si.generate_geometry()
+si.generate_meshed_model()
+
+si.solve()
+
+ts = time.time()
+
+si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
+print("Optimizing took {:.4f} s".format(time.time() - ts))
+
+# ts = time.time()
+# print("Calculating electric field...")
 #
-# os.system('gmsh -3 test_geo.geo -format msh2 -o test_geo.msh')
-# os.system('dolfin-convert test_geo.msh test_geo.xml')
+# si.calculate_potential(res=0.002,
+#                        limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
+#                        domain_decomp=(3, 3, 3))
 #
+# si.calculate_efield()
+# print("Calculating field took {:.4f} s".format(time.time() - ts))
 
-"""
-Physical Volume(1) = {1};
-anode_boundary[] = Boundary { Volume{ 1 }; };
-N_anode = #anode_boundary[];
-For i In {0:N_anode-1}
-    Physical Surface (i+1) = { anode_boundary[i] };
-EndFor
+ts = time.time()
 
-Cylinder(2) = {0, 0, -0.13, 0, 0, 0.16, 0.12, 2*Pi};
-Physical Volume(2) = {2};
-vacuum_boundary[] = Boundary { Volume{ 2 }; };
-N_vacuum = #vacuum_boundary[];
-For j In {0:N_vacuum-1}
-    Physical Surface (N_anode +1 + j) = { vacuum_boundary[j] };
-EndFor
+si.track(r_start=np.array([0.0, 0.0, -0.13]),
+         v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+         nsteps=15000,
+         dt=1e-11)
 
-Physical Volume(3) = {1001};
-cathode_boundary[] = Boundary { Volume{ 1001 }; };
-N_cathode = #cathode_boundary[];
-For k In {0:N_cathode-1}
-    Physical Surface (1000+k) = { cathode_boundary[k] };
-EndFor
+print("Tracking took {:.4f} s".format(time.time() - ts))
 
-Delete{ Volume{1, 2, 1001}; }
-Volume (1) = {2, 1, 3};
-"""
-
-mesh = fn.Mesh("working_example.xml")
-markers = fn.MeshFunction('size_t', mesh, 'working_example_physical_region.xml')
-boundaries = fn.MeshFunction('size_t', mesh, 'working_example_facet_region.xml')
-dx = fn.Measure('dx', domain=mesh, subdomain_data=markers)
-V = fn.FunctionSpace(mesh, 'P', 1)
-
-bcs = []
-for i in range(1, 258):
-    bcs.append(fn.DirichletBC(V, fn.Constant(1E4), boundaries, i))
-for i in range(258, 261):
-    bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))
-for i in range(1000, 1257):
-    bcs.append(fn.DirichletBC(V, fn.Constant(-1E4), boundaries, i))
-
-u = fn.TrialFunction(V)
-v = fn.TestFunction(V)
-a = fn.dot(fn.grad(u), fn.grad(v)) * fn.dx
-L = fn.Constant('0') * v * fn.dx
-u = fn.Function(V)
-fn.solve(a == L, u, bcs)
-
-electric_field = -fn.grad(u)
-
-potentialFile = fn.File('output/potential.pvd')
-potentialFile << u
-
-vtkfile = fn.File('output/e_field.pvd')
-vtkfile << fn.project(electric_field)
+si.draw_geometry(show=True)

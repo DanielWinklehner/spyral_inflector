@@ -485,6 +485,12 @@ class SpiralInflector(object):
     def calculate_potential(self, **kwargs):
         return calculate_potential(self, **kwargs)
 
+    def solve(self):
+        if self._solver == 'bempp':
+            return self.solve_bempp()
+        elif self._solver == 'fenics':
+            return self.solve_fenics()
+
     def solve_bempp(self):
         return solve_bempp(self)
 

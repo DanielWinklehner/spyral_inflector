@@ -5,7 +5,7 @@ h2p.calculate_from_energy_mev(0.07 / h2p.a())
 
 si = SpiralInflector(ion=h2p,
                      method="numerical",
-                     solver="fenics",
+                     solver="bempp",
                      volt=12000,
                      gap=20e-3,
                      tilt=27.0,
@@ -21,7 +21,7 @@ si.initialize()
 # si.generate_geometry()
 # draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.0015)  # Mesh characteristic length
+si.set_parameter(key="h", value=0.005)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=False)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
@@ -32,9 +32,9 @@ si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "hole_type": "rectangle",
                                                "voltage": 0.0})
 
-si.set_parameter(key="make_cylinder", value=True)
+si.set_parameter(key="make_cylinder", value=False)
 si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
-                                               "zmin": -150e-3,
+                                               "zmin": -250e-3,
                                                "zmax": 80e-3,
                                                "voltage": 0.0})
 
@@ -51,7 +51,23 @@ si.set_parameter(key="housing_params",
 
 si.generate_geometry()
 si.generate_meshed_model()
-si.solve_fenics()
+
+si.solve()
+
+ts = time.time()
+
+si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
+print("Optimizing took {:.4f} s".format(time.time() - ts))
+
+ts = time.time()
+
+print("Calculating electric field...")
+si.calculate_potential(res=0.002,
+                       limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
+                       domain_decomp=(3, 3, 3))
+
+si.calculate_efield()
+print("Calculating field took {:.4f} s".format(time.time() - ts))
 
 ts = time.time()
 
@@ -61,21 +77,5 @@ si.track(r_start=np.array([0.0, 0.0, -0.13]),
          dt=1e-11)
 
 print("Tracking took {:.4f} s".format(time.time() - ts))
-
-# si.solve_bempp()
-
-# ts = time.time()
-# si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
-# print("Optimizing took {:.4f} s".format(time.time() - ts))
-#
-# ts = time.time()
-# print("Calculating electric field...")
-#
-# si.calculate_potential(res=0.002,
-#                        limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-#                        domain_decomp=(3, 3, 3))
-#
-# si.calculate_efield()
-# print("Calculating field took {:.4f} s".format(time.time() - ts))
 
 si.draw_geometry(show=True)
