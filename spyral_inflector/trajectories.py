@@ -36,6 +36,9 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
 
     # Track for n steps
     for i in range(nsteps):
+
+        # print(r[i])
+
         ef = efield1(r[i])
         bf = bfield1(r[i])
 

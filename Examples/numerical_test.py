@@ -22,7 +22,7 @@ si.initialize()
 # draw_geometry(si, freq=10, show=True)
 
 si.set_parameter(key="h", value=0.0015)  # Mesh characteristic length
-si.set_parameter(key="make_aperture", value=True)
+si.set_parameter(key="make_aperture", value=False)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
                                                "length": 45e-3,
@@ -39,7 +39,7 @@ si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                "voltage": 0.0})
 
 si.set_parameter(key="make_housing",
-                 value=True)
+                 value=False)
 si.set_parameter(key="housing_params",
                  value={"zmin": -0.12,
                         "zmax": 0.03,
@@ -49,8 +49,18 @@ si.set_parameter(key="housing_params",
                         "voltage": 0.0,
                         "experimental": True})
 
+si.generate_geometry()
 si.generate_meshed_model()
 si.solve_fenics()
+
+ts = time.time()
+
+si.track(r_start=np.array([0.0, 0.0, -0.13]),
+         v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+         nsteps=15000,
+         dt=1e-11)
+
+print("Tracking took {:.4f} s".format(time.time() - ts))
 
 # si.solve_bempp()
 
@@ -67,3 +77,5 @@ si.solve_fenics()
 #
 # si.calculate_efield()
 # print("Calculating field took {:.4f} s".format(time.time() - ts))
+
+si.draw_geometry(show=True)

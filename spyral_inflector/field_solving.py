@@ -12,6 +12,15 @@ Z = 2
 XYZ = range(3)
 
 
+class fenics_field_wrapper(object):
+    def __init__(self, field):
+        self._field = field
+        self._field.set_allow_extrapolation(True)
+
+    def __call__(self, position):
+        return self._field(position[0], position[1], position[2])
+
+
 def calculate_efield(si):
     assert si._variables_numerical["ef_phi"] is not None, "Please calculate the potential first!"
 
@@ -335,7 +344,6 @@ def solve_bempp(si):
 
 
 def solve_fenics(si):
-
     fn.set_log_level(60)
 
     numerical_vars = si.numerical_variables
@@ -375,19 +383,34 @@ def solve_fenics(si):
     u = fn.Function(V)
 
     _tsi = time.time()
-    fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "mumps"})
+    fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "cg", "preconditioner": "ilu"})
     _tsf = time.time()
     print("Potential solving time: {:.4f}".format(_tsf - _tsi))
 
-    print(u(0.0, 0.0, 0.0))
-    print(u(0.0, 0.0, -1E-5))
-    print(u(0.0, 0.0, -1E-4))
+    # print(u(0.0, 0.0, 0.0))
+    # print(u(0.0, 0.0, -1E-5))
+    # print(u(0.0, 0.0, -1E-4))
 
     # electric_field = -fn.grad(u)
-    electric_field = -fn.project(u.dx(0), V, solver_type='cg', preconditioner_type='amg')
+
+    # V_vec = fn.VectorFunctionSpace(mesh, 'CG', 1)
+    fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
+    # print(type(fenics_field))
+
+    # print(fenics_field((0.0, 0.0, -0.12)))
+
+    electric_field = fenics_field_wrapper(fenics_field)
+
+    si._variables_numerical["ef_itp"] = electric_field
+    # print(type(electric_field._field))
 
     potentialFile = fn.File('output/potential.pvd')
     potentialFile << u
 
     vtkfile = fn.File('output/e_field.pvd')
-    vtkfile << fn.project(electric_field)
+    vtkfile << fenics_field
+
+    meshfile = fn.File('output/mesh.pvd')
+    meshfile << mesh
+
+    return 0

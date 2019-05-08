@@ -31,6 +31,9 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
 
     # --- Plot with pythonocc-core Qt5 Window --- #
     # Electrodes (PyElectrodeAssembly.show() returns an instance of the display)
+    # for _, elec in numerical_vars["objects"].electrodes.items():
+    #     print(elec.name, elec.occ_obj)
+
     numerical_vars["objects"].set_translation(shift, absolute=True)  # TODO: This should be applied as part of calculation
     display, start_display = numerical_vars["objects"].show()
 

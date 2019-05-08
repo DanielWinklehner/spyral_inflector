@@ -142,7 +142,7 @@ class SICylinder(PyElectrode):
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -971,7 +971,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     anode.color = "RED"
 
     cathode = SIElectrode(name="SI Cathode", voltage=-voltage, offset=cathode_offset)
-    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=False)
+    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=True)
     anode.color = "BLUE"
 
     # Create an assembly holding all the electrodes
@@ -1008,7 +1008,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                                    thickness=thickness,
                                    h=h,
                                    load=True,
-                                   header=False)
+                                   header=True)
 
         # with open('housing_geo_str.geo', 'w') as f:
         #     f.write(s)
@@ -1037,7 +1037,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         entrance_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Z_AXIS, absolute=True)
 
         # Create geo string and load
-        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=False)
+        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=True)
         entrance_aperture.color = "GREEN"
 
         assy.add_electrode(entrance_aperture)
@@ -1080,7 +1080,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
 
             # Create geo string and load
-            exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=False)
+            exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=True)
             exit_aperture.color = "GREEN"
 
             assy.add_electrode(exit_aperture)
@@ -1093,10 +1093,10 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         voltage = numerical_pars["cylinder_params"]["voltage"]
 
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage, offset=cylinder_offset)
-        translate = np.array([0.0, 0.0, zmin])
+        translate = np.array([0.0, 0.0, 0,0])
         outer_cylinder.set_translation(translate, absolute=True)
         # outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
-        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.0075, load=True, header=False)
+        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.0025, load=True, header=True)
 
         assy.add_electrode(outer_cylinder)
 
