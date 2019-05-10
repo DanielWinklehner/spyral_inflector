@@ -16,7 +16,7 @@ class SIAperture(PyElectrode):
         self._parent = parent  # the spiral inflector that contains this aperture
         self._offset = offset
 
-    def create_geo_str(self, r, dz, a, b, hole_type="ellipse", h=0.005, load=True, header=True):
+    def create_geo_str(self, r, dz, a, b, translation=None, hole_type="ellipse", h=0.005, load=True, header=True):
         """
 
         Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
@@ -38,10 +38,13 @@ class SIAperture(PyElectrode):
 
         offset = self._offset
 
+        if translation is None:
+            translation = np.array([0.0, 0.0, 0.0])
+
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -62,6 +65,11 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         geo_str += "\nBooleanDifference({}) = {{ Volume{{ {} }}; Delete; }}{{ Volume{{ {} }}; Delete; }};\n".format(
             3 + offset, 1 + offset, 2 + offset)
+
+        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translation[0],
+                                                                               translation[1],
+                                                                               translation[2],
+                                                                               3 + offset)
 
         # Call function in PyElectrode module we inherit from if 'load' is not False
         if load:
@@ -98,7 +106,7 @@ class SIPointSphere(PyElectrode):
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -469,7 +477,7 @@ class SIHousing(PyElectrode):
 // Geometry.NumSubEdges = 100; // nicer display of curve
 Geometry.ToleranceBoolean = 1E-5;
 Geometry.Tolerance = 1E-10;
-Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
+// Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         else:
             geo_str = "Geometry.ToleranceBoolean = 1E-5;\n"
 
@@ -870,6 +878,9 @@ def generate_vacuum_space(si):
 
     master_geo_str = "// Full .geo file for fenics mesh generation\n"
 
+    make_bottom_aperture = False
+    make_top_aperture = True
+
     # master_geo_str += assy.get_electrode_by_name("SI Anode")._geo_str
     # master_geo_str += assy.get_electrode_by_name("SI Cathode")._geo_str
     # master_geo_str += assy.get_electrode_by_name("Outer Cylinder")._geo_str
@@ -909,7 +920,9 @@ N_cathode = #cathode_boundary[];
 For k In {0:N_cathode-1}
     Physical Surface (1000 + k) = { cathode_boundary[k] };
 EndFor
+"""
 
+    master_geo_str += """
 // Vacuum Cylinder
 Physical Volume(3) = {4001};
 vacuum_boundary[] = Boundary { Volume{ 4001 }; };
@@ -921,10 +934,67 @@ EndFor
 // Surface Loop (2) = { vacuum_boundary };
 // Surface Loop (1) = { anode_boundary };
 // Surface Loop (3) = { cathode_boundary };
+"""
 
-Delete{ Volume{1, 1001, 4001}; }
-Volume (1) = {3, 1, 2};
-    """
+    if make_bottom_aperture:
+        master_geo_str += """
+// Bottom/Exit Aperture or Housing
+Physical Volume(4) = {2001};
+cathode_boundary[] = Boundary { Volume{ 2001 }; };
+N_cathode = #cathode_boundary[];
+For k In {0:N_cathode-1}
+Physical Surface (2000 + k) = { cathode_boundary[k] };
+EndFor
+"""
+    if make_top_aperture:
+        master_geo_str += """
+// Top/Entrance Aperture
+Physical Volume(5) = {3003};
+cathode_boundary[] = Boundary { Volume{ 3003 }; };
+N_cathode = #cathode_boundary[];
+For k In {0:N_cathode-1}
+    Physical Surface (3000 + k) = { cathode_boundary[k] };
+EndFor
+"""
+
+    master_geo_str += "Delete{ Volume{1, 1001, 4001"
+
+    if make_bottom_aperture:
+        master_geo_str += ", 2001"
+    if make_top_aperture:
+        master_geo_str += ", 3003"
+
+    master_geo_str += "}; }\n"
+
+    master_geo_str += "Volume (1) = {3, 1, 2"
+
+    if make_bottom_aperture:
+        master_geo_str += ", 4"
+    if make_top_aperture:
+        if make_bottom_aperture:
+            master_geo_str += ", 5"
+        else:
+            master_geo_str += ", 4"
+
+    master_geo_str += "};\n"
+
+    master_geo_str += """
+
+edge_list[] = Boundary { Volume{ 1 }; };
+N_edges = #edge_list[];
+Field[1] = Distance;
+Field[1].NNodesByEdge = 100;
+Field[1].EdgesList = {1:N_edges};
+
+Field[2] = Threshold;
+Field[2].IField = 1;
+Field[2].LcMin = 0.0015;
+Field[2].LcMax = 0.01;
+Field[2].DistMin = 0.0045;
+Field[2].DistMax = 0.01;
+Background Field = 2;
+"""
+
     with open('master_geometry.geo', 'w') as outfile:
         outfile.write(master_geo_str)
 
@@ -1038,13 +1108,16 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         entrance_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Z_AXIS, absolute=True)
 
         # Create geo string and load
-        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=True)
+        translation = np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz])
+        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, translation=translation, hole_type=hole_type,
+                                         h=h, load=True, header=True)
         entrance_aperture.color = "GREEN"
 
         assy.add_electrode(entrance_aperture)
 
         # --- Exit aperture (rotated and shifted) --- #
-        if not numerical_pars["make_housing"]:
+        i_say_so = False
+        if not numerical_pars["make_housing"] and i_say_so:
             exit_aperture = SIAperture(name="Exit Aperture", voltage=0, offset=exit_offset)
 
             # DEBUG: Display points used for angles

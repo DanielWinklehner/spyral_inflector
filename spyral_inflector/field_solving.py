@@ -366,9 +366,9 @@ def solve_fenics(si):
         bcs.append(fn.DirichletBC(V, fn.Constant(volt), boundaries, i))
     for i in range(1000, 2000):  # Cathode
         bcs.append(fn.DirichletBC(V, fn.Constant(-volt), boundaries, i))
-    for i in range(2000, 3000):  # Entrance Aperture
+    for i in range(2000, 3000):  # Exit Aperture/Housing
         bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))
-    for i in range(3000, 4000):  # Exit Aperture/Housing
+    for i in range(3000, 4000):  # Entrance Aperture
         bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))
     for i in range(4000, 5000):  # Cylinder/Boundary
         bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))

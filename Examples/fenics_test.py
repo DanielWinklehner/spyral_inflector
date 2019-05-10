@@ -11,7 +11,7 @@ si = SpiralInflector(ion=h2p,
                      tilt=27.0,
                      dx=10e-3,
                      sigma=1.5E-3,
-                     ns=60,
+                     ns=40,
                      debug=False)
 
 si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
@@ -34,12 +34,12 @@ si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
 
 si.set_parameter(key="make_cylinder", value=True)
 si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
-                                               "zmin": -250e-3,
+                                               "zmin": -150e-3,
                                                "zmax": 80e-3,
                                                "voltage": 0.0})
 
 si.set_parameter(key="make_housing",
-                 value=True)
+                 value=False)
 si.set_parameter(key="housing_params",
                  value={"zmin": -0.12,
                         "zmax": 0.03,
@@ -56,7 +56,7 @@ si.solve()
 
 ts = time.time()
 
-si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
+si.optimize_fringe(maxiter=3, tol=0.02, res=0.005)
 print("Optimizing took {:.4f} s".format(time.time() - ts))
 
 # ts = time.time()
