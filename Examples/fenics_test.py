@@ -21,7 +21,7 @@ si.initialize()
 # si.generate_geometry()
 # draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.003)  # Mesh characteristic length
+si.set_parameter(key="h", value=0.002)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=True)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
@@ -33,7 +33,7 @@ si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "voltage": 0.0})
 
 si.set_parameter(key="make_cylinder", value=True)
-si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
+si.set_parameter(key="cylinder_params", value={"radius": 150e-3,
                                                "zmin": -150e-3,
                                                "zmax": 80e-3,
                                                "voltage": 0.0})
@@ -43,9 +43,9 @@ si.set_parameter(key="make_housing",
 si.set_parameter(key="housing_params",
                  value={"zmin": -0.12,
                         "zmax": 0.03,
-                        "span": True,
-                        "gap": 10E-3,
-                        "thickness": 5E-3,
+                        "span": True,  # zmin, zmax are ignored if span is True
+                        "gap": 12.5E-3,
+                        "thickness": 7.5E-3,
                         "voltage": 0.0,
                         "experimental": True})
 

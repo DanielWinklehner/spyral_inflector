@@ -46,7 +46,7 @@ class SpiralInflector(object):
 
         # --- Program Variables -------------------------------------------------------------------------------------- #
         self._method = method  # Either analytical or numerical
-        self._solver = solver  # Either bempp or fenics
+        self._solver = solver  # Either 'bempp' or 'fenics'
 
         # assert self._method in ["analytical", "numerical"], \
         #     "Spiral inflector method must be 'analytical' or 'numerical'!"

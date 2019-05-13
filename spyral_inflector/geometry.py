@@ -370,7 +370,7 @@ class SIHousing(PyElectrode):
         def method_two():
             total_pts = []
             circle_pts = []
-            circle_res = 16
+            circle_res = 8
             for i in range(circle_res):
                 circle_pts.append(gap * np.array([np.cos(i * 2 * np.pi / circle_res),
                                                   np.sin(i * 2 * np.pi / circle_res)]))
@@ -386,7 +386,7 @@ class SIHousing(PyElectrode):
 
             total_pts = []
             circle_pts = []
-            circle_res = 16
+            circle_res = 8
             for i in range(circle_res):
                 circle_pts.append((gap + thickness) * np.array([np.cos(i * 2 * np.pi / circle_res),
                                                                 np.sin(i * 2 * np.pi / circle_res)]))
@@ -879,6 +879,8 @@ def generate_vacuum_space(si):
     master_geo_str = "// Full .geo file for fenics mesh generation\n"
 
     make_bottom_aperture = False
+    make_housing = False
+
     make_top_aperture = True
 
     # master_geo_str += assy.get_electrode_by_name("SI Anode")._geo_str
@@ -906,7 +908,7 @@ def generate_vacuum_space(si):
 //
 
 // Anode
-Physical Volume(1) = {1};
+Physical Volume(10) = {1};
 anode_boundary[] = Boundary { Volume{ 1 }; };
 N_anode = #anode_boundary[];
 For i In {0:N_anode-1}
@@ -914,7 +916,7 @@ For i In {0:N_anode-1}
 EndFor
 
 // Cathode
-Physical Volume(2) = {1001};
+Physical Volume(20) = {1001};
 cathode_boundary[] = Boundary { Volume{ 1001 }; };
 N_cathode = #cathode_boundary[];
 For k In {0:N_cathode-1}
@@ -924,7 +926,7 @@ EndFor
 
     master_geo_str += """
 // Vacuum Cylinder
-Physical Volume(3) = {4001};
+Physical Volume(30) = {4001};
 vacuum_boundary[] = Boundary { Volume{ 4001 }; };
 N_vacuum = #vacuum_boundary[];
 For j In {0:N_vacuum-1}
@@ -937,30 +939,48 @@ EndFor
 """
 
     if make_bottom_aperture:
+        if make_housing:
+            ap_id = 2050
+        else:
+            ap_id = 2003
+
         master_geo_str += """
 // Bottom/Exit Aperture or Housing
-Physical Volume(4) = {2001};
-cathode_boundary[] = Boundary { Volume{ 2001 }; };
-N_cathode = #cathode_boundary[];
-For k In {0:N_cathode-1}
-Physical Surface (2000 + k) = { cathode_boundary[k] };
+Physical Volume(40) = {{ {} }};
+exit_boundary[] = Boundary {{ Volume{{ {} }}; }};""".format(ap_id, ap_id)
+
+        master_geo_str += """
+N_exit = #exit_boundary[];
+For k In {0:N_exit-1}
+    Physical Surface (2000 + k) = { exit_boundary[k] };
 EndFor
 """
     if make_top_aperture:
         master_geo_str += """
 // Top/Entrance Aperture
-Physical Volume(5) = {3003};
-cathode_boundary[] = Boundary { Volume{ 3003 }; };
-N_cathode = #cathode_boundary[];
-For k In {0:N_cathode-1}
-    Physical Surface (3000 + k) = { cathode_boundary[k] };
+Physical Volume(50) = {3003};
+entrance_boundary[] = Boundary { Volume{ 3003 }; };
+N_entrance = #entrance_boundary[];
+For k In {0:N_entrance-1}
+    Physical Surface (3000 + k) = { entrance_boundary[k] };
 EndFor
 """
+
+    # BooleanDifference(10) = { Volume{4001}; Delete; }{ Volume{1, 1001, 2050, 3003}; Delete; };
+    #
+    # master_geo_str += "BooleanDifference(10) = { Volume {4001}; Delete; }{ Volume{1, 1001"
+    #
+    # if make_bottom_aperture:
+    #     master_geo_str += ", {}".format(ap_id)
+    # if make_top_aperture:
+    #     master_geo_str += ", 3003"
+    #
+    # master_geo_str += "}; Delete; };\n"
 
     master_geo_str += "Delete{ Volume{1, 1001, 4001"
 
     if make_bottom_aperture:
-        master_geo_str += ", 2001"
+        master_geo_str += ", {}".format(ap_id)
     if make_top_aperture:
         master_geo_str += ", 3003"
 
@@ -980,6 +1000,8 @@ EndFor
 
     master_geo_str += """
 
+Physical Volume(1) = { 1 };
+
 edge_list[] = Boundary { Volume{ 1 }; };
 N_edges = #edge_list[];
 Field[1] = Distance;
@@ -990,9 +1012,12 @@ Field[2] = Threshold;
 Field[2].IField = 1;
 Field[2].LcMin = 0.0015;
 Field[2].LcMax = 0.01;
-Field[2].DistMin = 0.0045;
+Field[2].DistMin = 0.003;
 Field[2].DistMax = 0.01;
 Background Field = 2;
+
+Mesh.OptimizeNetgen = 1;
+
 """
 
     with open('master_geometry.geo', 'w') as outfile:
@@ -1215,15 +1240,32 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         si.generate_vacuum_space()
 
         import fenics as fn
+        import meshio
         import os
 
-        # TODO: BEMPP may be able to do this (below), but I need to check if the filetype version is correct -PW
         os.system('gmsh -3 master_geometry.geo -format msh2 -o master_geometry.msh')
-        os.system('dolfin-convert master_geometry.msh master_geometry.xml')
+        # os.system('dolfin-convert master_geometry.msh master_geometry.xml')
+        msh = meshio.read('master_geometry.msh')
+        meshio.write("master_geometry.xdmf", msh)
 
-        mesh = fn.Mesh('master_geometry.xml')
-        markers = fn.MeshFunction('size_t', mesh, 'master_geometry_physical_region.xml')
-        boundaries = fn.MeshFunction('size_t', mesh, 'master_geometry_facet_region.xml')
+        meshio.write_points_cells("master_geometry_markers.xdmf",
+                                  msh.points,
+                                  {"tetra": msh.cells["tetra"]},
+                                  cell_data={"tetra": {"gmsh:physical": msh.cell_data["tetra"]["gmsh:physical"]}})
+        meshio.write_points_cells("master_geometry_boundaries.xdmf",
+                                  msh.points,
+                                  {"triangle": msh.cells["triangle"]},
+                                  cell_data={"triangle": {"gmsh:physical": msh.cell_data["triangle"]["gmsh:physical"]}})
+
+        mesh = fn.Mesh()
+        fn.XDMFFile("master_geometry_markers.xdmf").read(mesh)
+
+        markers = fn.MeshFunction("size_t", mesh, mesh.topology().dim())
+        fn.XDMFFile("master_geometry_markers.xdmf").read(markers, "gmsh:physical")
+
+        boundaries = fn.MeshValueCollection("size_t", mesh, mesh.topology().dim() - 1)
+        fn.XDMFFile("master_geometry_boundaries.xdmf").read(boundaries, "gmsh:physical")
+        boundaries = fn.MeshFunction("size_t", mesh, boundaries)
 
         full_mesh = [mesh, markers, boundaries]
 

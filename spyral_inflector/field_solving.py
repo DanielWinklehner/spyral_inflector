@@ -357,6 +357,18 @@ def solve_fenics(si):
     dx = fn.Measure('dx', domain=mesh, subdomain_data=markers)
     V = fn.FunctionSpace(mesh, 'P', 1)
 
+    # bad_dof = 0
+    # d2v = fn.dof_to_vertex_map(V)
+    #
+    # # The bad vertex
+    # bad_vertex = fn.Vertex(mesh, d2v[bad_dof])
+    # print("Bad vertex: " + str(bad_vertex.index()))
+    #
+    # # Connectivity has no cells
+    # mesh.init()
+    # print([c for c in fn.cells(bad_vertex)])
+    # print([f for f in fn.facets(bad_vertex)])
+
     volt = si.get_parameter("volt")
 
     # Build boundary conditions
@@ -394,13 +406,13 @@ def solve_fenics(si):
 
     si._variables_numerical["ef_itp"] = electric_field
 
-    # potentialFile = fn.File('output/potential.pvd')
-    # potentialFile << u
-    #
-    # vtkfile = fn.File('output/e_field.pvd')
-    # vtkfile << fenics_field
-    #
-    # meshfile = fn.File('output/mesh.pvd')
-    # meshfile << mesh
+    potentialFile = fn.File('output/potential.pvd')
+    potentialFile << u
+
+    vtkfile = fn.File('output/e_field.pvd')
+    vtkfile << fenics_field
+
+    meshfile = fn.File('output/mesh.pvd')
+    meshfile << mesh
 
     return 0
