@@ -16,7 +16,8 @@ class SIAperture(PyElectrode):
         self._parent = parent  # the spiral inflector that contains this aperture
         self._offset = offset
 
-    def create_geo_str(self, r, dz, a, b, translation=None, hole_type="ellipse", h=0.005, load=True, header=True):
+    def create_geo_str(self, r, dz, a, b, translation=None, rotation=None, hole_type="ellipse", h=0.005, load=True,
+                       header=True):
         """
 
         Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
@@ -40,6 +41,9 @@ class SIAperture(PyElectrode):
 
         if translation is None:
             translation = np.array([0.0, 0.0, 0.0])
+
+        if rotation is None:
+            rotation = np.array([0.0, 0.0, 0.0])
 
         if header:
             geo_str = """SetFactory("OpenCASCADE");
@@ -65,6 +69,13 @@ Geometry.NumSubEdges = 100; // nicer display of curve
 
         geo_str += "\nBooleanDifference({}) = {{ Volume{{ {} }}; Delete; }}{{ Volume{{ {} }}; Delete; }};\n".format(
             3 + offset, 1 + offset, 2 + offset)
+
+        geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            rotation[0], 3 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            rotation[1], 3 + offset)
+        geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            rotation[2], 3 + offset)
 
         geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translation[0],
                                                                                translation[1],
@@ -508,7 +519,8 @@ Geometry.Tolerance = 1E-10;
             geo_str += "Line({}) = {{ {}, {} }};\n".format(i + n_lines_out + offset, i + n_pts_out + offset,
                                                            i + 1 + n_pts_out + offset)
         # Connect last point to first point
-        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1 + n_lines_out + offset, i + 1 + n_pts_out + offset,
+        geo_str += "Line({}) = {{ {}, {} }};\n".format(n_lines_in + n_lines_out + offset - 1,
+                                                       i + 1 + n_pts_out + offset,
                                                        n_pts_out + offset)
 
         geo_str += "Line Loop({}) = {{ {}:{} }};\n".format(1 + offset, 0 + offset, n_lines_out - 1 + offset)
@@ -517,8 +529,32 @@ Geometry.Tolerance = 1E-10;
 
         geo_str += "Plane Surface({}) = {{ {}, {} }};\n".format(1 + offset, 1 + offset, 2 + offset)
 
-        geo_str += "housing_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(zmax - zmin, 1 + offset)
-        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[1] }}; }}\n".format(zmin)
+        num_wire_points = 12
+        # This will be extruded from 0 to zmin, then translated.
+        z_values = np.linspace(0.0, zmax - zmin, num_wire_points)
+        point_index = n_pts_in + n_pts_out + offset
+        for k in range(num_wire_points):
+            geo_str += "Point({}) = {{ 0.0, 0.0, {} }};\n".format(point_index + k, z_values[k])
+
+        # Create the lines that connect these new points
+        line_index = n_lines_in + n_lines_out + offset + 1
+        for m in range(num_wire_points - 1):
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(line_index + m,
+                                                           point_index + m, point_index + m + 1)
+
+        # I think wires use the same number set as line loops?
+        geo_str += "Wire({}) = {{ {}:{} }};\n".format(3 + offset,
+                                                      n_lines_in + n_lines_out + offset + 1,
+                                                      n_lines_in + n_lines_out + offset + num_wire_points - 1)
+
+        # Commented out to test out wire extrudes:
+        # geo_str += "housing_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(zmax - zmin, 1 + offset)
+
+        geo_str += "housing_out[] = Extrude {{ Surface{{ {} }}; }} Using Wire {{ {} }};\n".format(1 + offset,
+                                                                                                  3 + offset)
+        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[] }}; }}\n".format(zmin)
+
+        # TODO: Remove the wire and points after creating the volume -PW
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
@@ -549,7 +585,7 @@ Geometry.Tolerance = 1E-10;
                                                                                0.0,
                                                                                2 + offset)
 
-        geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[1] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
+        geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
             50 + offset, 2 + offset)
 
         if load:
@@ -873,36 +909,34 @@ def generate_vacuum_space(si):
     assert si.numerical_parameters["make_cylinder"], "You need a cylinder/boundary to create the vacuum space!"
 
     numerical_vars = si.numerical_variables
+    numerical_pars = si.numerical_parameters
 
     assy = numerical_vars["objects"]
 
     master_geo_str = "// Full .geo file for fenics mesh generation\n"
 
-    make_bottom_aperture = False
-    make_housing = False
-
-    make_top_aperture = True
-
-    # master_geo_str += assy.get_electrode_by_name("SI Anode")._geo_str
-    # master_geo_str += assy.get_electrode_by_name("SI Cathode")._geo_str
-    # master_geo_str += assy.get_electrode_by_name("Outer Cylinder")._geo_str
+    if numerical_pars["make_aperture"]:
+        make_top_aperture = True
+        if numerical_pars["make_housing"]:
+            make_housing = True
+            make_bottom_aperture = False
+        else:
+            make_housing = False
+            make_bottom_aperture = True
+    else:
+        make_top_aperture = False
+        make_housing = False
+        make_bottom_aperture = False
 
     for _, electrode in assy.electrodes.items():
         master_geo_str += electrode._geo_str
-
-    # Volumes:
-    # 1 = Anode
-    # 2 = Cathode
-    # 3 = Boundary/Cylinder
-    # 4 = Top/Entrance Aperture
-    # 5 = Bottom/Exit Aperture or Housing
 
     master_geo_str += """
 //
 //    anode_offset = 0
 //    cathode_offset = 1000
-//    housing_offset = 2000
-//    exit_offset = 2000
+//    housing_offset = 5000
+//    exit_offset = 5000
 //    entrance_offset = 3000
 //    cylinder_offset = 4000
 //
@@ -940,9 +974,9 @@ EndFor
 
     if make_bottom_aperture:
         if make_housing:
-            ap_id = 2050
+            ap_id = 5050
         else:
-            ap_id = 2003
+            ap_id = 5003
 
         master_geo_str += """
 // Bottom/Exit Aperture or Housing
@@ -952,7 +986,7 @@ exit_boundary[] = Boundary {{ Volume{{ {} }}; }};""".format(ap_id, ap_id)
         master_geo_str += """
 N_exit = #exit_boundary[];
 For k In {0:N_exit-1}
-    Physical Surface (2000 + k) = { exit_boundary[k] };
+    Physical Surface (5000 + k) = { exit_boundary[k] };
 EndFor
 """
     if make_top_aperture:
@@ -1029,6 +1063,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     analytic_vars = si.analytic_variables
     numerical_pars = si.numerical_parameters
     numerical_vars = si.numerical_variables
+    solver = si._solver
 
     if apertures is not None:
         numerical_pars["make_aperture"] = apertures
@@ -1057,8 +1092,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     # Variables for fenics solving, won't affect anything BEMPP related (ideally) -PW
     anode_offset = 0
     cathode_offset = 1000
-    housing_offset = 2000
-    exit_offset = 2000
+    housing_offset = 5000
+    exit_offset = 5000
     entrance_offset = 3000
     cylinder_offset = 4000
 
@@ -1128,21 +1163,27 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # TODO: May have to be rotated more with entrance of SI
         entrance_aperture = SIAperture(name="Entrance Aperture", voltage=voltage, offset=entrance_offset)
 
-        # Calculate correct translation
-        entrance_aperture.set_translation(np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz]), absolute=True)
-        entrance_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=Z_AXIS, absolute=True)
+        # Calculate correct translation and rotation
+        translation = np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz])
+        rotation = np.array([0.0, 0.0, np.deg2rad(90.0)])
+
+        if solver == "bempp":
+            entrance_aperture.set_translation(translation, absolute=True)
+            entrance_aperture.set_rotation_angle_axis(angle=rotation[2], axis=Z_AXIS, absolute=True)
 
         # Create geo string and load
-        translation = np.array([0, 0, trj[0][2] - t_gap - 0.5 * dz])
-        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, translation=translation, hole_type=hole_type,
+        if solver == "bempp":
+            translation = np.array([0.0, 0.0, 0.0])
+            rotation = np.array([0.0, 0.0, 0.0])
+        entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, translation=translation, rotation=rotation,
+                                         hole_type=hole_type,
                                          h=h, load=True, header=True)
         entrance_aperture.color = "GREEN"
 
         assy.add_electrode(entrance_aperture)
 
         # --- Exit aperture (rotated and shifted) --- #
-        i_say_so = False
-        if not numerical_pars["make_housing"] and i_say_so:
+        if not numerical_pars["make_housing"]:
             exit_aperture = SIAperture(name="Exit Aperture", voltage=0, offset=exit_offset)
 
             # DEBUG: Display points used for angles
@@ -1171,15 +1212,23 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
                                   trj[-1][1] + norm_vec[1] * b_gap,
                                   0.0])
+
+            rotation = np.array([np.deg2rad(90.0),
+                                 tilt_angle,
+                                 face_angle])
+
             exit_aperture.set_translation(translate, absolute=True)
 
             # Calculate correct rotation
-            exit_aperture.set_rotation_angle_axis(angle=np.deg2rad(90.0), axis=X_AXIS, absolute=True)  # upright
-            exit_aperture.set_rotation_angle_axis(angle=tilt_angle, axis=Y_AXIS, absolute=False)  # match tilt
-            exit_aperture.set_rotation_angle_axis(angle=face_angle, axis=Z_AXIS, absolute=False)  # match exit
-
+            if solver == "bempp":
+                exit_aperture.set_rotation_angle_axis(angle=rotation[0], axis=X_AXIS, absolute=True)  # upright
+                exit_aperture.set_rotation_angle_axis(angle=rotation[1], axis=Y_AXIS, absolute=False)  # match tilt
+                exit_aperture.set_rotation_angle_axis(angle=rotation[2], axis=Z_AXIS, absolute=False)  # match exit
+                translation = np.array([0.0, 0.0, 0.0])
+                rotation = np.array([0.0, 0.0, 0.0])
             # Create geo string and load
-            exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, hole_type=hole_type, h=h, load=True, header=True)
+            exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, translation=translation, rotation=rotation,
+                                         hole_type=hole_type, h=h, load=True, header=True)
             exit_aperture.color = "GREEN"
 
             assy.add_electrode(exit_aperture)

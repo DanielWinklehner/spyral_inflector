@@ -34,12 +34,12 @@ si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
 
 si.set_parameter(key="make_cylinder", value=True)
 si.set_parameter(key="cylinder_params", value={"radius": 150e-3,
-                                               "zmin": -150e-3,
+                                               "zmin": -250e-3,
                                                "zmax": 80e-3,
                                                "voltage": 0.0})
 
 si.set_parameter(key="make_housing",
-                 value=False)
+                 value=True)
 si.set_parameter(key="housing_params",
                  value={"zmin": -0.12,
                         "zmax": 0.03,
