@@ -4,3 +4,4 @@ dans_pymodules
 py_electrodes
 matplotlib
 bempp
+fenics

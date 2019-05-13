@@ -100,7 +100,7 @@ class SpiralInflector(object):
                                                       "width": None,
                                                       "top_distance": None,
                                                       "bottom_distance": None,
-                                                      "hole_type": "ellipse",  # TODO: Set this somewhere
+                                                      "hole_type": None,
                                                       "voltage": 0.0},
                                   "make_cylinder": False,  # Cylindrical boundary
                                   "cylinder_params": {"radius": None,
@@ -110,11 +110,11 @@ class SpiralInflector(object):
                                   "make_housing": False,  # Convex hull housing
                                   "housing_params": {"zmin": None,
                                                      "zmax": None,
-                                                     "span": False,  # TODO: Set this somewhere
+                                                     "span": None,
                                                      "gap": None,
                                                      "thickness": None,
                                                      "voltage": 0.0,
-                                                     "experimental": False}  # TODO: Set this somewhere
+                                                     "experimental": None}
                                   }
 
         for key in self._params_numerical.keys():

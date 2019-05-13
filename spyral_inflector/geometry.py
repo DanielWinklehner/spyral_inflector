@@ -341,9 +341,6 @@ class SIHousing(PyElectrode):
     def __init__(self, parent=None, name="Spiral Inflector Housing", voltage=0, offset=0, experimental=False):
         super().__init__(name=name, voltage=voltage)
 
-        # TODO: Intersections between housing and top aperture during optimization!
-        # TODO: Is this from shifts? -PW
-
         assert parent is not None, "This class requires a parent."
 
         self._parent = parent
@@ -568,10 +565,10 @@ Geometry.Tolerance = 1E-10;
                                                                                 -0.5 * a, -0.5 * b,
                                                                                 0.0, a,
                                                                                 b, 0.1)
-        elif hole_type == "ellipse":  # TODO: The ellipse probably doesn't work -PW
+        elif hole_type == "ellipse":  # TODO: The ellipse doesn't work -PW
             geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
             geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(2 + offset, 0.1,
-                                                                                              500 + offset)  # To be robust
+                                                                                              500 + offset)
 
         geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
             np.pi / 2.0, 2 + offset)
