@@ -1,7 +1,4 @@
 from dans_pymodules import *
-import bempp.api
-# noinspection PyUnresolvedReferences
-from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
 
 # Define the directions:
 X = 0
@@ -57,6 +54,7 @@ def calculate_potential(si,
                         res=0.002,
                         domain_decomp=(4, 4, 4),
                         overlap=0):
+    import bempp.api
     # TODO: Add some of the debug stuff back in
 
     limits = np.array(limits)
@@ -165,6 +163,8 @@ def calculate_potential(si,
 
 
 def solve_bempp(si):
+    import bempp.api
+
     numerical_vars = si.numerical_variables
     bempp_params = si.numerical_parameters
 

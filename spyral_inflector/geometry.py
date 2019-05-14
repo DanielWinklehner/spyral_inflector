@@ -1,8 +1,4 @@
 from dans_pymodules import *
-import bempp.api
-# noinspection PyUnresolvedReferences
-from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
-# noinspection PyUnresolvedReferences
 from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
 
 X_AXIS = np.array([1, 0, 0], float)
@@ -1265,6 +1261,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
     numerical_vars = si.numerical_variables
 
     if si._solver == "bempp":
+        import bempp.api
 
         assy = numerical_vars["objects"]
 
