@@ -14,6 +14,22 @@ except ImportError:
     bempp = None
 
 
+HAVE_FENICS = False
+try:
+    import fenics as fn
+    HAVE_FENICS = True
+except:
+    fn = None
+
+
+HAVE_MESHIO = False
+try:
+    import meshio
+    HAVE_MESHIO = True
+except ImportError:
+    meshio = None
+
+
 class SIAperture(PyElectrode):
     def __init__(self, parent=None, name="New Aperture", voltage=0, offset=0):
         super().__init__(name=name, voltage=voltage)
@@ -1270,6 +1286,8 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
     if si._solver == "bempp":
 
+        assert HAVE_BEMPP, "BEMPP not found. Aborting!"
+
         assy = numerical_vars["objects"]
 
         leaf_view = assy.get_bempp_mesh()
@@ -1285,6 +1303,9 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
             _full_mesh.plot()
 
     elif si._solver == "fenics":
+
+        assert HAVE_FENICS, "Fenics not found. Aborting!"
+        assert HAVE_MESHIO, "Meshio not found. Aborting!"
 
         si.generate_vacuum_space()
 

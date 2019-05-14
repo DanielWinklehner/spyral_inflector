@@ -17,6 +17,14 @@ except ImportError:
     bempp = None
 
 
+HAVE_FENICS = False
+try:
+    import fenics as fn
+    HAVE_FENICS = True
+except ImportError:
+    fn = None
+
+
 class FenicsField(object):
     def __init__(self, field):
         self._field = field
@@ -64,6 +72,8 @@ def calculate_potential(si,
                         domain_decomp=(4, 4, 4),
                         overlap=0):
     # TODO: Add some of the debug stuff back in
+
+    assert HAVE_BEMPP, "BEMPP not found. Aborting!"
 
     limits = np.array(limits)
 
@@ -172,6 +182,8 @@ def calculate_potential(si,
 
 def solve_bempp(si):
 
+    assert HAVE_BEMPP, "BEMPP not found. Aborting!"
+
     numerical_vars = si.numerical_variables
     bempp_params = si.numerical_parameters
 
@@ -228,7 +240,8 @@ def solve_bempp(si):
 
 
 def solve_fenics(si):
-    import fenics as fn
+
+    assert HAVE_FENICS, "Fenics not found. Aborting!"
 
     fn.set_log_level(60)
 
@@ -241,18 +254,6 @@ def solve_fenics(si):
 
     dx = fn.Measure('dx', domain=mesh, subdomain_data=markers)
     V = fn.FunctionSpace(mesh, 'P', 1)
-
-    # bad_dof = 0
-    # d2v = fn.dof_to_vertex_map(V)
-    #
-    # # The bad vertex
-    # bad_vertex = fn.Vertex(mesh, d2v[bad_dof])
-    # print("Bad vertex: " + str(bad_vertex.index()))
-    #
-    # # Connectivity has no cells
-    # mesh.init()
-    # print([c for c in fn.cells(bad_vertex)])
-    # print([f for f in fn.facets(bad_vertex)])
 
     volt = si.get_parameter("volt")
 

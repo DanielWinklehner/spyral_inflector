@@ -1,8 +1,6 @@
-import bempp.api
 from dans_pymodules import *
 from mpl_toolkits.mplot3d import proj3d
 from .geometry import SITrajectory
-from OCC.Core.AIS import AIS_Shape
 
 colors = MyColors()
 
@@ -78,65 +76,66 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
     return 0
 
 
-def plot_potential(si, limits=(-0.1, 0.1, -0.1, 0.1), orientation="xy", **kwargs):
-    if si._variables_numerical["solution"] is None:
-        print("No BEM++ solution in memory to plot from.")
-        return 1
-
-    if "n_grid_points" in kwargs.keys():
-        n_grid_points = kwargs["n_grid_points"]
-    else:
-        n_grid_points = 200
-
-    if "offset" in kwargs.keys():
-        offset = kwargs["offset"]
-    else:
-        offset = 0.0
-
-    sol = si._variables_numerical["solution"]
-    f_space = si._variables_numerical["f_space"]
-
-    plot_grid = np.mgrid[limits[0]:limits[1]:n_grid_points * 1j,
-                limits[2]:limits[3]:n_grid_points * 1j]
-
-    e1 = plot_grid[0].ravel()
-    e2 = plot_grid[1].ravel()
-    e3 = offset * np.ones(plot_grid[0].size)
-    if orientation == "xy":
-        points = np.vstack((e1, e2, e3))
-    elif orientation == "yz":
-        points = np.vstack((e3, e1, e2))
-    elif orientation == "xz":
-        points = np.vstack((e1, e3, e2))
-    else:
-        print("Orientation not recognized. Allowed orientations are: xy, yz, xz.")
-        return 1
-
-    slp_pot = bempp.api.operators.potential.laplace.single_layer(f_space, points)
-    u_evaluated = slp_pot * sol
-    u_evaluated = u_evaluated.reshape((n_grid_points, n_grid_points))
-
-    if "vlims" in kwargs.keys():
-        vlims = kwargs["vlims"]
-    else:
-        vlims = [np.min(u_evaluated), np.max(u_evaluated)]
-
-    plt.imshow(u_evaluated.T,
-               extent=(limits[0], limits[1], limits[2], limits[3]),
-               vmin=vlims[0],
-               vmax=vlims[1])
-
-    if "colorbar" in kwargs.keys():
-        if kwargs["colorbar"]:
-            plt.colorbar()
-
-    plt.show()
-
-    if "save_fig" in kwargs.keys() and "filename" in kwargs.keys():
-        if kwargs["save_fig"]:
-            plt.savefig(kwargs["filename"])
-
-    return 0
+# TODO: Revamp potential plotting
+# def plot_potential(si, limits=(-0.1, 0.1, -0.1, 0.1), orientation="xy", **kwargs):
+#     if si._variables_numerical["solution"] is None:
+#         print("No BEM++ solution in memory to plot from.")
+#         return 1
+#
+#     if "n_grid_points" in kwargs.keys():
+#         n_grid_points = kwargs["n_grid_points"]
+#     else:
+#         n_grid_points = 200
+#
+#     if "offset" in kwargs.keys():
+#         offset = kwargs["offset"]
+#     else:
+#         offset = 0.0
+#
+#     sol = si._variables_numerical["solution"]
+#     f_space = si._variables_numerical["f_space"]
+#
+#     plot_grid = np.mgrid[limits[0]:limits[1]:n_grid_points * 1j,
+#                 limits[2]:limits[3]:n_grid_points * 1j]
+#
+#     e1 = plot_grid[0].ravel()
+#     e2 = plot_grid[1].ravel()
+#     e3 = offset * np.ones(plot_grid[0].size)
+#     if orientation == "xy":
+#         points = np.vstack((e1, e2, e3))
+#     elif orientation == "yz":
+#         points = np.vstack((e3, e1, e2))
+#     elif orientation == "xz":
+#         points = np.vstack((e1, e3, e2))
+#     else:
+#         print("Orientation not recognized. Allowed orientations are: xy, yz, xz.")
+#         return 1
+#
+#     slp_pot = bempp.api.operators.potential.laplace.single_layer(f_space, points)
+#     u_evaluated = slp_pot * sol
+#     u_evaluated = u_evaluated.reshape((n_grid_points, n_grid_points))
+#
+#     if "vlims" in kwargs.keys():
+#         vlims = kwargs["vlims"]
+#     else:
+#         vlims = [np.min(u_evaluated), np.max(u_evaluated)]
+#
+#     plt.imshow(u_evaluated.T,
+#                extent=(limits[0], limits[1], limits[2], limits[3]),
+#                vmin=vlims[0],
+#                vmax=vlims[1])
+#
+#     if "colorbar" in kwargs.keys():
+#         if kwargs["colorbar"]:
+#             plt.colorbar()
+#
+#     plt.show()
+#
+#     if "save_fig" in kwargs.keys() and "filename" in kwargs.keys():
+#         if kwargs["save_fig"]:
+#             plt.savefig(kwargs["filename"])
+#
+#     return 0
 
 
 def plot_bfield(si, lims=(-0.2, 0.2), num=5000):
