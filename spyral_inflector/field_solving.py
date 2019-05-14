@@ -8,6 +8,15 @@ Z = 2
 XYZ = range(3)
 
 
+HAVE_BEMPP = False
+try:
+    import bempp.api
+    from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+    HAVE_BEMPP = True
+except ImportError:
+    bempp = None
+
+
 class FenicsField(object):
     def __init__(self, field):
         self._field = field
@@ -54,7 +63,6 @@ def calculate_potential(si,
                         res=0.002,
                         domain_decomp=(4, 4, 4),
                         overlap=0):
-    import bempp.api
     # TODO: Add some of the debug stuff back in
 
     limits = np.array(limits)
@@ -163,7 +171,6 @@ def calculate_potential(si,
 
 
 def solve_bempp(si):
-    import bempp.api
 
     numerical_vars = si.numerical_variables
     bempp_params = si.numerical_parameters

@@ -5,6 +5,14 @@ X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)
 Z_AXIS = np.array([0, 0, 1], float)
 
+HAVE_BEMPP = False
+try:
+    import bempp.api
+    from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+    HAVE_BEMPP = True
+except ImportError:
+    bempp = None
+
 
 class SIAperture(PyElectrode):
     def __init__(self, parent=None, name="New Aperture", voltage=0, offset=0):
@@ -1261,7 +1269,6 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
     numerical_vars = si.numerical_variables
 
     if si._solver == "bempp":
-        import bempp.api
 
         assy = numerical_vars["objects"]
 
