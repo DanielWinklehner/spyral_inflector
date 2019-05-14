@@ -39,12 +39,14 @@ def orthogonal_proj(zfront, zback):
 class SpiralInflector(object):
     def __init__(self,
                  method="analytical",
+                 solver="bempp",
                  debug=False,
                  outp_folder="",
                  **kwargs):
 
         # --- Program Variables -------------------------------------------------------------------------------------- #
         self._method = method  # Either analytical or numerical
+        self._solver = solver  # Either 'bempp' or 'fenics'
 
         # assert self._method in ["analytical", "numerical"], \
         #     "Spiral inflector method must be 'analytical' or 'numerical'!"
@@ -90,47 +92,47 @@ class SpiralInflector(object):
                                     }
 
         # --- Parameters used by the BEM++ potential and field calculation ------------------------------------------- #
-        self._params_bempp = {"h": None,  # the desired mesh spacing for BEM++ mesh generation
-                              "make_aperture": False,  # Make apertures at the exit and entrance
-                              "gmres_tol": 1E-4,  # Tolerance used to calculate the BEMPP solution
-                              "aperture_params": {"thickness": None,
-                                                  "radius": None,
-                                                  "length": None,
-                                                  "width": None,
-                                                  "top_distance": None,
-                                                  "bottom_distance": None,
-                                                  "hole_type": "ellipse",  # TODO: Set this somewhere
-                                                  "voltage": 0.0},
-                              "make_cylinder": False,  # Cylindrical boundary
-                              "cylinder_params": {"radius": None,
-                                                  "zmin": None,
-                                                  "zmax": None,
-                                                  "voltage": 0.0},
-                              "make_housing": False,  # Convex hull housing
-                              "housing_params": {"zmin": None,
-                                                 "zmax": None,
-                                                 "span": False,  # TODO: Set this somewhere
-                                                 "gap": None,
-                                                 "thickness": None,
-                                                 "voltage": 0.0,
-                                                 "experimental": False}  # TODO: Set this somewhere
-                              }
+        self._params_numerical = {"h": None,  # the desired mesh spacing for BEM++ mesh generation
+                                  "make_aperture": False,  # Make apertures at the exit and entrance
+                                  "gmres_tol": 1E-4,  # Tolerance used to calculate the BEMPP solution
+                                  "aperture_params": {"thickness": None,
+                                                      "radius": None,
+                                                      "length": None,
+                                                      "width": None,
+                                                      "top_distance": None,
+                                                      "bottom_distance": None,
+                                                      "hole_type": None,
+                                                      "voltage": 0.0},
+                                  "make_cylinder": False,  # Cylindrical boundary
+                                  "cylinder_params": {"radius": None,
+                                                      "zmin": None,
+                                                      "zmax": None,
+                                                      "voltage": 0.0},
+                                  "make_housing": False,  # Convex hull housing
+                                  "housing_params": {"zmin": None,
+                                                     "zmax": None,
+                                                     "span": None,
+                                                     "gap": None,
+                                                     "thickness": None,
+                                                     "voltage": 0.0,
+                                                     "experimental": None}
+                                  }
 
-        for key in self._params_bempp.keys():
+        for key in self._params_numerical.keys():
             if key in kwargs.keys():
-                self._params_bempp[key] = kwargs[key]
+                self._params_numerical[key] = kwargs[key]
 
-        self._variables_bempp = {"objects": {},  # A dictionary of objects (apertures, electrodes)
-                                 "limits": None,  # BEM++ Potential/E-Field Limits
-                                 "full mesh": None,  # Full mesh of the geometry
-                                 "i": None,  # A running 3-index for mesh generation
-                                 "f_space": None,  # BEM++ Function Space
-                                 "operator": None,  # BEM++ Operator
-                                 "grid_fun": None,  # BEM++ Grid Function
-                                 "solution": None,  # The BEM++ solution
-                                 "n_fun_coeff": None,  # BEM++ Neumann coefficients from the solution
-                                 "ef_itp": None,  # Interpolator object for E-Field
-                                 }
+        self._variables_numerical = {"objects": {},  # A dictionary of objects (apertures, electrodes)
+                                     "limits": None,  # BEM++ Potential/E-Field Limits
+                                     "full mesh": None,  # Full mesh of the geometry
+                                     "i": None,  # A running 3-index for mesh generation
+                                     "f_space": None,  # BEM++ Function Space
+                                     "operator": None,  # BEM++ Operator
+                                     "grid_fun": None,  # BEM++ Grid Function
+                                     "solution": None,  # The BEM++ solution
+                                     "n_fun_coeff": None,  # BEM++ Neumann coefficients from the solution
+                                     "ef_itp": None,  # Interpolator object for E-Field
+                                     }
 
         # --- Additional parameters used for particle tracking ------------------------------------------------------- #
         self._params_track = {"dt": 1e-10,
@@ -225,11 +227,19 @@ class SpiralInflector(object):
 
     @property
     def bempp_parameters(self):
-        return self._params_bempp
+        return self._params_numerical
 
     @property
     def bempp_variables(self):
-        return self._variables_bempp
+        return self._variables_numerical
+
+    @property
+    def numerical_parameters(self):
+        return self._params_numerical
+
+    @property
+    def numerical_variables(self):
+        return self._variables_numerical
 
     @property
     def track_parameters(self):
@@ -249,11 +259,19 @@ class SpiralInflector(object):
 
     @bempp_parameters.setter
     def bempp_parameters(self, bempp_parameters):
-        self._params_bempp = bempp_parameters
+        self._params_numerical = bempp_parameters
 
     @bempp_variables.setter
     def bempp_variables(self, bempp_variables):
-        self._variables_bempp = bempp_variables
+        self._variables_numerical = bempp_variables
+
+    @numerical_parameters.setter
+    def numerical_parameters(self, numerical_parameters):
+        self._params_numerical = numerical_parameters
+
+    @numerical_variables.setter
+    def numerical_variables(self, numerical_variables):
+        self._variables_numerical = numerical_variables
 
     @track_parameters.setter
     def track_parameters(self, track_parameters):
@@ -391,14 +409,14 @@ class SpiralInflector(object):
             if self._initialized:
                 self.initialize()
 
-        elif key in self._params_bempp.keys():
+        elif key in self._params_numerical.keys():
 
-            self._params_bempp[key] = value
+            self._params_numerical[key] = value
 
-        elif group in self._params_bempp.keys():
+        elif group in self._params_numerical.keys():
 
-            if key in self._params_bempp[group].keys():
-                self._params_bempp[group][key] = value
+            if key in self._params_numerical[group].keys():
+                self._params_numerical[group][key] = value
 
         elif key in self._params_exp:
 
@@ -407,16 +425,16 @@ class SpiralInflector(object):
     def save(self, fname):
         import pickle
 
-        saved_bempp_vars = {}
-        saved_bempp_vars["full mesh"] = self._variables_bempp["full mesh"]
-        saved_bempp_vars["n_fun_coeff"] = self._variables_bempp["n_fun_coeff"]
-        saved_bempp_vars["limits"] = self._variables_bempp["limits"]
+        saved_numerical_vars = {}
+        saved_numerical_vars["full mesh"] = self._variables_numerical["full mesh"]
+        saved_numerical_vars["n_fun_coeff"] = self._variables_numerical["n_fun_coeff"]
+        saved_numerical_vars["limits"] = self._variables_numerical["limits"]
 
         save_obj = {"method": self._method,
                     "params_analytic": self._params_analytic,
                     "variables_analytic": self._variables_analytic,
-                    "params_bempp": self._params_bempp,
-                    "variables_bempp": saved_bempp_vars,
+                    "params_numerical": self._params_numerical,
+                    "variables_numerical": saved_numerical_vars,
                     "params_track": self._params_track,
                     "variables_track": self._variables_track,
                     "variables_optimization": self._variables_optimization}
@@ -441,11 +459,11 @@ class SpiralInflector(object):
             for key, val in save_obj["variables_analytic"].items():
                 self._variables_analytic[key] = val
 
-            for key, val in save_obj["params_bempp"].items():
-                self._params_bempp[key] = val
+            for key, val in save_obj["params_numerical"].items():
+                self._params_numerical[key] = val
 
-            for key, val in save_obj["variables_bempp"].items():
-                self._variables_bempp[key] = val
+            for key, val in save_obj["variables_numerical"].items():
+                self._variables_numerical[key] = val
 
             for key, val in save_obj["params_track"].items():
                 self._params_track[key] = val
@@ -468,8 +486,17 @@ class SpiralInflector(object):
     def calculate_potential(self, **kwargs):
         return calculate_potential(self, **kwargs)
 
+    def solve(self):
+        if self._solver == 'bempp':
+            return self.solve_bempp()
+        elif self._solver == 'fenics':
+            return self.solve_fenics()
+
     def solve_bempp(self):
         return solve_bempp(self)
+
+    def solve_fenics(self):
+        return solve_fenics(self)
 
     # def generate_aperture_geometry(self, *args):
     #     return generate_aperture_geometry(self, *args)
@@ -479,6 +506,12 @@ class SpiralInflector(object):
     #
     # def generate_spiral_electrode_geometry(self, *args):
     #     return generate_spiral_electrode_geometry(self, *args)
+
+    def generate_vacuum_space(self):
+        return generate_vacuum_space(self)
+
+    def generate_solid_assembly(self, **kwargs):
+        return generate_solid_assembly(self, **kwargs)
 
     def generate_meshed_model(self, **kwargs):
         return generate_meshed_model(self, **kwargs)
