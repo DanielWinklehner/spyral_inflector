@@ -2,13 +2,36 @@
 A python module to help with the design of cyclotron spiral inflectors.
 
 ## Installation
+
+**Prerequisites:**
+This modules has several required prerequisite modules to be installed. Some of the common packages that you may already have are:
+- numpy
+- scipy
+- matplotlib
+
+In addition to those, you will need to have:
+
+- [dans_pymodules](https://github.com/DanielWinklehner/dans_pymodules)
+- [py_electrodes](https://github.com/DanielWinklehner/py_electrodes)
+
+As of May 2019, two solvers can be used to calculate fields. You only need one installed to be able to utilize the features in the spyral_inflector modules.
+- [BEMPP](https://bempp.com/)
+- [FEniCS](https://fenicsproject.org/)
+
+
+**Installing the module**
 ```bash
 git clone https://github.com/DanielWinklehner/spyral_inflector.git
+cd spyral_inflector
 ```
 
+The module can be installed using the setup.py file:
 ```bash
-cd spyral_inflector
 python setup.py install
+```
+or through pip (or pip3):
+```bash
+pip install .
 ```
 
 ## Generating an analytical model
