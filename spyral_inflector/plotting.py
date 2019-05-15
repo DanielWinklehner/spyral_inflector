@@ -37,12 +37,14 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
 
     # Trajectories
     occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
+    occ_trj.set_translation(shift, absolute=True)
     occ_trj.create_geo_str(analytic_vars["trj_design"], max_points=freq, load=True)
     occ_trj.color = "RED"
     occ_trj.show(display=display)
 
     if track_vars["trj_tracker"] is not None:
         occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
+        occ_trj.set_translation(shift, absolute=True)
         occ_trj.create_geo_str(track_vars["trj_tracker"], max_points=freq, load=True)
         occ_trj.color = "BLACK"
         occ_trj.show(display=display)
@@ -50,6 +52,7 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
     if aux_trajectories is not None:
         for i, _trj in enumerate(aux_trajectories):
             occ_trj = SITrajectory(name="Aux Trajectory {}".format(i), voltage=0)
+            occ_trj.set_translation(shift, absolute=True)
             occ_trj.create_geo_str(_trj, max_points=freq, load=True)
             occ_trj.color = "BLUE"
             occ_trj.show(display=display)
