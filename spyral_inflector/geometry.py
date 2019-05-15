@@ -1343,7 +1343,8 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
     return numerical_vars["full mesh"]
 
 
-def export_aperture_geometry(si, fname="aperture_macro.ivb"):
+def aperture_geometry_macro(si, fname=None):
+    # File type for inventor is .ivb
     geo = si._variables_analytic["geo"] * 100.0  # Scaling for inventor
     trj = si._variables_analytic["trj_design"] * 100.0  # type: np.ndarray
     thickness = si._params_numerical["aperture_params"]["thickness"] * 100.0
@@ -1450,12 +1451,16 @@ ThisApplication.ActiveView.Fit
 
 End Sub
 """
-    import os
-    with open(os.path.join(si._outp_folder, fname), "w") as outfile:
-        outfile.writelines(aperture_string)
+    if fname is not None:
+        import os
+        with open(os.path.join(si._outp_folder, fname), "w") as outfile:
+            outfile.writelines(aperture_string)
+
+    return aperture_string
 
 
-def export_electrode_geometry(si, fname="electrode_macro.ivb"):
+def electrode_geometry_macro(si, fname=None):
+    # File type for inventor is .ivb
     geo = si._variables_analytic["geo"] * 100.0  # Fix scaling in inventor
 
     # Generate text for Inventor macro
@@ -1576,12 +1581,13 @@ def export_electrode_geometry(si, fname="electrode_macro.ivb"):
 
 End Sub
 """
-    import os
-    with open(os.path.join(si._outp_folder, fname), "w") as of:
+    if fname is not None:
+        import os
+        with open(os.path.join(si._outp_folder, fname), "w") as of:
 
-        of.write(header_text + electrode_texts[0] + electrode_texts[1] + footer_text)
+            of.write(header_text + electrode_texts[0] + electrode_texts[1] + footer_text)
 
-    print("Done!")
+    return header_text + electrode_texts[0] + electrode_texts[1] + footer_text
 
 
 def save_geo_files(si, filename=None):

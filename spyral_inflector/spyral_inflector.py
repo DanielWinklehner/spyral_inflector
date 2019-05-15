@@ -218,6 +218,14 @@ class SpiralInflector(object):
         return self._debug
 
     @property
+    def method(self):
+        return self._method
+
+    @property
+    def solver(self):
+        return self._solver
+
+    @property
     def analytic_parameters(self):
         return self._params_analytic
 
@@ -524,11 +532,11 @@ class SpiralInflector(object):
     def save_geo_files(self):
         return save_geo_files(self)
 
-    def export_aperture_geometry(self, **kwargs):
-        return export_aperture_geometry(self, **kwargs)
+    def aperture_geometry_macro(self, **kwargs):
+        return aperture_geometry_macro(self, **kwargs)
 
-    def export_electrode_geometry(self, **kwargs):
-        return export_electrode_geometry(self, **kwargs)
+    def electrode_geometry_macro(self, **kwargs):
+        return electrode_geometry_macro(self, **kwargs)
 
     def optimize_fringe(self, **kwargs):
         return optimize_fringe(self, **kwargs)
