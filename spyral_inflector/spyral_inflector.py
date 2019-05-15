@@ -483,7 +483,10 @@ class SpiralInflector(object):
 
     # Function wrappers below
     def calculate_efield(self):
-        return calculate_efield(self)
+        if self._solver == 'bempp':
+            return calculate_efield_bempp(self)
+        elif self._solver == 'fenics':
+            return calculate_efield_fenics(self)
 
     def calculate_potential(self, **kwargs):
         return calculate_potential(self, **kwargs)

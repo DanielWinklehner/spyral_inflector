@@ -36,7 +36,7 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
     display, start_display = numerical_vars["objects"].show()
 
     # Trajectories
-    occ_trj = SITrajectory(name="Tracked Design Trajectory", voltage=0)
+    occ_trj = SITrajectory(name="Analytical Design Trajectory", voltage=0)
     occ_trj.set_translation(shift, absolute=True)
     occ_trj.create_geo_str(analytic_vars["trj_design"], max_points=freq, load=True)
     occ_trj.color = "RED"

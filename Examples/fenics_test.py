@@ -54,6 +54,7 @@ si.generate_geometry()
 si.generate_meshed_model()
 
 si.solve()
+# si.calculate_efield()
 
 ts = time.time()
 

@@ -34,7 +34,7 @@ class FenicsField(object):
         return self._field(position[0], position[1], position[2])
 
 
-def calculate_efield(si):
+def calculate_efield_bempp(si):
     assert si._variables_numerical["ef_phi"] is not None, "Please calculate the potential first!"
 
     print("Calculating the electric field... ", end="")
@@ -62,6 +62,19 @@ def calculate_efield(si):
     si._variables_numerical["ef_itp"] = _field
 
     print("Done!")
+
+    return 0
+
+
+def calculate_efield_fenics(si):
+    numerical_vars = si.numerical_variables
+    u = numerical_vars["ef_phi"]
+
+    fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
+    electric_field = FenicsField(fenics_field)
+
+    numerical_vars["ef_itp"] = electric_field
+    si.numerical_variables = numerical_vars
 
     return 0
 
@@ -287,21 +300,21 @@ def solve_fenics(si):
     _tsf = time.time()
     # print("Potential solving time: {:.4f}".format(_tsf - _tsi))
 
-    fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
+    numerical_vars["ef_phi"] = u  # TODO: May need a wrapper to evaluate this. -PW
+    numerical_vars["f_space"] = V
 
-    electric_field = FenicsField(fenics_field)
-
-    si._variables_numerical["ef_itp"] = electric_field
+    si.numerical_variables = numerical_vars
 
     fenics_output_files = False  # TODO: Add this as some sort of diagnostics parameter in the SI class
     if fenics_output_files:
         potentialFile = fn.File('output/potential.pvd')
         potentialFile << u
 
-        vtkfile = fn.File('output/e_field.pvd')
-        vtkfile << fenics_field
-
         meshfile = fn.File('output/mesh.pvd')
         meshfile << mesh
 
     return 0
+
+#
+# fieldfile = fn.File('output/e_field.pvd')
+# fieldfile << fenics_field

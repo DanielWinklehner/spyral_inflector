@@ -63,7 +63,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
                                    domain_decomp=(4, 4, 4),
                                    overlap=0)
 
-            si.calculate_efield()
+        si.calculate_efield()
 
         _r, _v = si.track(r_start=_trj[0],  # Use starting point of design particle
                           v_start=-_v_des[0],  # Reverse direction of design particle
@@ -146,7 +146,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
                                    domain_decomp=(4, 4, 4),
                                    overlap=0)
 
-            si.calculate_efield()
+        si.calculate_efield()
 
         _r, _v = si.track(r_start=rs,  # Use point close to exit along design particle
                           v_start=vs,  # Regular direction of design particle

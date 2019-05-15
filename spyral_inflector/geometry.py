@@ -282,9 +282,6 @@ Geometry.NumSubEdges = 100; // nicer display of curve
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
 
-        print("Number of surfaces")
-        print(new_loop)
-
         return geo_str
 
 
@@ -1313,7 +1310,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         import meshio
         import os
 
-        os.system('gmsh -3 master_geometry.geo -format msh2 -o master_geometry.msh')
+        os.system('gmsh -3 master_geometry.geo -format msh2 -v 0 -o master_geometry.msh')
         # os.system('dolfin-convert master_geometry.msh master_geometry.xml')
         msh = meshio.read('master_geometry.msh')
         meshio.write("master_geometry.xdmf", msh)
