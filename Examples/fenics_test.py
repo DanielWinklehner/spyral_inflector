@@ -9,6 +9,7 @@ si = SpiralInflector(ion=h2p,
                      volt=12000,
                      gap=20e-3,
                      tilt=27.0,
+                     aspect_ratio=2.5,
                      dx=10e-3,
                      sigma=1.5E-3,
                      ns=40,
@@ -21,7 +22,7 @@ si.initialize()
 # si.generate_geometry()
 # draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.002)  # Mesh characteristic length
+si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=True)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,

@@ -1,7 +1,6 @@
 from dans_pymodules import *
 # import multiprocessing as mp
 import time
-from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
 
 
 def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):

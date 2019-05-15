@@ -1,5 +1,5 @@
 from dans_pymodules import *
-from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
+from py_electrodes.py_electrodes import *
 
 X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)

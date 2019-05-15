@@ -431,6 +431,7 @@ class SpiralInflector(object):
         saved_numerical_vars["limits"] = self._variables_numerical["limits"]
 
         save_obj = {"method": self._method,
+                    "solver": self._solver,
                     "params_analytic": self._params_analytic,
                     "variables_analytic": self._variables_analytic,
                     "params_numerical": self._params_numerical,
@@ -452,6 +453,7 @@ class SpiralInflector(object):
             save_obj = pickle.load(infile)
 
             self._method = save_obj["method"]
+            self._solver = save_obj["solver"]
 
             for key, val in save_obj["params_analytic"].items():
                 self._params_analytic[key] = val
@@ -534,8 +536,8 @@ class SpiralInflector(object):
     def draw_mesh(self):
         return draw_mesh(self)
 
-    def plot_potential(self, **kwargs):
-        return plot_potential(self, kwargs)
+    # def plot_potential(self, **kwargs):
+    #     return plot_potential(self, kwargs)
 
     def plot_bfield(self, **kwargs):
         return plot_bfield(self, kwargs)

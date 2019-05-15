@@ -10,6 +10,7 @@ si = SpiralInflector(ion=h2p,
                      volt=12000,        # Electrode voltages
                      gap=18e-3,         # Electrode gap distance
                      tilt=0,            # Tilt angle
+                     aspect_ratio=2.5,  # Aspect ratio for the electrodes
                      dx=10e-3,          # Electrode thickness
                      sigma=0,           # v-shape parameter
                      ns=60,             # Number of trajectory points
@@ -22,7 +23,6 @@ si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 si.initialize()
 
 si.generate_geometry()
-draw_geometry(si, freq=10, show=True)
 
 # Save the geometry as an AutoDesk Inventor macro
 export_electrode_geometry(si, fname='electrode_macro.ivb')
