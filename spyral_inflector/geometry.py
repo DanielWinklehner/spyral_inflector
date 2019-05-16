@@ -9,22 +9,23 @@ HAVE_BEMPP = False
 try:
     import bempp.api
     from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+
     HAVE_BEMPP = True
 except ImportError:
     bempp = None
 
-
 HAVE_FENICS = False
 try:
     import fenics as fn
+
     HAVE_FENICS = True
 except:
     fn = None
 
-
 HAVE_MESHIO = False
 try:
     import meshio
+
     HAVE_MESHIO = True
 except ImportError:
     meshio = None
@@ -1222,18 +1223,17 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
             norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
-            translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
-                                  trj[-1][1] + norm_vec[1] * b_gap,
-                                  0.0])
+            translation = np.array([trj[-1][0] + norm_vec[0] * b_gap,
+                                    trj[-1][1] + norm_vec[1] * b_gap,
+                                    0.0])
 
             rotation = np.array([np.deg2rad(90.0),
                                  tilt_angle,
                                  face_angle])
 
-            exit_aperture.set_translation(translate, absolute=True)
-
             # Calculate correct rotation
             if solver == "bempp":
+                exit_aperture.set_translation(translation, absolute=True)
                 exit_aperture.set_rotation_angle_axis(angle=rotation[0], axis=X_AXIS, absolute=True)  # upright
                 exit_aperture.set_rotation_angle_axis(angle=rotation[1], axis=Y_AXIS, absolute=False)  # match tilt
                 exit_aperture.set_rotation_angle_axis(angle=rotation[2], axis=Z_AXIS, absolute=False)  # match exit
@@ -1584,7 +1584,6 @@ End Sub
     if fname is not None:
         import os
         with open(os.path.join(si._outp_folder, fname), "w") as of:
-
             of.write(header_text + electrode_texts[0] + electrode_texts[1] + footer_text)
 
     return header_text + electrode_texts[0] + electrode_texts[1] + footer_text
