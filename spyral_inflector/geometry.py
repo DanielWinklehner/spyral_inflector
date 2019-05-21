@@ -393,64 +393,59 @@ class SIHousing(PyElectrode):
         # Idea: use the convex hull, generate points in a circle around each point of the hull and perform
         # another convex hull on that new set of points.
 
-        def method_two():
-            total_pts = []
-            circle_pts = []
-            circle_res = 8
-            for i in range(circle_res):
-                circle_pts.append(gap * np.array([np.cos(i * 2 * np.pi / circle_res),
-                                                  np.sin(i * 2 * np.pi / circle_res)]))
+        total_pts = []
+        circle_pts = []
+        circle_res = 8
+        for i in range(circle_res):
+            circle_pts.append(gap * np.array([np.cos(i * 2 * np.pi / circle_res),
+                                              np.sin(i * 2 * np.pi / circle_res)]))
 
-            for pt in hull_pts:
-                for cpt in circle_pts:
-                    total_pts.append(pt + cpt)
+        for pt in hull_pts:
+            for cpt in circle_pts:
+                total_pts.append(pt + cpt)
 
-            total_pts = np.array(total_pts)
+        total_pts = np.array(total_pts)
 
-            new_hull_inner = ConvexHull(total_pts)
-            new_hull_pts_inner = total_pts[new_hull_inner.vertices, :]
+        new_hull_inner = ConvexHull(total_pts)
+        new_hull_pts_inner = total_pts[new_hull_inner.vertices, :]
 
-            total_pts = []
-            circle_pts = []
-            circle_res = 8
-            for i in range(circle_res):
-                circle_pts.append((gap + thickness) * np.array([np.cos(i * 2 * np.pi / circle_res),
-                                                                np.sin(i * 2 * np.pi / circle_res)]))
+        total_pts = []
+        circle_pts = []
+        circle_res = 8
+        for i in range(circle_res):
+            circle_pts.append((gap + thickness) * np.array([np.cos(i * 2 * np.pi / circle_res),
+                                                            np.sin(i * 2 * np.pi / circle_res)]))
 
-            for pt in hull_pts:
-                for cpt in circle_pts:
-                    total_pts.append(pt + cpt)
+        for pt in hull_pts:
+            for cpt in circle_pts:
+                total_pts.append(pt + cpt)
 
-            total_pts = np.array(total_pts)
+        total_pts = np.array(total_pts)
 
-            new_hull_outer = ConvexHull(total_pts)
-            new_hull_pts_outer = total_pts[new_hull_outer.vertices, :]
+        new_hull_outer = ConvexHull(total_pts)
+        new_hull_pts_outer = total_pts[new_hull_outer.vertices, :]
 
-            if self._experimental:
-                # TODO: This may only work for a positive tilt angle, if it's negative then
-                # TODO: the 2, 8 indices for geo will be different (3 and 7?) -PW
-                tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
-                face_vector = np.array([np.cos(face_angle), np.sin(face_angle), 0.0])
-                norm_vector = np.cross(face_vector, np.array([0.0, 0.0, 1.0]))
+        if self._experimental:
+            # TODO: This may only work for a positive tilt angle, if it's negative then
+            # TODO: the 2, 8 indices for geo will be different (3 and 7?) -PW
+            tilt_angle, face_angle = get_norm_vec_and_angles_from_geo(geo)
+            face_vector = np.array([np.cos(face_angle), np.sin(face_angle), 0.0])
+            norm_vector = np.cross(face_vector, np.array([0.0, 0.0, 1.0]))
 
-                # new_point_a_in = geo[2, -1, :2] + norm_vector[:2] * gap
-                new_point_b_in = geo[8, -1, :2] + norm_vector[:2] * gap
+            # new_point_a_in = geo[2, -1, :2] + norm_vector[:2] * gap
+            new_point_b_in = geo[8, -1, :2] + norm_vector[:2] * gap
 
-                # new_point_a_out = geo[2, -1, :2] + norm_vector[:2] * (gap + thickness)
-                new_point_b_out = geo[8, -1, :2] + norm_vector[:2] * (gap + thickness)
+            # new_point_a_out = geo[2, -1, :2] + norm_vector[:2] * (gap + thickness)
+            new_point_b_out = geo[8, -1, :2] + norm_vector[:2] * (gap + thickness)
 
-                # new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_a_in])
-                new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_b_in])
+            # new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_a_in])
+            new_hull_pts_inner = np.vstack([new_hull_pts_inner, new_point_b_in])
 
-                # new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_a_out])
-                new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_b_out])
+            # new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_a_out])
+            new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_b_out])
 
-            return new_hull_pts_inner, new_hull_pts_outer
-
-        pts_in, pts_out = method_two()
-
-        pts_in = self.sort_points_by_angle(pts_in)
-        pts_out = self.sort_points_by_angle(pts_out)
+        pts_in = self.sort_points_by_angle(new_hull_pts_inner)
+        pts_out = self.sort_points_by_angle(new_hull_pts_outer)
 
         return pts_in, pts_out
 
@@ -557,19 +552,16 @@ Geometry.Tolerance = 1E-10;
             geo_str += "Line({}) = {{ {}, {} }};\n".format(line_index + m,
                                                            point_index + m, point_index + m + 1)
 
-        # I think wires use the same number set as line loops?
         geo_str += "Wire({}) = {{ {}:{} }};\n".format(3 + offset,
                                                       n_lines_in + n_lines_out + offset + 1,
                                                       n_lines_in + n_lines_out + offset + num_wire_points - 1)
-
-        # Commented out to test out wire extrudes:
-        # geo_str += "housing_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(zmax - zmin, 1 + offset)
 
         geo_str += "housing_out[] = Extrude {{ Surface{{ {} }}; }} Using Wire {{ {} }};\n".format(1 + offset,
                                                                                                   3 + offset)
         geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[] }}; }}\n".format(zmin)
 
-        # TODO: Remove the wire and points after creating the volume -PW
+        geo_str += "Recursive Delete {{ Point{{ {}:{} }}; }}\n".format(point_index, point_index + num_wire_points - 1)
+        geo_str += "Recursive Delete {{ Line{{ {}:{} }}; }}\n".format(line_index, line_index + num_wire_points - 2)
 
         geo_str += "// Tool to subtract\n"
         if hole_type == "rectangle":
@@ -920,6 +912,7 @@ def get_norm_vec_and_angles_from_geo(geo):
 
 
 def generate_vacuum_space(si):
+    # TODO: Clean up
     assert si.numerical_parameters["make_cylinder"], "You need a cylinder/boundary to create the vacuum space!"
 
     numerical_vars = si.numerical_variables
@@ -946,17 +939,13 @@ def generate_vacuum_space(si):
         master_geo_str += electrode._geo_str
 
     master_geo_str += """
-//
 //    anode_offset = 0
 //    cathode_offset = 1000
 //    housing_offset = 5000
 //    exit_offset = 5000
 //    entrance_offset = 3000
-//    cylinder_offset = 4000
-//
 
 // Anode
-// Physical Volume(10) = {1};
 anode_boundary[] = Boundary { Volume{ 1 }; };
 N_anode = #anode_boundary[];
 For i In {0:N_anode-1}
@@ -964,7 +953,6 @@ For i In {0:N_anode-1}
 EndFor
 
 // Cathode
-// Physical Volume(20) = {1001};
 cathode_boundary[] = Boundary { Volume{ 1001 }; };
 N_cathode = #cathode_boundary[];
 For k In {0:N_cathode-1}
@@ -974,7 +962,6 @@ EndFor
 
     master_geo_str += """
 // Vacuum Cylinder
-// Physical Volume(30) = {4001};
 vacuum_boundary[] = Boundary { Volume{ 4001 }; };
 N_vacuum = #vacuum_boundary[];
 For j In {0:N_vacuum-1}
@@ -994,8 +981,7 @@ EndFor
 
         master_geo_str += """
 // Bottom/Exit Aperture or Housing
-// Physical Volume(40) = {{ {} }};
-exit_boundary[] = Boundary {{ Volume{{ {} }}; }};""".format(ap_id, ap_id)
+exit_boundary[] = Boundary {{ Volume{{ {} }}; }};""".format(ap_id)
 
         master_geo_str += """
 N_exit = #exit_boundary[];
@@ -1006,24 +992,12 @@ EndFor
     if make_top_aperture:
         master_geo_str += """
 // Top/Entrance Aperture
-// Physical Volume(50) = {3003};
 entrance_boundary[] = Boundary { Volume{ 3003 }; };
 N_entrance = #entrance_boundary[];
 For k In {0:N_entrance-1}
     Physical Surface (3000 + k) = { entrance_boundary[k] };
 EndFor
 """
-
-    # BooleanDifference(10) = { Volume{4001}; Delete; }{ Volume{1, 1001, 2050, 3003}; Delete; };
-    #
-    # master_geo_str += "BooleanDifference(10) = { Volume {4001}; Delete; }{ Volume{1, 1001"
-    #
-    # if make_bottom_aperture:
-    #     master_geo_str += ", {}".format(ap_id)
-    # if make_top_aperture:
-    #     master_geo_str += ", 3003"
-    #
-    # master_geo_str += "}; Delete; };\n"
 
     master_geo_str += "Delete{ Volume{1, 1001, 4001"
 
@@ -1231,7 +1205,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             tvec /= np.linalg.norm(tvec)
             norm_vec = np.cross(tvec, np.array([0.0, 0.0, -1.0]))
 
-            _norm_vec = Vector(trj[-1] - trj[-2]).normalized()
+            # norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
             translation = np.array([trj[-1][0] + norm_vec[0] * b_gap,
                                     trj[-1][1] + norm_vec[1] * b_gap,
