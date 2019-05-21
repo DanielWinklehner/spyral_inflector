@@ -909,27 +909,12 @@ def generate_numerical_geometry(si):
 def get_norm_vec_and_angles_from_geo(geo):
     mid_vec_b = Vector(geo[8, -1, :] - geo[7, -1, :]).normalized()
     # tilt_angle is the angle of mid_vec_b with x/y plane
-    #TODO: With my rotation below:
-    # [0.64604211 - 0.6136163   0.45398747] <- mid_vec_b
-    # [-0. - 0. - 1.56955114] <- z_axis
-    # 0.4712355023567303 <- tilt_angle
-    # -0.7596621000278119 <- face_angle
-    # Without:
-    # [0.64604211 - 0.6136163   0.45398747]
-    # [0.         0.         1.57079633]
-    # -0.4712355023567305
-    # -0.7596621000278119
 
-    print(mid_vec_b)
-    print(Z_AXIS)
     tilt_angle = 0.5 * np.pi - mid_vec_b.angle_with(Vector(-Z_AXIS))
 
     # face angle is the angle of mid_vec_b projected into x/y plane with x/z plane
     temp_vec = Vector([mid_vec_b[0], mid_vec_b[1], 0.0])
     face_angle = 0.5 * np.pi - temp_vec.angle_with(Vector(Y_AXIS))
-
-    print(tilt_angle)
-    print(face_angle)
 
     return tilt_angle, face_angle
 
@@ -1203,8 +1188,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         if solver == "bempp":
             entrance_aperture.set_translation(translation, absolute=True)
-            # TODO: Something funky going on with quaternions from this axis in the rotation -PW
-            entrance_aperture.set_rotation_angle_axis(angle=rotation[2], axis=np.array([0.0, 0.0, 1.0]), absolute=True)
+            entrance_aperture.set_rotation_angle_axis(angle=rotation[2], axis=Z_AXIS, absolute=True)
 
         # Create geo string and load
         if solver == "bempp":
@@ -1246,12 +1230,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             tvec = geo[7, -1, :] - geo[8, -1, :]
             tvec /= np.linalg.norm(tvec)
             norm_vec = np.cross(tvec, np.array([0.0, 0.0, -1.0]))
-            # print(norm_vec)
-            # print(np.rad2deg(face_angle))
-            # print(np.rad2deg(tilt_angle))
 
             _norm_vec = Vector(trj[-1] - trj[-2]).normalized()
-            # print(_norm_vec)
 
             translation = np.array([trj[-1][0] + norm_vec[0] * b_gap,
                                     trj[-1][1] + norm_vec[1] * b_gap,
