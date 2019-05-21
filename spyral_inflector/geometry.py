@@ -1038,7 +1038,7 @@ Field[2].DistMin = 0.003;
 Field[2].DistMax = 0.01;
 Background Field = 2;
 
-Mesh.OptimizeNetgen = 1;
+// Mesh.OptimizeNetgen = 1;
 
 """
 
