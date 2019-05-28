@@ -131,6 +131,7 @@ class SpiralInflector(object):
                                      "grid_fun": None,  # BEM++ Grid Function
                                      "solution": None,  # The BEM++ solution
                                      "n_fun_coeff": None,  # BEM++ Neumann coefficients from the solution
+                                     "ef_phi": None,  # Object containing electric potential
                                      "ef_itp": None,  # Interpolator object for E-Field
                                      }
 
@@ -216,6 +217,10 @@ class SpiralInflector(object):
     @property
     def debug(self):
         return self._debug
+
+    @property
+    def initialized(self):
+        return self._initialized
 
     @property
     def method(self):

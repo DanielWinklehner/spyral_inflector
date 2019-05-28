@@ -608,26 +608,29 @@ def generate_analytical_geometry(si):
     put everything together in one array.
     :return:
     """
+    
+    analytic_params = si.analytic_parameters
+    analytic_vars = si.analytic_variables
 
-    if si._variables_analytic["trj_design"] is None:
+    if analytic_vars["trj_design"] is None:
         print("No analytical design trajectory yet, generating...")
         si.generate_design_trajectory()
 
     print("Generating analytical geometry... ", end="")
 
     geos = []
-    _ion = si._params_analytic["ion"]  # type: IonSpecies
-    ns = si._params_analytic["ns"]  # type: int
-    gap = si._params_analytic["gap"]  # type: float
-    sigma = si._params_analytic["sigma"]  # type: float
-    aspect_ratio = si._params_analytic["aspect_ratio"]  # type: float
-    kp = si._variables_analytic["kp"]  # type: float
-    b = si._variables_analytic["b"]  # type: np.ndarray
-    cp = si._variables_analytic["c+"]  # type: float
-    cm = si._variables_analytic["c-"]  # type: float
-    trj_design = si._variables_analytic["trj_design"]  # type: np.ndarray
+    _ion = analytic_params["ion"]  # type: IonSpecies
+    ns = analytic_params["ns"]  # type: int
+    gap = analytic_params["gap"]  # type: float
+    sigma = analytic_params["sigma"]  # type: float
+    aspect_ratio = analytic_params["aspect_ratio"]  # type: float
+    kp = analytic_vars["kp"]  # type: float
+    b = analytic_vars["b"]  # type: np.ndarray
+    cp = analytic_vars["c+"]  # type: float
+    cm = analytic_vars["c-"]  # type: float
+    trj_design = analytic_vars["trj_design"]  # type: np.ndarray
 
-    for thickness in [0.0, si._params_analytic["dx"]]:
+    for thickness in [0.0, analytic_params["dx"]]:
 
         end_distance = 2.0 * thickness + gap  # End to end distance of electrodes in (m)
 
@@ -636,7 +639,7 @@ def generate_analytical_geometry(si):
 
         # Save inner gap size vs deflection angle as class variable
         if thickness == 0.0:
-            si._variables_analytic["d"] = d
+            analytic_vars["d"] = d
 
         # x-component of the velocity vector
         vx = np.array(0.5 * _ion.v_m_per_s() * (np.sin(cp * b) + np.sin(cm * b)))
@@ -645,7 +648,7 @@ def generate_analytical_geometry(si):
         vy = np.array(-0.5 * _ion.v_m_per_s() * (np.cos(cp * b) - np.cos(cm * b)))
 
         # Rotation/flip
-        if not ((si._variables_analytic["bf_design"] > 0.0) ^ (_ion.q() > 0.0)):
+        if not ((analytic_vars["bf_design"] > 0.0) ^ (_ion.q() > 0.0)):
             if si.debug:
                 print("Flipping direction of cyclotron motion...", end="")
             vy = -vy
@@ -662,7 +665,7 @@ def generate_analytical_geometry(si):
         v3 = np.sqrt((vx ** 2.0) + (vy ** 2.0) + (vz ** 2.0))  # 3-d magnitude of the velocity vector (Should = v)
 
         # Save vx, vy, vz in as class variable in same format as trj_design
-        si._variables_analytic["v_design"] = np.array([vx, vy, vz]).T
+        analytic_vars["v_design"] = np.array([vx, vy, vz]).T
 
         # Construction of the normalized vectors of the optical coordinate system
         v_path = np.transpose(np.array([vx, vy, vz]))
@@ -708,10 +711,10 @@ def generate_analytical_geometry(si):
 
         xi = 0.5 * aspect_ratio * gap
 
-        if si._params_analytic["rotation"] != 0.0:
-            for i in range(si._params_analytic["ns"]):
-                v_rh[0, i, :] = np.matmul(si._variables_analytic["rot"], v_rh[0, i, :])
-                v_rh[1, i, :] = np.matmul(si._variables_analytic["rot"], v_rh[1, i, :])
+        if analytic_params["rotation"] != 0.0:
+            for i in range(analytic_params["ns"]):
+                v_rh[0, i, :] = np.matmul(analytic_vars["rot"], v_rh[0, i, :])
+                v_rh[1, i, :] = np.matmul(analytic_vars["rot"], v_rh[1, i, :])
 
         for i in range(ns):
             for j in range(3):
@@ -746,35 +749,39 @@ def generate_analytical_geometry(si):
     geo[8, :, :] = geos[1][3, :, :]
     geo[9, :, :] = 0.5 * (geos[0][2, :, :] + geos[0][3, :, :])
 
-    si._variables_analytic["geo"] = geo
+    analytic_vars["geo"] = geo
 
     print("Done!")
 
-    return si._variables_analytic["geo"]
+    return analytic_vars["geo"]
 
 
 def generate_numerical_geometry(si):
     # This is a slightly modified version of the normal analytical method
-    if si._variables_analytic["trj_design"] is None:
+    
+    analytic_vars = si.analytic_variables
+    analytic_params = si.analytic_parameters
+    
+    if analytic_vars["trj_design"] is None:
         print("No numerical design trajectory yet, generating...")
         si.generate_design_trajectory()
 
     print("Generating numerical geometry... ", end="")
 
     geos = []
-    _ion = si._params_analytic["ion"]  # type: IonSpecies
-    ns = si._params_analytic["ns"]  # type: int
-    gap = si._params_analytic["gap"]  # type: float
-    sigma = si._params_analytic["sigma"]  # type: float
-    aspect_ratio = si._params_analytic["aspect_ratio"]  # type: float
-    kp = si._variables_analytic["kp"]  # type: float
+    _ion = analytic_params["ion"]  # type: IonSpecies
+    ns = analytic_params["ns"]  # type: int
+    gap = analytic_params["gap"]  # type: float
+    sigma = analytic_params["sigma"]  # type: float
+    aspect_ratio = analytic_params["aspect_ratio"]  # type: float
+    kp = analytic_vars["kp"]  # type: float
 
-    b = si._variables_analytic["b"]  # type: np.ndarray
-    trj_design = si._variables_analytic["trj_design"]  # type: np.ndarray
-    trj_vel = si._variables_analytic["trj_vel"]
+    b = analytic_vars["b"]  # type: np.ndarray
+    trj_design = analytic_vars["trj_design"]  # type: np.ndarray
+    trj_vel = analytic_vars["trj_vel"]
     vx, vy, vz = trj_vel[:, 0], trj_vel[:, 1], trj_vel[:, 2]  # Unload the v components
 
-    for thickness in [0.0, si._params_analytic["dx"]]:
+    for thickness in [0.0, analytic_params["dx"]]:
 
         end_distance = 2.0 * thickness + gap  # End to end distance of electrodes in (m)
 
@@ -783,11 +790,11 @@ def generate_numerical_geometry(si):
 
         # Save inner gap size vs deflection angle as class variable
         if thickness == 0.0:
-            si._variables_analytic["d"] = d
+            analytic_vars["d"] = d
 
         # Rotation/flip
-        if not ((si._variables_analytic["bf_design"] > 0.0) ^ (_ion.q() > 0.0)):
-            if si._debug:
+        if not ((analytic_vars["bf_design"] > 0.0) ^ (_ion.q() > 0.0)):
+            if si.debug:
                 print("Flipping direction of cyclotron motion...", end="")
             vy = -vy
 
@@ -795,7 +802,7 @@ def generate_numerical_geometry(si):
         v3 = np.sqrt((vx ** 2.0) + (vy ** 2.0) + (vz ** 2.0))  # 3-d magnitude of the velocity vector (Should = v)
 
         # Save vx, vy, vz in as class variable in same format as trj_design
-        si._variables_analytic["v_design"] = np.array([vx, vy, vz]).T
+        analytic_vars["v_design"] = np.array([vx, vy, vz]).T
 
         # Construction of the normalized vectors of the optical coordinate system
         v_path = np.transpose(np.array([vx, vy, vz]))
@@ -848,15 +855,15 @@ def generate_numerical_geometry(si):
         #                      -np.sin(si._variables_optimization["x_rot"])],
         #                     [0.0, np.sin(si._variables_optimization["x_rot"]),
         #                      np.cos(si._variables_optimization["x_rot"])]])
-        #     for i in range(si._params_analytic["ns"]):
+        #     for i in range(analytic_params["ns"]):
         #         v_rh[0, i, :] = np.matmul(xrot, v_rh[0, i, :])
         #         v_rh[1, i, :] = np.matmul(xrot, v_rh[1, i, :])
         #     # print("Applied a {:.4f} rad x rotation.".format(si._variables_optimization["x_rot"]))
 
-        if si._params_analytic["rotation"] != 0.0:
-            for i in range(si._params_analytic["ns"]):
-                v_rh[0, i, :] = np.matmul(si._variables_analytic["rot"], v_rh[0, i, :])
-                v_rh[1, i, :] = np.matmul(si._variables_analytic["rot"], v_rh[1, i, :])
+        if analytic_params["rotation"] != 0.0:
+            for i in range(analytic_params["ns"]):
+                v_rh[0, i, :] = np.matmul(analytic_vars["rot"], v_rh[0, i, :])
+                v_rh[1, i, :] = np.matmul(analytic_vars["rot"], v_rh[1, i, :])
 
         for i in range(ns):
             for j in range(3):
@@ -891,11 +898,11 @@ def generate_numerical_geometry(si):
     geo[8, :, :] = geos[1][3, :, :]
     geo[9, :, :] = 0.5 * (geos[0][2, :, :] + geos[0][3, :, :])
 
-    si._variables_analytic["geo"] = geo
+    analytic_vars["geo"] = geo
 
     print("Done!")
 
-    return si._variables_analytic["geo"]
+    return analytic_vars["geo"]
 
 
 def get_norm_vec_and_angles_from_geo(geo):
@@ -1042,7 +1049,7 @@ Background Field = 2;
 
 """
 
-    with open('master_geometry.geo', 'w') as outfile:
+    with open(TEMP_DIR+'/master_geometry.geo', 'w') as outfile:
         outfile.write(master_geo_str)
 
 
@@ -1265,7 +1272,7 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
     numerical_vars = si.numerical_variables
 
-    if si._solver == "bempp":
+    if si.solver == "bempp":
 
         assert HAVE_BEMPP, "BEMPP not found. Aborting!"
 
@@ -1283,39 +1290,37 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
                                                           leaf_view["domns"])
             _full_mesh.plot()
 
-    elif si._solver == "fenics":
+    elif si.solver == "fenics":
 
         assert HAVE_FENICS, "Fenics not found. Aborting!"
         assert HAVE_MESHIO, "Meshio not found. Aborting!"
 
         si.generate_vacuum_space()
 
-        import fenics as fn
-        import meshio
         import os
 
-        os.system('gmsh -3 master_geometry.geo -format msh2 -v 0 -o master_geometry.msh')
+        os.system('gmsh -3 '+TEMP_DIR+'/master_geometry.geo -format msh2 -v 0 -o '+TEMP_DIR+'/master_geometry.msh')
         # os.system('dolfin-convert master_geometry.msh master_geometry.xml')
-        msh = meshio.read('master_geometry.msh')
-        meshio.write("master_geometry.xdmf", msh)
+        msh = meshio.read(TEMP_DIR + "/master_geometry.msh")
+        meshio.write(TEMP_DIR + "/master_geometry.xdmf", msh)
 
-        meshio.write_points_cells("master_geometry_markers.xdmf",
+        meshio.write_points_cells(TEMP_DIR + "/master_geometry_markers.xdmf",
                                   msh.points,
                                   {"tetra": msh.cells["tetra"]},
                                   cell_data={"tetra": {"gmsh:physical": msh.cell_data["tetra"]["gmsh:physical"]}})
-        meshio.write_points_cells("master_geometry_boundaries.xdmf",
+        meshio.write_points_cells(TEMP_DIR + "/master_geometry_boundaries.xdmf",
                                   msh.points,
                                   {"triangle": msh.cells["triangle"]},
                                   cell_data={"triangle": {"gmsh:physical": msh.cell_data["triangle"]["gmsh:physical"]}})
 
         mesh = fn.Mesh()
-        fn.XDMFFile("master_geometry_markers.xdmf").read(mesh)
+        fn.XDMFFile(TEMP_DIR + "/master_geometry_markers.xdmf").read(mesh)
 
         markers = fn.MeshFunction("size_t", mesh, mesh.topology().dim())
-        fn.XDMFFile("master_geometry_markers.xdmf").read(markers, "gmsh:physical")
+        fn.XDMFFile(TEMP_DIR + "/master_geometry_markers.xdmf").read(markers, "gmsh:physical")
 
         boundaries = fn.MeshValueCollection("size_t", mesh, mesh.topology().dim() - 1)
-        fn.XDMFFile("master_geometry_boundaries.xdmf").read(boundaries, "gmsh:physical")
+        fn.XDMFFile(TEMP_DIR + "/master_geometry_boundaries.xdmf").read(boundaries, "gmsh:physical")
         boundaries = fn.MeshFunction("size_t", mesh, boundaries)
 
         full_mesh = [mesh, markers, boundaries]
@@ -1329,15 +1334,20 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
 def aperture_geometry_macro(si, fname=None):
     # File type for inventor is .ivb
-    geo = si._variables_analytic["geo"] * 100.0  # Scaling for inventor
-    trj = si._variables_analytic["trj_design"] * 100.0  # type: np.ndarray
-    thickness = si._params_numerical["aperture_params"]["thickness"] * 100.0
-    radius = si._params_numerical["aperture_params"]["radius"] * 100.0
-    length = si._params_numerical["aperture_params"]["length"] * 100.0
-    width = si._params_numerical["aperture_params"]["width"] * 100.0
-    aperture_distance_top = si._params_numerical["aperture_params"]["top_distance"] * 100.0
-    aperture_distance_bottom = si._params_numerical["aperture_params"]["bottom_distance"] * 100.0
-    # voltage = si._params_numerical["aperture_params"]["voltage"]
+    
+    analytic_vars = si.analytic_variables
+    analytic_params = si.analytic_parameters
+    numerical_params = si.numerical_parameters
+    
+    geo = analytic_vars["geo"] * 100.0  # Scaling for inventor
+    trj = analytic_vars["trj_design"] * 100.0  # type: np.ndarray
+    thickness = numerical_params["aperture_params"]["thickness"] * 100.0
+    radius = numerical_params["aperture_params"]["radius"] * 100.0
+    length = numerical_params["aperture_params"]["length"] * 100.0
+    width = numerical_params["aperture_params"]["width"] * 100.0
+    aperture_distance_top = numerical_params["aperture_params"]["top_distance"] * 100.0
+    aperture_distance_bottom = numerical_params["aperture_params"]["bottom_distance"] * 100.0
+    # voltage = numerical_params["aperture_params"]["voltage"]
 
     aperture_string = """Sub createApertures()
 Dim oApp As Application
@@ -1445,7 +1455,10 @@ End Sub
 
 def electrode_geometry_macro(si, fname=None):
     # File type for inventor is .ivb
-    geo = si._variables_analytic["geo"] * 100.0  # Fix scaling in inventor
+    analytic_vars = si.analytic_variables
+    analytic_params = si.analytic_parameters
+    
+    geo = analytic_vars["geo"] * 100.0  # Fix scaling in inventor
 
     # Generate text for Inventor macro
     header_text = """Sub CreateSpiralElectrode()
@@ -1492,7 +1505,7 @@ def electrode_geometry_macro(si, fname=None):
 
 """.format(k + 1)
 
-            for i in range(si._params_analytic["ns"]):
+            for i in range(analytic_params["ns"]):
                 spline_texts[k] += "    "
                 spline_texts[k] += "Call vertexCollection{}.Add(tg.CreatePoint({:.6f}, {:.6f}, {:.6f}))".format(
                     k + 1,
@@ -1585,7 +1598,7 @@ def save_geo_files(si, filename=None):
         folder = os.path.split(filename)[0]
 
     for name, electrode in si._variables_numerical["objects"].items():
-        if si._debug:
+        if si.debug:
             print("Working on {}".format(name))
 
         filename = os.path.join(folder, "{}.geo".format(name))

@@ -12,7 +12,11 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     :return:
     """
 
-    assert si._method is not "analytical", "You can't optimize using an analytical model!"
+    analytic_params = si.analytic_parameters
+    analytic_vars = si.analytic_variables
+    track_vars = si.track_variables
+
+    assert si.method is not "analytical", "You can't optimize using an analytical model!"
 
     print("Starting the optimization process...")
 
@@ -23,7 +27,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     _db = _db_init[:]
 
     # Half the length of the cube for electric field calculation
-    _hcl = (si._params_analytic["gap"] + 2.0 * si._params_analytic["dx"])
+    _hcl = (analytic_params["gap"] + 2.0 * analytic_params["dx"])
     # _ion = si._params_analytic["ion"]  # type: IonSpecies
     x_axis = Vector([1.0, 0.0, 0.0])
     y_axis = Vector([0.0, 1.0, 0.0])
@@ -37,8 +41,8 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
 
     entrance_opt = []  # Store the information from the optimization
 
-    if si._variables_track["shift"] is None:
-        si._variables_track["shift"] = np.zeros(3)
+    if track_vars["shift"] is None:
+        track_vars["shift"] = np.zeros(3)
 
     while abs(deviation_x) > tol:
 
@@ -49,13 +53,13 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         si.solve()
 
         # Trajectory starting point:
-        _trj = si._variables_analytic["trj_design"]  # type: np.ndarray
-        _v_des = si._variables_analytic["v_design"]  # type: np.ndarray
+        _trj = analytic_vars["trj_design"]  # type: np.ndarray
+        _v_des = analytic_vars["v_design"]  # type: np.ndarray
 
         # Calculate E-Field upwards of starting point
         xs, ys, zs = _trj[0]
 
-        if si._solver == 'bempp':
+        if si.solver == 'bempp':
             si.calculate_potential(limits=((xs - 0.5 * _hcl, xs + 0.5 * _hcl),
                                            (ys - 0.5 * _hcl, ys + 0.5 * _hcl),
                                            (zs - 1.9 * _hcl, zs + 0.1 * _hcl)),
@@ -79,8 +83,8 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
               "deviation from z-axis in x-dir: {:.4f} degrees, "
               "deviation from z-axis in y-dir: {:.4f} degrees".format(_db[0], deviation_x, deviation_y))
 
-        si._variables_track["shift"][0] -= _r[-1][0]
-        si._variables_track["shift"][1] -= _r[-1][1]
+        track_vars["shift"][0] -= _r[-1][0]
+        track_vars["shift"][1] -= _r[-1][1]
 
         entrance_opt.append([it, _db[0], deviation_x, deviation_y])
 
@@ -124,19 +128,19 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         si.solve()
 
         # Trajectory starting point:
-        _trj = si._variables_analytic["trj_design"]  # type: np.ndarray
-        _v_des = si._variables_analytic["v_design"]  # type: np.ndarray
+        _trj = analytic_vars["trj_design"]  # type: np.ndarray
+        _v_des = analytic_vars["v_design"]  # type: np.ndarray
 
         # Rotate the initial trajectory point and velocity
         # _trj = np.matmul(rot, _trj.T).T
         # _v_des = np.matmul(rot, _v_des.T).T
 
-        _ns = si._params_analytic["ns"]  # type: int
+        _ns = analytic_params["ns"]  # type: int
         start_idx = int(0.9 * _ns)  # start the tracking "10 percent" into the spiral inflector exit
         xs, ys, zs = rs = _trj[start_idx]
         vs = _v_des[start_idx]
 
-        if si._solver == 'bempp':
+        if si.solver == 'bempp':
             # Calculate E-Field
             # TODO: Better way to determine the fringe field region
             si.calculate_potential(limits=((xs - 2.0 * _hcl, xs + 2.0 * _hcl),
@@ -160,7 +164,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         print("Current exit adjustment: {:.4f}, "
               "deviation from xy-plane: {:.4f} degrees".format(_db[1], deviation))
 
-        si._variables_track["shift"][2] -= _r[-1, 2]
+        track_vars["shift"][2] -= _r[-1, 2]
 
         exit_opt.append([it, _db[1], deviation])
 
@@ -180,7 +184,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
 
     print("Applied entrance adjustment: {:.4f}, and exit adjustment: {:.4f}.".format(_db[0], _db[1]))
 
-    if si._debug:
+    if si.debug:
         print("Entrance Optimization:")
         print(entrance_opt)
         print("Exit Optimization:")
@@ -189,8 +193,10 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     # Recalculate the new geometry and BEM++ solution one last time
     si.initialize()
     si.generate_meshed_model()
-    si.solve_bempp()
+    si.solve()
 
     print("Done optimizing!")
 
-    return si._variables_track["shift"]
+    si.track_variables = track_vars
+
+    return track_vars["shift"]

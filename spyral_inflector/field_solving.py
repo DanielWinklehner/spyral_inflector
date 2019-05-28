@@ -1,4 +1,5 @@
 from dans_pymodules import *
+from py_electrodes.py_electrodes import *
 
 # Define the directions:
 X = 0
@@ -35,15 +36,18 @@ class FenicsField(object):
 
 
 def calculate_efield_bempp(si):
-    assert si._variables_numerical["ef_phi"] is not None, "Please calculate the potential first!"
+
+    numerical_vars = si.numerical_variables
+    phi = numerical_vars["ef_phi"]
+
+    assert phi is not None, "Please calculate the potential first!"
 
     print("Calculating the electric field... ", end="")
 
-    _d = si._variables_numerical["d"]
-    _n = si._variables_numerical["n"]
-    phi = si._variables_numerical["ef_phi"]
+    _d = numerical_vars["d"]
+    _n = numerical_vars["n"]
 
-    limits = si._variables_numerical["limits"]
+    limits = numerical_vars["limits"]
 
     _r = np.array([np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ])
 
@@ -59,7 +63,8 @@ def calculate_efield_bempp(si):
                                                        bounds_error=False, fill_value=0.0)
                           })
 
-    si._variables_numerical["ef_itp"] = _field
+    numerical_vars["ef_itp"] = _field
+    si.numerical_variables = numerical_vars
 
     print("Done!")
 
@@ -67,14 +72,24 @@ def calculate_efield_bempp(si):
 
 
 def calculate_efield_fenics(si):
+
     numerical_vars = si.numerical_variables
     u = numerical_vars["ef_phi"]
+
+    assert u is not None, "Please calculate the potential first!"
+
+    print("Calculating the electric field... ", end="")
 
     fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
     electric_field = FenicsField(fenics_field)
 
     numerical_vars["ef_itp"] = electric_field
     si.numerical_variables = numerical_vars
+
+    fieldfile = fn.File(TEMP_DIR + '/e_field.pvd')
+    fieldfile << fenics_field
+
+    print("Done!")
 
     return 0
 
@@ -90,8 +105,10 @@ def calculate_potential(si,
 
     limits = np.array(limits)
 
-    if None in limits and si._variables_numerical["limits"] is not None:
-        limits = si._variables_numerical["limits"]
+    numerical_vars = si.numerical_variables
+
+    if None in limits and numerical_vars["limits"] is not None:
+        limits = numerical_vars["limits"]
 
     if limits.shape != (3, 2):
         print("Wrong shape of limits: {}. "
@@ -101,8 +118,8 @@ def calculate_potential(si,
     print("Now calculating the electrostatic potential... ", end="")
     _ts = time.time()
 
-    _mesh_data = si._variables_numerical["full mesh"]
-    _n_fun_coeff = si._variables_numerical["n_fun_coeff"]
+    _mesh_data = numerical_vars["full mesh"]
+    _n_fun_coeff = numerical_vars["n_fun_coeff"]
 
     _mesh = bempp.api.grid.grid_from_element_data(_mesh_data["verts"],
                                                   _mesh_data["elems"],
@@ -110,10 +127,10 @@ def calculate_potential(si,
 
     dp0_space = bempp.api.function_space(_mesh, "DP", 0)
 
-    if si._variables_numerical["solution"] is None:
+    if numerical_vars["solution"] is None:
         n_fun = bempp.api.GridFunction(dp0_space, coefficients=_n_fun_coeff)
     else:
-        n_fun = si._variables_numerical["solution"]
+        n_fun = numerical_vars["solution"]
 
     # noinspection PyUnresolvedReferences
     all_vert = _mesh_data["verts"]
@@ -183,10 +200,12 @@ def calculate_potential(si,
 
     # TODO: Distribute results to other nodes -DW
 
-    si._variables_numerical["ef_phi"] = pot
-    si._variables_numerical["d"] = _d
-    si._variables_numerical["n"] = _n
-    si._variables_numerical["limits"] = limits
+    numerical_vars["ef_phi"] = pot
+    numerical_vars["d"] = _d
+    numerical_vars["n"] = _n
+    numerical_vars["limits"] = limits
+
+    si.numerical_variables = numerical_vars
 
     print("Done!")
 
@@ -209,7 +228,7 @@ def solve_bempp(si):
 
     print("Generating necessary BEM++ operators, function spaces. Solving... ", end="")
 
-    _mesh_data = si._variables_numerical["full mesh"]
+    _mesh_data = numerical_vars["full mesh"]
 
     _mesh = bempp.api.grid.grid_from_element_data(_mesh_data["verts"],
                                                   _mesh_data["elems"],
@@ -295,26 +314,19 @@ def solve_fenics(si):
     u = fn.Function(V)
 
     _tsi = time.time()
-    # TODO: Might benefit from using MUMPS! -PW
     fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "cg", "preconditioner": "ilu"})
     _tsf = time.time()
-    # print("Potential solving time: {:.4f}".format(_tsf - _tsi))
+    print("Potential solving time: {:.4f}".format(_tsf - _tsi))
 
-    numerical_vars["ef_phi"] = u  # TODO: May need a wrapper to evaluate this. -PW
+    numerical_vars["ef_phi"] = u
     numerical_vars["f_space"] = V
 
     si.numerical_variables = numerical_vars
 
-    fenics_output_files = False  # TODO: Add this as some sort of diagnostics parameter in the SI class
-    if fenics_output_files:
-        potentialFile = fn.File('output/potential.pvd')
-        potentialFile << u
+    potentialFile = fn.File(TEMP_DIR + '/potential.pvd')
+    potentialFile << u
 
-        meshfile = fn.File('output/mesh.pvd')
-        meshfile << mesh
+    meshfile = fn.File(TEMP_DIR + '/mesh.pvd')
+    meshfile << mesh
 
     return 0
-
-#
-# fieldfile = fn.File('output/e_field.pvd')
-# fieldfile << fenics_field
