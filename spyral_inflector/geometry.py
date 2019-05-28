@@ -83,7 +83,7 @@ Geometry.NumSubEdges = 100; // nicer display of curve
                                                                             2 * dz)
         elif hole_type == "ellipse":
             geo_str += "Disk({}) = {{ 0, 0, {}, {}, {} }};\n".format(100 + offset, -dz, 0.5 * a, 0.5 * b)
-            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(100 + offset, 2 * dz)
+            geo_str += "Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }}\n".format(2 * dz, 100 + offset)
         else:
             print("Don't understand hole type {}!".format(hole_type))
             return 1
@@ -577,8 +577,7 @@ Geometry.Tolerance = 1E-10;
                                                                                 b, 0.1)
         elif hole_type == "ellipse":  # TODO: The ellipse doesn't work -PW
             geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
-            geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(2 + offset, 0.1,
-                                                                                              500 + offset)
+            geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(0.1, 500 + offset)
 
         geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
             np.pi / 2.0, 2 + offset)
@@ -1155,7 +1154,6 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         hole_type = numerical_pars["aperture_params"]["hole_type"]
 
         # --- Entrance aperture --- #
-        # TODO: May have to be rotated more with entrance of SI
         entrance_aperture = SIAperture(name="Entrance Aperture", voltage=voltage, offset=entrance_offset)
 
         # Calculate correct translation and rotation
