@@ -42,7 +42,7 @@ def calculate_efield_bempp(si):
 
     assert phi is not None, "Please calculate the potential first!"
 
-    print("Calculating the electric field... ", end="")
+    print("Calculating the electric field... ", end="", flush=True)
 
     _d = numerical_vars["d"]
     _n = numerical_vars["n"]
@@ -66,7 +66,7 @@ def calculate_efield_bempp(si):
     numerical_vars["ef_itp"] = _field
     si.numerical_variables = numerical_vars
 
-    print("Done!")
+    print("Done!", flush=True)
 
     return 0
 
@@ -78,7 +78,7 @@ def calculate_efield_fenics(si):
 
     assert u is not None, "Please calculate the potential first!"
 
-    print("Calculating the electric field... ", end="")
+    print("Calculating the electric field... ", end="", flush=True)
 
     fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
     electric_field = FenicsField(fenics_field)
@@ -89,7 +89,7 @@ def calculate_efield_fenics(si):
     fieldfile = fn.File(TEMP_DIR + '/e_field.pvd')
     fieldfile << fenics_field
 
-    print("Done!")
+    print("Done!", flush=True)
 
     return 0
 
@@ -115,7 +115,7 @@ def calculate_potential(si,
               "Must be ((xmin, xmax), (ymin, ymax), (zmin, zmax)) = (3, 2).".format(limits.shape))
         return 1
 
-    print("Now calculating the electrostatic potential... ", end="")
+    print("Now calculating the electrostatic potential... ", end="", flush=True)
     _ts = time.time()
 
     _mesh_data = numerical_vars["full mesh"]
@@ -207,7 +207,7 @@ def calculate_potential(si,
 
     si.numerical_variables = numerical_vars
 
-    print("Done!")
+    print("Done!", flush=True)
 
     return 0
 
@@ -226,7 +226,7 @@ def solve_bempp(si):
         print("Please generate a mesh before solving with BEM++!")
         return 1
 
-    print("Generating necessary BEM++ operators, function spaces. Solving... ", end="")
+    print("Generating necessary BEM++ operators, function spaces. Solving... ", end="", flush=True)
 
     _mesh_data = numerical_vars["full mesh"]
 
@@ -256,9 +256,9 @@ def solve_bempp(si):
         dirichlet_fun.plot()
 
     # Solve
-    sol, info = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, use_strong_form=True)
+    sol, info = bempp.api.linalg.cg(slp, dirichlet_fun, tol=gmres_tol, use_strong_form=True)
 
-    print("Done!")
+    print("Done!", flush=True)
 
     # Save results
     numerical_vars["solution"] = sol
@@ -276,6 +276,8 @@ def solve_fenics(si):
     assert HAVE_FENICS, "Fenics not found. Aborting!"
 
     fn.set_log_level(60)
+
+    print("Solving with FEniCS... ", end="", flush=True)
 
     numerical_vars = si.numerical_variables
     full_mesh = numerical_vars["full_mesh"]
@@ -316,7 +318,10 @@ def solve_fenics(si):
     _tsi = time.time()
     fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "cg", "preconditioner": "ilu"})
     _tsf = time.time()
-    print("Potential solving time: {:.4f}".format(_tsf - _tsi))
+
+    print("Done!", flush=True)
+
+    print("Potential solving time: {:.4f} s".format(_tsf - _tsi), flush=True)
 
     numerical_vars["ef_phi"] = u
     numerical_vars["f_space"] = V

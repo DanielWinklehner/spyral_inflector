@@ -94,7 +94,7 @@ class SpiralInflector(object):
         # --- Parameters used by the BEM++ potential and field calculation ------------------------------------------- #
         self._params_numerical = {"h": None,  # the desired mesh spacing for BEM++ mesh generation
                                   "make_aperture": False,  # Make apertures at the exit and entrance
-                                  "gmres_tol": 1E-4,  # Tolerance used to calculate the BEMPP solution
+                                  "gmres_tol": 1E-5,  # Tolerance used to calculate the BEMPP solution
                                   "aperture_params": {"thickness": None,
                                                       "radius": None,
                                                       "length": None,
@@ -170,19 +170,19 @@ class SpiralInflector(object):
 
     def generate_design_trajectory(self):
         r = None
-        if self._method is "analytical":
+        if self._method == "analytical":
             r = self.generate_analytical_trajectory()
-        elif self._method is "numerical":
+        elif self._method == "numerical":
             r = self.generate_numerical_trajectory()
         return r
 
     def generate_geometry(self):
-        r = None
-        if self._method is "analytical":
-            r = self.generate_analytical_geometry()
-        elif self._method is "numerical":
-            r = self.generate_numerical_geometry()
-        return r
+        if self._method == "analytical":
+            return self.generate_analytical_geometry()
+        elif self._method == "numerical":
+            return self.generate_numerical_geometry()
+
+        return 1
 
     def _calculate_bf_max(self):
 
@@ -453,7 +453,6 @@ class SpiralInflector(object):
                     "variables_track": self._variables_track,
                     "variables_optimization": self._variables_optimization}
 
-        # TODO: File dialog or something
         with open(fname, 'wb') as outfile:
             pickle.dump(save_obj, outfile)
 

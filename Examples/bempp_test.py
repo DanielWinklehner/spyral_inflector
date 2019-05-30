@@ -7,7 +7,7 @@ si = SpiralInflector(ion=h2p,
                      method="numerical",
                      solver="bempp",
                      volt=12000,
-                     gap=20e-3,
+                     gap=18e-3,
                      tilt=27.0,
                      aspect_ratio=2.5,
                      dx=10e-3,
@@ -22,7 +22,7 @@ si.initialize()
 # si.generate_geometry()
 # draw_geometry(si, freq=10, show=True)
 
-si.set_parameter(key="h", value=0.005)  # Mesh characteristic length
+si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
 si.set_parameter(key="make_aperture", value=False)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
@@ -55,15 +55,15 @@ si.generate_meshed_model()
 
 si.solve()
 
-ts = time.time()
-
-si.optimize_fringe(maxiter=3, tol=0.02, res=0.005)
-print("Optimizing took {:.4f} s".format(time.time() - ts))
-
+# ts = time.time()
+#
+# si.optimize_fringe(maxiter=3, tol=0.02, res=0.005)
+# print("Optimizing took {:.4f} s".format(time.time() - ts))
+#
 ts = time.time()
 
 print("Calculating electric field...")
-si.calculate_potential(res=0.002,
+si.calculate_potential(res=0.005,
                        limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
                        domain_decomp=(3, 3, 3))
 

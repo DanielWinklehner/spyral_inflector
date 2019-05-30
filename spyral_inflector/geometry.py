@@ -69,7 +69,7 @@ class SIAperture(PyElectrode):
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -138,7 +138,7 @@ class SIPointSphere(PyElectrode):
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -182,7 +182,7 @@ class SICylinder(PyElectrode):
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -230,7 +230,7 @@ class SIElectrode(PyElectrode):
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 Geometry.NumSubEdges = 100; // nicer display of curve
-// Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 """.format(h)
         else:
             geo_str = ""
@@ -498,7 +498,7 @@ class SIHousing(PyElectrode):
 // Geometry.NumSubEdges = 100; // nicer display of curve
 Geometry.ToleranceBoolean = 1E-5;
 Geometry.Tolerance = 1E-10;
-// Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         else:
             geo_str = "Geometry.ToleranceBoolean = 1E-5;\n"
 
@@ -898,6 +898,7 @@ def generate_numerical_geometry(si):
     geo[9, :, :] = 0.5 * (geos[0][2, :, :] + geos[0][3, :, :])
 
     analytic_vars["geo"] = geo
+    si.analytic_variables = analytic_vars
 
     print("Done!")
 
@@ -1104,7 +1105,6 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     assy.add_electrode(anode)
     assy.add_electrode(cathode)
 
-
     if numerical_pars["make_housing"]:
         zmin = numerical_pars["housing_params"]["zmin"]
         zmax = numerical_pars["housing_params"]["zmax"]
@@ -1246,7 +1246,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # translate = np.array([0.0, 0.0, 0,0])
         # outer_cylinder.set_translation(translate, absolute=True)
         # outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
-        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.0025, load=True, header=True)
+        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.01, load=True, header=True)
 
         assy.add_electrode(outer_cylinder)
 
