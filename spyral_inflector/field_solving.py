@@ -21,6 +21,7 @@ except ImportError:
 HAVE_FENICS = False
 try:
     import fenics as fn
+    fn.set_log_level(60)
     HAVE_FENICS = True
 except ImportError:
     fn = None
@@ -177,7 +178,9 @@ def calculate_potential(si,
                 grid_pts = np.vstack([_mesh[x1:x2, y1:y2, z1:z2].ravel() for _mesh in mesh])
                 grid_pts_len = grid_pts.shape[1]  # save shape for later
 
-                temp_pot = bempp.api.operators.potential.laplace.single_layer(dp0_space, grid_pts) * n_fun
+                # temp_pot = bempp.api.operators.potential.laplace.single_layer(dp0_space, grid_pts) * n_fun
+                slp_pot = bempp.api.operators.potential.laplace.single_layer(dp0_space, grid_pts)
+                temp_pot = slp_pot * n_fun
 
                 # Create array of original shape and fill with result at right place,
                 # then move into master array
@@ -235,6 +238,7 @@ def solve_bempp(si):
                                                   _mesh_data["domns"])
 
     dp0_space = bempp.api.function_space(_mesh, "DP", 0)
+
     slp = bempp.api.operators.boundary.laplace.single_layer(dp0_space, dp0_space, dp0_space)
 
     domain_mapping = {}
@@ -255,13 +259,12 @@ def solve_bempp(si):
     if si.debug:
         dirichlet_fun.plot()
 
-    # Solve
-    sol, info = bempp.api.linalg.cg(slp, dirichlet_fun, tol=gmres_tol, use_strong_form=True)
-
+    sol, info, res = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
     print("Done!", flush=True)
 
     # Save results
     numerical_vars["solution"] = sol
+    numerical_vars["d_fun"] = dirichlet_fun
     numerical_vars["n_fun_coeff"] = sol.coefficients
     numerical_vars["f_space"] = dp0_space
     numerical_vars["operator"] = slp
@@ -274,8 +277,6 @@ def solve_bempp(si):
 def solve_fenics(si):
 
     assert HAVE_FENICS, "Fenics not found. Aborting!"
-
-    fn.set_log_level(60)
 
     print("Solving with FEniCS... ", end="", flush=True)
 

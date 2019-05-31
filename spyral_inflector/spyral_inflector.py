@@ -489,7 +489,6 @@ class SpiralInflector(object):
                 self._variables_optimization[key] = val
 
         self.initialize()
-        # TODO: Calculate potential if it needs to?
 
         return 0
 
