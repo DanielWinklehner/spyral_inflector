@@ -935,21 +935,28 @@ def generate_vacuum_space(si):
 
     master_geo_str = "// Full .geo file for fenics mesh generation\n"
 
+    master_geo_str += assy.get_electrode_by_name('SI Anode')._geo_str
+    master_geo_str += assy.get_electrode_by_name('SI Cathode')._geo_str
+    master_geo_str += assy.get_electrode_by_name('Outer Cylinder')._geo_str
+
     if numerical_pars["make_aperture"]:
         make_top_aperture = True
+        master_geo_str += assy.get_electrode_by_name('Entrance Aperture')._geo_str
         if numerical_pars["make_housing"]:
             make_housing = True
             make_bottom_aperture = False
+            master_geo_str += assy.get_electrode_by_name('Housing')._geo_str
         else:
             make_housing = False
             make_bottom_aperture = True
+            master_geo_str += assy.get_electrode_by_name('Exit Aperture')._geo_str
     else:
         make_top_aperture = False
         make_housing = False
         make_bottom_aperture = False
 
-    for _, electrode in assy.electrodes.items():
-        master_geo_str += electrode._geo_str
+    # for _, electrode in assy.electrodes.items():
+    #     master_geo_str += electrode._geo_str
 
     master_geo_str += """
 //    anode_offset = 0
@@ -975,10 +982,10 @@ EndFor
 
     master_geo_str += """
 // Vacuum Cylinder
-vacuum_boundary[] = Boundary { Volume{ 4001 }; };
+vacuum_boundary[] = Boundary { Volume{ 2001 }; };
 N_vacuum = #vacuum_boundary[];
 For j In {0:N_vacuum-1}
-    Physical Surface (4000 + j) = { vacuum_boundary[j] };
+    Physical Surface (2000 + j) = { vacuum_boundary[j] };
 EndFor
 """
 
@@ -1008,7 +1015,7 @@ For k In {0:N_entrance-1}
 EndFor
 """
 
-    master_geo_str += "Delete{ Volume{1, 1001, 4001"
+    master_geo_str += "Delete{ Volume{1, 1001, 2001"
 
     if make_bottom_aperture or make_housing:
         master_geo_str += ", {}".format(ap_id)
@@ -1033,19 +1040,19 @@ EndFor
 
 Physical Volume(1) = { 1 };
 
-edge_list[] = Boundary { Volume{ 1 }; };
-N_edges = #edge_list[];
-Field[1] = Distance;
-Field[1].NNodesByEdge = 100;
-Field[1].EdgesList = {1:N_edges};
+// edge_list[] = Boundary { Volume{ 1 }; };
+// N_edges = #edge_list[];
+// Field[1] = Distance;
+// Field[1].NNodesByEdge = 100;
+// Field[1].EdgesList = {1:N_edges};
 
-Field[2] = Threshold;
-Field[2].IField = 1;
-Field[2].LcMin = 0.0015;
-Field[2].LcMax = 0.01;
-Field[2].DistMin = 0.003;
-Field[2].DistMax = 0.01;
-Background Field = 2;
+// Field[2] = Threshold;
+// Field[2].IField = 1;
+// Field[2].LcMin = 0.0015;
+// Field[2].LcMax = 0.01;
+// Field[2].DistMin = 0.003;
+// Field[2].DistMax = 0.01;
+// Background Field = 2;
 
 // Mesh.OptimizeNetgen = 1;
 
@@ -1089,10 +1096,10 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     # Variables for fenics solving, won't affect anything BEMPP related (ideally) -PW
     anode_offset = 0
     cathode_offset = 1000
-    housing_offset = 5000
-    exit_offset = 5000
+    cylinder_offset = 2000
     entrance_offset = 3000
-    cylinder_offset = 4000
+    exit_offset = 5000
+    housing_offset = 5000
 
     anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
     anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True)
@@ -1170,11 +1177,9 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         if solver == "bempp":
             entrance_aperture.set_translation(translation, absolute=True)
             entrance_aperture.set_rotation_angle_axis(angle=rotation[2], axis=Z_AXIS, absolute=True)
-
-        # Create geo string and load
-        if solver == "bempp":
             translation = np.array([0.0, 0.0, 0.0])
             rotation = np.array([0.0, 0.0, 0.0])
+
         entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, translation=translation, rotation=rotation,
                                          hole_type=hole_type,
                                          h=h, load=True, header=True)
@@ -1245,10 +1250,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         voltage = numerical_pars["cylinder_params"]["voltage"]
 
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage, offset=cylinder_offset)
-        # translate = np.array([0.0, 0.0, 0,0])
-        # outer_cylinder.set_translation(translate, absolute=True)
-        # outer_cylinder.create_geo_str(r=r, dz=zmax - zmin, h=h, load=True, header=False)
         outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.01, load=True, header=True)
+        outer_cylinder.color = "GREEN"
 
         assy.add_electrode(outer_cylinder)
 
