@@ -365,6 +365,8 @@ class SIHousing(PyElectrode):
         self._offset = offset
 
         self._aperture_params = None
+        self._tilt_angle = None
+        self._face_angle = None
 
         self._experimental = experimental
 
@@ -449,7 +451,8 @@ class SIHousing(PyElectrode):
 
         return pts_in, pts_out
 
-    def sort_points_by_angle(self, points):
+    @staticmethod
+    def sort_points_by_angle(points):
         angles = []
         for i, point in enumerate(points):
             theta = np.arctan2(point[1], point[0])
@@ -484,20 +487,17 @@ class SIHousing(PyElectrode):
 
         norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
-        translate = np.array([trj[-1][0] + norm_vec[0] * b_gap,
-                              trj[-1][1] + norm_vec[1] * b_gap,
+        translate = np.array([trj[-1][0] + norm_vec[0] * b_gap * 0.99,
+                              trj[-1][1] + norm_vec[1] * b_gap * 0.99,
                               0.0])
 
         hole_type = self._aperture_params["hole_type"]
 
-        # TODO: ToleranceBoolean is important for the aperture hole. This was tested from 1T to about 2.4T and
-        # TODO: seems to work... 3T did not. -PW
-
         if header:
             geo_str = """SetFactory("OpenCASCADE");
 // Geometry.NumSubEdges = 100; // nicer display of curve
-Geometry.ToleranceBoolean = 1E-5;
-Geometry.Tolerance = 1E-10;
+// Geometry.ToleranceBoolean = 1E-5;
+// Geometry.Tolerance = 1E-10;
 Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         else:
             geo_str = "Geometry.ToleranceBoolean = 1E-5;\n"
@@ -506,7 +506,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         n_pts_out = np.shape(pts_out)[0]
 
         for i, pt in enumerate(pts_out):
-            geo_str += "Point({}) = {{ {}, {}, 0, {}}};\n".format(i + offset, pt[0], pt[1], h)
+            geo_str += "Point({}) = {{ {}, {}, 0, {} }};\n".format(i + offset, pt[0], pt[1], h)
 
         geo_str += "// Outside lines\n"
         n_lines_out = n_pts_out  # Should be the same number
@@ -520,7 +520,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         n_pts_in = np.shape(pts_in)[0]
 
         for i, pt in enumerate(pts_in):
-            geo_str += "Point({}) = {{ {}, {}, 0}};\n".format(i + n_pts_out + offset, pt[0], pt[1])
+            geo_str += "Point({}) = {{ {}, {}, 0, {} }};\n".format(i + n_pts_out + offset, pt[0], pt[1], h)
 
         geo_str += "// Inside lines\n"
         n_lines_in = n_pts_in  # Should be the same number
@@ -556,14 +556,9 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
                                                       n_lines_in + n_lines_out + offset + 1,
                                                       n_lines_in + n_lines_out + offset + num_wire_points - 1)
 
-        geo_str += "housing_out[] = Extrude {{ Surface{{ {} }}; }} Using Wire {{ {} }};\n".format(1 + offset,
-                                                                                                  3 + offset)
-        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[] }}; }}\n".format(zmin)
-
-        geo_str += "Recursive Delete {{ Point{{ {}:{} }}; }}\n".format(point_index, point_index + num_wire_points - 1)
-        geo_str += "Recursive Delete {{ Line{{ {}:{} }}; }}\n".format(line_index, line_index + num_wire_points - 2)
-
         geo_str += "// Tool to subtract\n"
+
+        sub_tool = None  # This is either 5002 or disk_out[1], depending on the type of hole
         if hole_type == "rectangle":
             if self._experimental:
                 geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n\n".format(2 + offset,
@@ -575,24 +570,35 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
                                                                                 -0.5 * a, -0.5 * b,
                                                                                 0.0, a,
                                                                                 b, 0.1)
-        elif hole_type == "ellipse":  # TODO: The ellipse doesn't work -PW
+            sub_tool = 2 + offset
+
+        elif hole_type == "ellipse":
             geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
-            geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(0.1, 500 + offset)
+            geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(0.05, 500 + offset)
+            sub_tool = "disk_out[1]"
+
+        geo_str += "housing_out[] = Extrude {{ Surface{{ {} }}; }} Using Wire {{ {} }};\n".format(1 + offset,
+                                                                                                  3 + offset)
+        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[] }}; }}\n".format(zmin)
+
+        geo_str += "Recursive Delete {{ Point{{ {}:{} }}; }}\n".format(point_index, point_index + num_wire_points - 1)
+        geo_str += "Recursive Delete {{ Line{{ {}:{} }}; }}\n".format(line_index, line_index + num_wire_points - 2)
+        geo_str += "Recursive Delete {{ Surface{{ {} }}; }}\n".format(1 + offset)
 
         geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            np.pi / 2.0, 2 + offset)
+            np.pi / 2.0, sub_tool)
         geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            self._tilt_angle, 2 + offset)
+            self._tilt_angle, sub_tool)
         geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            self._face_angle, 2 + offset)
+            self._face_angle, sub_tool)
 
         geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate[0],
                                                                                translate[1],
                                                                                0.0,
-                                                                               2 + offset)
+                                                                               sub_tool)
 
         geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
-            50 + offset, 2 + offset)
+            50 + offset, sub_tool)
 
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
@@ -974,10 +980,6 @@ N_vacuum = #vacuum_boundary[];
 For j In {0:N_vacuum-1}
     Physical Surface (4000 + j) = { vacuum_boundary[j] };
 EndFor
-
-// Surface Loop (2) = { vacuum_boundary };
-// Surface Loop (1) = { anode_boundary };
-// Surface Loop (3) = { cathode_boundary };
 """
 
     if make_bottom_aperture or make_housing:
@@ -1131,7 +1133,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                                    span=span,
                                    gap=gap,
                                    thickness=thickness,
-                                   h=h,
+                                   h=h * 3,
                                    load=True,
                                    header=True)
 

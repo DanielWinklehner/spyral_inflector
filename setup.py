@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='spyral_inflector',
-      version='2.1.0',
+      version='2.1.1',
       description='This module calculates the geometry of a spiral inflector for given initial parameters.',
       url='https://github.com/DanielWinklehner/spyral_inflector',
       author='Daniela Campo, Philip Weigel, Daniel Winklehner',
