@@ -89,6 +89,7 @@ class SpiralInflector(object):
                                     "kp": 0.0,  # Tilt parameter
                                     "k": 0.0,
                                     "d": None,  # Inner gap size vs. deflection angle
+                                    "orbit_center": (None, None)  # x,y position of orbit center
                                     }
 
         # --- Parameters used by the BEM++ potential and field calculation ------------------------------------------- #
@@ -579,6 +580,15 @@ class SpiralInflector(object):
 
     def fast_track_with_termination(self, **kwargs):
         return fast_track_with_termination(self, **kwargs)
+
+    def calculate_orbit_center(self, k=None, kp=None, height=None):
+        if k is None:
+            k = self.analytic_variables["k"]
+        if kp is None:
+            kp = self.analytic_variables["kp"]
+        if height is None:
+            height = self.analytic_variables["height"]
+        return calculate_orbit_center(k, kp, height)
 
 
 if __name__ == "__main__":

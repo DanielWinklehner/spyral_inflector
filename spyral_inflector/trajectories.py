@@ -39,7 +39,6 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
 
     # Track for n steps
     for i in range(nsteps):
-
         # print(r[i])
 
         ef = efield1(r[i])
@@ -157,7 +156,7 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
 def generate_analytical_trajectory(si):
     if not si.initialized:
         si.initialize()
-        
+
     analytic_params = si.analytic_parameters
     analytic_vars = si.analytic_variables
 
@@ -190,6 +189,11 @@ def generate_analytical_trajectory(si):
             print("Flipping direction of cyclotron motion...", end="")
         analytic_vars["trj_design"][:, 1] = -analytic_vars["trj_design"][:, 1]
 
+    # Orbit center calculation
+    xc, yc = calculate_orbit_center(analytic_vars["k"], analytic_vars["kp"], analytic_vars["height"])
+
+    analytic_vars["orbit_center"] = (xc, yc)
+
     # If there is a known shift, apply it now...
     # TODO: Commented this out due to possible shifting error -PW
     # if si._variables_track["shift"] is not None:
@@ -208,7 +212,7 @@ def generate_analytical_trajectory(si):
     if analytic_params["rotation"] != 0.0:
         for i in range(analytic_params["ns"]):
             analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
-                                                                   analytic_vars["trj_design"][i, :])
+                                                          analytic_vars["trj_design"][i, :])
 
     print("Done!")
 
@@ -216,7 +220,7 @@ def generate_analytical_trajectory(si):
         print("Design Trajectory:")
         print(analytic_vars["trj_design"])
         print("")
-        
+
     si.analytic_parameters = analytic_params
     si.analytic_variables = analytic_vars
 
@@ -229,7 +233,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     analytic_params = si.analytic_parameters
     analytic_vars = si.analytic_variables
     track_params = si.track_parameters
-    
+
     if "nsteps" in track_params:
         nsteps = track_params["nsteps"]
     if "dt" in track_params:
@@ -356,7 +360,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     if analytic_params["rotation"] != 0.0:
         for i in range(analytic_params["ns"]):
             analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
-                                                                   analytic_vars["trj_design"][i, :])
+                                                          analytic_vars["trj_design"][i, :])
 
     analytic_vars["trj_vel"] = v
     analytic_vars["b"] = b
@@ -365,3 +369,11 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     si.analytic_variables = analytic_vars
 
     return r, v
+
+
+def calculate_orbit_center(k, kp, height):
+
+    xc = height * ((1 - 2 * k * np.sin(k * np.pi)) / (1 - 4 * k ** 2) - np.sin(k * np.pi) / (2 * k - kp))
+    yc = height * (2 * k / (1 - 4 * k ** 2) + 1 / (2 * k - kp)) * np.cos(k * np.pi)
+
+    return xc, yc
