@@ -84,7 +84,7 @@ class SpiralInflector(object):
                                     "r_cyc": 0.0,  # Cyclotron radius of the design particle
                                     "b": None,  # Array holding the possible values of curvature
                                     "trj_design": None,  # type: np.ndarray
-                                    "v_design": None,  # type: np.ndarray
+                                    "trj_vel": None,  # type: np.ndarray
                                     "height": 0.0,  # Height of the inflector (extension in z-direction) (m)
                                     "kp": 0.0,  # Tilt parameter
                                     "k": 0.0,

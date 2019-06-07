@@ -11,9 +11,10 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
     numerical_vars = si.numerical_variables
     track_vars = si.track_variables
 
-    if numerical_vars["ef_itp"] is None:
-        print("No E-Field has been generated. Cannot track!")
-        return 1
+    if not omit_e:
+        if numerical_vars["ef_itp"] is None:
+            print("No E-Field has been generated. Cannot track!")
+            return 1
 
     pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
@@ -121,6 +122,55 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
 
     track_vars["trj_tracker"] = r
     si.track_variables = track_vars
+
+    return r, v
+
+
+def central_region_track(cr,
+                         r_start=None,
+                         v_start=None,
+                         nsteps=10000,
+                         dt=1e-12,
+                         omit_b=False,
+                         omit_e=False):
+    assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
+
+    analytic_params = cr.analytic_parameters
+    numerical_vars = cr.numerical_variables
+    track_vars = cr.track_variables
+
+    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+
+    if omit_e:
+        efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+    else:
+        efield1 = numerical_vars["ef_itp"]  # type: Field
+
+    if omit_b:
+        bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+    else:
+        bfield1 = analytic_params["bf_itp"]  # type: Field
+
+    r = np.zeros([nsteps + 1, 3])
+    v = np.zeros([nsteps + 1, 3])
+    r[0, :] = r_start[:]
+    v[0, :] = v_start[:]
+
+    # initialize the velocity half a step back:
+    ef = efield1(r[0])
+    bf = bfield1(r[0])
+    _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
+
+    # Track for n steps
+    for i in range(nsteps):
+        ef = efield1(r[i])
+        bf = bfield1(r[i])
+
+        r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
+        v[i + 1] = cr.dee_crossing(r[i], r[i + 1], v[i + 1], dt*i)
+
+    track_vars["trj_tracker"] = r
+    cr.track_variables = track_vars
 
     return r, v
 
@@ -349,6 +399,8 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
 
     # Redefine the analytical variables (will change name eventually)
     analytic_vars["trj_design"] = r
+    analytic_vars["trj_vel"] = v
+    analytic_vars["b"] = b
 
     # If there is a known shift, apply it now...
     # TODO: Commented this out due to possible shifting error -PW
@@ -361,9 +413,8 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         for i in range(analytic_params["ns"]):
             analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
                                                           analytic_vars["trj_design"][i, :])
-
-    analytic_vars["trj_vel"] = v
-    analytic_vars["b"] = b
+            analytic_vars["trj_vel"][i, :] = np.matmul(analytic_vars["rot"],
+                                                       analytic_vars["trj_vel"][i, :])
 
     si.analytic_parameters = analytic_params
     si.analytic_variables = analytic_vars
@@ -372,7 +423,6 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
 
 
 def calculate_orbit_center(k, kp, height):
-
     xc = height * ((1 - 2 * k * np.sin(k * np.pi)) / (1 - 4 * k ** 2) - np.sin(k * np.pi) / (2 * k - kp))
     yc = height * (2 * k / (1 - 4 * k ** 2) + 1 / (2 * k - kp)) * np.cos(k * np.pi)
 
