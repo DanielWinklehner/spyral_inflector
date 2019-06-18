@@ -35,7 +35,8 @@ class CentralRegion(object):
         self._track_trjs_vel = []
 
         self.rf_phase = 0.0
-        self.rf_freq = 32.8E6
+        self.rf_frequency = 32.8E6
+        self.harmonic = 4
         self.v_peak = 70.0E3
 
         if spiral_inflector is not None:
@@ -77,15 +78,21 @@ class CentralRegion(object):
 
     def dee_crossing(self, rc, rd, v, t):
         ion = self._params_analytic["ion"]
-        intersected = False
         initial_v = ion.v_m_per_s()
-        for segment in self._segments:
-            intersected = segment.check_intersection(rc[:2], rd[:2]) or intersected
-        if not intersected:
-            return v
+
+        dE = 0.0
         ttf = 1.0
-        dE = np.abs(ion.q() * np.sin( 2 * np.pi * self.rf_freq * t + self.rf_phase) * self.v_peak * ttf)
-        print("Gained energy {:.3f} keV".format(dE / 1E3))
+
+        for segment in self._segments:
+            if segment.check_intersection(rc[:2], rd[:2]):
+                print('Intersection')
+                dE += ion.q() * np.sin(2 * np.pi * self.rf_freq * t + self.rf_phase + segment.phase) * self.v_peak * ttf
+                print(np.mod(np.rad2deg(2 * np.pi * self.rf_freq * t + self.rf_phase), 360))
+
+        # if not intersected:
+        #     return v
+        # dE = ion.q() * np.sin( 2 * np.pi * self.rf_freq * t + self.rf_phase) * self.v_peak * ttf
+        # print("Gained energy {:.3f} keV".format(dE / 1E3))
         ion.calculate_from_energy_mev(ion._energy_mev + dE / 1E6)
         return ion.v_m_per_s() * v / initial_v
 
@@ -96,21 +103,27 @@ class CentralRegion(object):
 
     def create_initial_dees(self):
 
-        thetas = np.linspace(0, 7*np.pi / 4, 8) + np.pi / 8.0
+        thetas = np.linspace(0, 7 * np.pi / 4, 8) + np.pi / 8.0
         r_init, r_final = 0.05, 1
 
-        for theta in thetas:
-            ra = np.array([r_init * np.cos(theta), r_init * np.sin(theta)])
-            rb = np.array([r_final * np.cos(theta), r_final * np.sin(theta)])
-            dee_seg = CRSegment(ra=ra, rb=rb)
-            self._segments.append(dee_seg)
+        ra = np.array([r_init * np.cos(thetas), r_init * np.sin(thetas)])
+        rb = np.array([r_final * np.cos(thetas), r_final * np.sin(thetas)])
+
+        self._segments.append(CRSegment(ra=ra[:, 0], rb=rb[:, 0], phase=np.pi))
+        self._segments.append(CRSegment(ra=ra[:, 1], rb=rb[:, 1], phase=0))
+        self._segments.append(CRSegment(ra=ra[:, 2], rb=rb[:, 2], phase=np.pi))
+        self._segments.append(CRSegment(ra=ra[:, 3], rb=rb[:, 3], phase=0))
+        self._segments.append(CRSegment(ra=ra[:, 4], rb=rb[:, 4], phase=np.pi))
+        self._segments.append(CRSegment(ra=ra[:, 5], rb=rb[:, 5], phase=0))
+        self._segments.append(CRSegment(ra=ra[:, 6], rb=rb[:, 6], phase=np.pi))
+        self._segments.append(CRSegment(ra=ra[:, 7], rb=rb[:, 7], phase=0))
 
     def set_inflector(self, spiral_inflector):
         self._spiral_inflector = spiral_inflector
         self._params_analytic["ion"] = self._spiral_inflector.analytic_parameters["ion"]
         self._params_analytic["bf_itp"] = self._spiral_inflector.analytic_parameters["bf_itp"]
 
-    def load_bfield(self, bfield=None, bf_scale=1.0, spatial_unit="cm"):
+    def load_bfield(self, bfield=None, bf_scale=1.0, spatial_unit="cm", **kwargs):
 
         bf_load_from_file = False
 
@@ -158,7 +171,7 @@ class CentralRegion(object):
                                                     scaling=bf_scale,
                                                     units=spatial_unit)
 
-            self._params_analytic["bf_itp"].load_field_from_file(filename=bfield)
+            self._params_analytic["bf_itp"].load_field_from_file(filename=bfield, **kwargs)
 
             print("Successfully loaded B-Field from file")
 
@@ -173,6 +186,9 @@ class CentralRegion(object):
             ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[0])
             ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[0])
             ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[0])
+            # e_ang = np.arctan(seg.ehat[1] / seg.ehat[0])
+            # xl, yl = 0.005 * np.cos(e_ang), 0.02 * np.sin(e_ang)
+            # ax.plot([seg.mid[0], seg.mid[0] + seg.ehat[0] * xl], [seg.mid[1], seg.mid[1] + seg.ehat[1] * yl])
 
         ax.grid(True)
         ax.set_xlim([-0.25, 0.25])
@@ -195,35 +211,57 @@ class CentralRegion(object):
         plt.show()
 
     def plot_bfield(self, nx=100, ny=100):
+        from matplotlib import cm
+
         x, y = np.linspace(-0.1, 0.1, nx), np.linspace(-0.1, 0.1, ny)
         B = np.zeros([nx, ny])
         for i, xi in enumerate(x):
             for j, yi in enumerate(y):
-                B[i, j] = self._params_analytic["bf_itp"](np.array([xi, yi, 0.0]))
+                B[i, j] = self._params_analytic["bf_itp"](np.array([xi, yi, 0.0]))[2]
 
         fig = plt.figure()
+        xx, yy = np.meshgrid(x, y)
         ax = fig.add_subplot(111, projection='3d')
-        ax.plot_surface(x, y, B, color='b')
+        ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
         plt.show()
 
     def track(self, **kwargs):
-        r, v = central_region_track(self, r_start=self._xi, v_start=self._vi, nsteps=5000, dt=1e-11, **kwargs)
+        r, v = central_region_track(self, r_start=self._xi, v_start=self._vi, dt=1e-11, **kwargs)
+        self._tracked_trjs.append(r)
+        self._track_trjs_vel.append(v)
+        return r, v
+
+    def track_segment(self, **kwargs):
+        r, v = track_segment(self, r_start=self._xi, v_start=self._vi, dt=1e-11, **kwargs)
         self._tracked_trjs.append(r)
         self._track_trjs_vel.append(v)
         return r, v
 
 
+rot90 = np.array([[np.cos(np.pi / 2), -np.sin(np.pi / 2), 0.0],
+                  [np.sin(np.pi / 2), np.cos(np.pi / 2), 0.0],
+                  [0.0, 0.0, 1.0]])
+
+
 class CRSegment(object):
-    def __init__(self, ra, rb):
-        self.ra = ra  # Inner coordinate (x,y)
-        self.rb = rb  # Outer coordinate (x,y)
+    def __init__(self, ra, rb, phase):
+        self.ra = ra  # Inner mid-theta coordinate (x,y)
+        self.rb = rb  # Outer mid-theta coordinate (x,y)
+        self.mid = 0.5 * (ra + rb)
+        self.ehat = None
+        self.phase = phase
+
+    def get_field(self):
+        self.ehat = rot90.dot(
+            np.array([self.ra[0], self.ra[1], 1.0]) / np.linalg.norm(np.array([self.ra[0], self.ra[1], 1.0])))[:2]
+        self.ehat /= np.linalg.norm(self.ehat)
+        return self.ehat
 
     def check_intersection(self, rc, rd):
         return check_intersection(self.ra, self.rb, rc, rd)
 
 
 def check_intersection(q, b, p, d):
-
     s = b - q
     r = d - p
 
