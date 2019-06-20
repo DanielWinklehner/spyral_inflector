@@ -38,15 +38,21 @@ bfield = cr._params_analytic["bf_itp"]
 
 energy_list = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
+tunes = []
+xl, yl = [], []
+for E in energy_list:
+    x, y, t = gordon_algorithm(cr, energy_mev=E, symmetry_mode="quarter")
+    xl.append(x)
+    yl.append(y)
+    xavg = np.mean(x)
+    yavg = np.mean(y)
+    tunes.append(t)
+
 fig = plt.figure()
 ax = fig.add_subplot(111)
 
-for E in energy_list:
-    x, y = gordon_algorithm(cr, energy_mev=E)
-    ax.plot(x, y)
-    xavg = np.mean(x)
-    yavg = np.mean(y)
-    # ax.scatter(xavg, yavg, marker='X')
+for x, y in zip(xl, yl):
+    ax.plot(x, y, color='k', linewidth=1)
 
 ax.set_xlim([-0.3, 0.3])
 ax.set_ylim([-0.3, 0.3])
@@ -54,8 +60,8 @@ ax.set_aspect(1)
 ax.set_xlabel('x (m)')
 ax.set_ylabel('y (m)')
 ax.grid(True)
-plt.show()
 
+plt.show()
 
 """
 

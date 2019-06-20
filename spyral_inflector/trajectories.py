@@ -312,12 +312,19 @@ def cr_track(ion, r_init, v_init, symmetry="full", end_type="termination", input
     return 0
 
 
-def gordon_algorithm(cr, energy_mev=1.0):
+def gordon_algorithm(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
 
-    from dans_pymodules import MyColors
     import scipy.interpolate
 
-    colors = MyColors()
+    if symmetry_mode == "full":
+        theta_range = 2*np.pi
+    elif symmetry_mode == "half":
+        theta_range = np.pi
+    elif symmetry_mode == "quarter":
+        theta_range = 0.5*np.pi
+    else:
+        print("Symmetry mode not recognized.")
+        return 1
 
     freq_orbit = cr.rf_frequency / cr.harmonic
     omega_orbit = 2.0 * np.pi * freq_orbit
@@ -337,30 +344,31 @@ def gordon_algorithm(cr, energy_mev=1.0):
     err = 1
     it = 0
 
-    while err > 1e-4:
+    while err > 1e-6:
         print("Iteration {}:".format(it))
         initial_r += dri / cx
         # print("* Initial r = {}".format(initial_r))
         initial_pr += dpri / cpx
         # print("* Intial pr = {}".format(initial_pr))
 
-        r_init = np.array([initial_r, 1E-11, 0.0])
+        r_init = np.array([initial_r, 1E-9, 0.0])
         pr_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
         # print("pr_init", pr_init)
-        print("* Trial Orbit *")
-        print("-> Initial r: {}".format(r_init))
-        print("-> Initial pr: {}".format(pr_init))
+        if verbose:
+            print("* Trial Orbit *")
+            print("-> Initial r: {}".format(r_init))
+            print("-> Initial pr: {}".format(pr_init))
         vr_init = pr_init / (ion.gamma() * ion.mass_kg())
 
         # Trial orbit
         r, vr = cr_track(ion=ion,
                          r_init=r_init,
                          v_init=vr_init,
-                         symmetry="full",
+                         symmetry=symmetry_mode,
                          end_type="termination",
                          input_bfield=cr._params_analytic["bf_itp"],
-                         maxsteps=5000,
-                         dt=1e-10,
+                         maxsteps=100000,
+                         dt=5e-11,
                          omit_e=True,
                          omit_b=False)
 
@@ -379,19 +387,20 @@ def gordon_algorithm(cr, energy_mev=1.0):
         initial_pr1 = initial_pr + 0.0
         pr1_init = np.array([initial_pr1, np.sqrt(total_momentum ** 2 - initial_pr1 ** 2), 0.0])
 
-        print("* X-Offset Orbit *")
-        print("-> Initial r: {}".format(r1_init))
-        print("-> Initial pr: {}".format(pr1_init))
+        if verbose:
+            print("* X-Offset Orbit *")
+            print("-> Initial r: {}".format(r1_init))
+            print("-> Initial pr: {}".format(pr1_init))
         vr1_init = pr1_init / (ion.gamma() * ion.mass_kg())
 
         r1, vr1 = cr_track(ion=ion,
                            r_init=r1_init,
                            v_init=vr1_init,
-                           symmetry="full",
+                           symmetry=symmetry_mode,
                            end_type="termination",
                            input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=5000,
-                           dt=1e-10,
+                           maxsteps=100000,
+                           dt=5e-11,
                            omit_e=True,
                            omit_b=False)
 
@@ -411,20 +420,21 @@ def gordon_algorithm(cr, energy_mev=1.0):
         initial_pr2 = initial_pr + ion.mass_kg() * clight / a  # Offset by one unit of momentum in Gordon's units
         pr2_init = np.array([initial_pr2, np.sqrt(total_momentum ** 2 - initial_pr2 ** 2), 0.0])
 
-        print("* PX-Offset Orbit *")
-        print("-> Initial r: {}".format(r2_init))
-        print("-> Initial pr: {}".format(pr2_init))
+        if verbose:
+            print("* PX-Offset Orbit *")
+            print("-> Initial r: {}".format(r2_init))
+            print("-> Initial pr: {}".format(pr2_init))
 
         vr2_init = pr2_init / (ion.gamma() * ion.mass_kg())
 
         r2, vr2 = cr_track(ion=ion,
                            r_init=r2_init,
                            v_init=vr2_init,
-                           symmetry="full",
+                           symmetry=symmetry_mode,
                            end_type="termination",
                            input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=5000,
-                           dt=1e-10,
+                           maxsteps=100000,
+                           dt=5e-11,
                            omit_e=True,
                            omit_b=False)
 
@@ -455,7 +465,7 @@ def gordon_algorithm(cr, energy_mev=1.0):
         pr1_itp = scipy.interpolate.interp1d(theta1, pr1_mag, kind='cubic', fill_value="extrapolate")
         pr2_itp = scipy.interpolate.interp1d(theta2, pr2_mag, kind='cubic', fill_value="extrapolate")
 
-        sampling_angles = np.linspace(0.0, 2.0 * np.pi - 1E-6, 1000)
+        sampling_angles = np.linspace(0.0, theta_range - 1E-9, 1000)
 
         r_sampled = r_itp(sampling_angles)
         r1_sampled = r1_itp(sampling_angles)
@@ -524,12 +534,14 @@ def gordon_algorithm(cr, energy_mev=1.0):
                      r_init=r_init,
                      v_init=vr_init,
                      symmetry="full",
-                     end_type="steps",
+                     end_type="termination",
                      input_bfield=cr._params_analytic["bf_itp"],
                      maxsteps=5000,
                      dt=1e-10,
                      omit_e=True,
                      omit_b=False)
+
+    cos_sigma = 0.5*(tm[0, 0] + tm[1, 1])
 
     return r[:, 0], r[:, 1]
 
