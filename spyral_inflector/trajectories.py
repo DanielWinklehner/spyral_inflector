@@ -323,96 +323,129 @@ def gordon_algorithm(cr, energy_mev=1.0):
     omega_orbit = 2.0 * np.pi * freq_orbit
     ion = IonSpecies("H2_1+", energy_mev)
 
-    a = clight / omega_orbit
-    b = omega_orbit / ion.q_over_m()
+    a = (clight / omega_orbit) * 1000  # mm
+    # b = omega_orbit / ion.q_over_m()
 
     total_momentum = ion.gamma() * ion.mass_kg() * ion.v_m_per_s()
-    aprime = total_momentum / (ion.beta() * ion.gamma())
+
+    cx = 1000.0  # Conversion from m to mm
+    cpx = a / (ion.mass_kg() * clight)  # Conversion from SI to Gordon's units
 
     dri, dpri = 0.0, 0.0
-    initial_r = ion.beta() * a
+    initial_r = ion.beta() * a / cx
     initial_pr = 0.0
     err = 1
     it = 0
 
-    while err > 1e-3:
-        print("Iteration {}:".format(it), end='')
-        initial_r += dri
+    while err > 1e-4:
+        print("Iteration {}:".format(it))
+        initial_r += dri / cx
         # print("* Initial r = {}".format(initial_r))
-        initial_pr += dpri
+        initial_pr += dpri / cpx
         # print("* Intial pr = {}".format(initial_pr))
 
         r_init = np.array([initial_r, 1E-11, 0.0])
         pr_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
         # print("pr_init", pr_init)
+        print("* Trial Orbit *")
+        print("-> Initial r: {}".format(r_init))
+        print("-> Initial pr: {}".format(pr_init))
         vr_init = pr_init / (ion.gamma() * ion.mass_kg())
 
         # Trial orbit
         r, vr = cr_track(ion=ion,
                          r_init=r_init,
                          v_init=vr_init,
-                         symmetry="quarter",
+                         symmetry="full",
                          end_type="termination",
                          input_bfield=cr._params_analytic["bf_itp"],
-                         maxsteps=50000,
-                         dt=1e-11,
+                         maxsteps=5000,
+                         dt=1e-10,
                          omit_e=True,
                          omit_b=False)
 
         r_mag = np.sqrt(r[:, 0] ** 2 + r[:, 1] ** 2)
         pr = ion.gamma() * ion.mass_kg() * vr
-        pr_mag = np.sum(r[:, :2] * pr[:, :2] / np.linalg.norm(r[:, :2]), axis=1)
+        # pr_mag = np.sum(r[:, :2] * pr[:, :2] / np.linalg.norm(r[:, :2]), axis=1)
 
-        r1_init = r_init + np.array([0.001, 0.0, 0.0])
+        pr_mag = []
+        for i in range(len(r_mag)):
+            rhat = r[i, :2] / np.linalg.norm(r[i, :2])
+            _p = np.dot(pr[i, :2], rhat)
+            pr_mag.append(_p)
+        pr_mag = np.array(pr_mag)
+
+        r1_init = r_init + np.array([0.001, 0.0, 0.0])  # Offset by 1 mm
         initial_pr1 = initial_pr + 0.0
         pr1_init = np.array([initial_pr1, np.sqrt(total_momentum ** 2 - initial_pr1 ** 2), 0.0])
+
+        print("* X-Offset Orbit *")
+        print("-> Initial r: {}".format(r1_init))
+        print("-> Initial pr: {}".format(pr1_init))
         vr1_init = pr1_init / (ion.gamma() * ion.mass_kg())
 
         r1, vr1 = cr_track(ion=ion,
                            r_init=r1_init,
                            v_init=vr1_init,
-                           symmetry="quarter",
+                           symmetry="full",
                            end_type="termination",
                            input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=50000,
-                           dt=1e-11,
+                           maxsteps=5000,
+                           dt=1e-10,
                            omit_e=True,
                            omit_b=False)
 
         r1_mag = np.sqrt(r1[:, 0] ** 2 + r1[:, 1] ** 2)
         pr1 = ion.gamma() * ion.mass_kg() * vr1
-        pr1_mag = np.sum(r1[:, :2] * pr1[:, :2] / np.linalg.norm(r1[:, :2]), axis=1)
+        # pr1_mag = np.sum(r1[:, :2] * pr1[:, :2] / np.linalg.norm(r1[:, :2]), axis=1)
+
+        pr1_mag = []
+        for i in range(len(r1_mag)):
+            rhat = r1[i, :2] / np.linalg.norm(r1[i, :2])
+            _p = np.dot(pr1[i, :2], rhat)
+            pr1_mag.append(_p)
+        pr1_mag = np.array(pr1_mag)
 
         r2_init = r_init
-        initial_pr2 = initial_pr + total_momentum * 1E-4
+        # initial_pr2 = initial_pr + total_momentum * 1E-4
+        initial_pr2 = initial_pr + ion.mass_kg() * clight / a  # Offset by one unit of momentum in Gordon's units
         pr2_init = np.array([initial_pr2, np.sqrt(total_momentum ** 2 - initial_pr2 ** 2), 0.0])
+
+        print("* PX-Offset Orbit *")
+        print("-> Initial r: {}".format(r2_init))
+        print("-> Initial pr: {}".format(pr2_init))
+
         vr2_init = pr2_init / (ion.gamma() * ion.mass_kg())
 
         r2, vr2 = cr_track(ion=ion,
                            r_init=r2_init,
                            v_init=vr2_init,
-                           symmetry="quarter",
+                           symmetry="full",
                            end_type="termination",
                            input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=50000,
-                           dt=1e-11,
+                           maxsteps=5000,
+                           dt=1e-10,
                            omit_e=True,
                            omit_b=False)
 
         r2_mag = np.sqrt(r2[:, 0] ** 2 + r2[:, 1] ** 2)
         pr2 = ion.gamma() * ion.mass_kg() * vr2
-        pr2_mag = np.sum(r2[:, :2] * pr2[:, :2] / np.linalg.norm(r2[:, :2]), axis=1)
+        # pr2_mag = np.sum(r2[:, :2] * pr2[:, :2] / np.linalg.norm(r2[:, :2]), axis=1)
+
+        pr2_mag = []
+        for i in range(len(r2_mag)):
+            rhat = r2[i, :2] / np.linalg.norm(r2[i, :2])
+            _p = np.dot(pr2[i, :2], rhat)
+            pr2_mag.append(_p)
+        pr2_mag = np.array(pr2_mag)
 
         theta = np.arctan2(r[:, 1], r[:, 0])
         theta1 = np.arctan2(r1[:, 1], r1[:, 0])
         theta2 = np.arctan2(r2[:, 1], r2[:, 0])
 
-        # theta[theta < 0] += 2 * np.pi
-        # theta1[theta1 < 0] += 2 * np.pi
-        # theta2[theta2 < 0] += 2 * np.pi
-
-        # _x_itp = scipy.interpolate.interp1d(theta, r[:, 0], kind='cubic', fill_value="extrapolate")
-        # _y_itp = scipy.interpolate.interp1d(theta, r[:, 1], kind='cubic', fill_value="extrapolate")
+        theta[theta < 0] += 2 * np.pi
+        theta1[theta1 < 0] += 2 * np.pi
+        theta2[theta2 < 0] += 2 * np.pi
 
         r_itp = scipy.interpolate.interp1d(theta, r_mag, kind='cubic', fill_value="extrapolate")
         r1_itp = scipy.interpolate.interp1d(theta1, r1_mag, kind='cubic', fill_value="extrapolate")
@@ -422,8 +455,7 @@ def gordon_algorithm(cr, energy_mev=1.0):
         pr1_itp = scipy.interpolate.interp1d(theta1, pr1_mag, kind='cubic', fill_value="extrapolate")
         pr2_itp = scipy.interpolate.interp1d(theta2, pr2_mag, kind='cubic', fill_value="extrapolate")
 
-        # sampling_angles = np.linspace(0.0, 2.0 * np.pi - 1E-6, 1000)
-        sampling_angles = np.linspace(0.0, 0.5 * np.pi - 1E-6, 1000)
+        sampling_angles = np.linspace(0.0, 2.0 * np.pi - 1E-6, 1000)
 
         r_sampled = r_itp(sampling_angles)
         r1_sampled = r1_itp(sampling_angles)
@@ -438,57 +470,42 @@ def gordon_algorithm(cr, energy_mev=1.0):
         px1 = pr1_sampled - pr_sampled
         px2 = pr2_sampled - pr_sampled
 
-        c_x = 1.0 / x1[0]
-        c_px = 1.0 / px2[0]
+        tm = np.array([[cx*x1[-1], cx*x2[-1]],
+                       [cpx*px1[-1], cpx*px2[-1]]])
 
-        tm = np.array([[c_x * x1[-1], c_x * x2[-1]],
-                       [c_px * px1[-1], c_px * px2[-1]]])
+        # _tm = np.array([[cx*x1, cx*x2],
+        #                [cpx*px1, cpx*px2]])
+
         tm_det = tm[0, 0]*tm[1, 1] - tm[0, 1]*tm[1, 0]
 
-        # print(tm_det)
+        # print("Transfer Matrix:")
+        # print(tm)
+        # print("Eigenvalues: ")
+        # w, v = np.linalg.eig(tm)
+        # mult = 1.0
+        # for eig in w:
+        #     print(eig)
+        #     mult *= eig
+        # print("Product of eigenvalues: ", mult)
+        # print("Trace: ", np.trace(tm))
+        # print("Det: ", tm_det)
 
-        ep1 = (r_sampled[-1] - np.sqrt(r_init[0] ** 2 + r_init[1] ** 2)) * c_x
-        ep2 = (pr_sampled[-1] - initial_pr) * c_px
+
+        ep1 = (r_sampled[-1] - np.sqrt(r_init[0] ** 2 + r_init[1] ** 2)) * cx
+        ep2 = (pr_sampled[-1] - initial_pr) * cpx
         # Positive ep1: Final radius > Initial radius
         # Negative ep1: Final radius < Initial radius
         # Positive ep2: Final radial momentum > Initial radial momentum
         # Negative ep2: Final radial momentum < Initial radial momentum
 
-        # print("ep1")
-        # print(r_sampled[-1])
-        # print(np.sqrt(r_init[0] ** 2 + r_init[1] ** 2))
-        # print(c_x)
-        # print("ep2")
-        # print(pr_sampled[-1])
-        # print(initial_pr)
-        # print(c_px)
+        dri = (((tm[1, 1] - 1) * ep1 - tm[0, 1] * ep2) / (tm[0, 0] + tm[1, 1] - 1 - tm_det))
+        dpri = ((-ep2 - dri * tm[1, 0]) / (tm[1, 1] - 1))
 
-        dri = (((tm[1, 1] - 1) * ep1 - tm[0, 1] * ep2) / (tm[0, 0] + tm[1, 1] - 1 - tm_det)) / c_x
-        dpri = ((-ep2 - c_x * dri * tm[1, 0]) / (tm[1, 1] - 1)) / c_px
-
-        err = (1.0 / initial_r) * np.sqrt(dri**2 + (dpri * c_px / c_x)**2)
+        err = (1.0 / (initial_r * cx)) * np.sqrt(dri**2 + (dpri**2))
 
         print(" Total Error: {}".format(err))
         print("*** Epsilon 1: {}".format(ep1))
         print("*** Epsilon 2: {}".format(ep2))
-        print("*** dri/r = {}".format(dri/initial_r))
-        print("*** dpri/ptot = {}\n".format(dpri/total_momentum))
-
-        # plt.plot(r[:, 0], r[:, 1])
-        # plt.plot(r1[:, 0], r1[:, 1])
-        # plt.plot(r2[:, 0], r2[:, 1])
-        # plt.plot(sampling_angles, r_sampled)
-        # plt.show()
-
-        # fig = plt.figure()
-        # ax = fig.add_subplot(111)
-        # ax.plot(r[:, 0], r[:, 1], color=colors[0])
-        # ax.set_xlim([-0.3, 0.3])
-        # ax.set_ylim([-0.3, 0.3])
-        # ax.set_aspect(1)
-        # ax.set_xlabel('x (m)')
-        # ax.set_ylabel('y (m)')
-        # plt.show()
 
         it += 1
 
@@ -507,50 +524,14 @@ def gordon_algorithm(cr, energy_mev=1.0):
                      r_init=r_init,
                      v_init=vr_init,
                      symmetry="full",
-                     end_type="termination",
+                     end_type="steps",
                      input_bfield=cr._params_analytic["bf_itp"],
-                     maxsteps=40000,
+                     maxsteps=5000,
                      dt=1e-10,
                      omit_e=True,
                      omit_b=False)
 
-    theta = np.arctan2(r[:, 1], r[:, 0])
-    print(r)
-    # bfield = cr._params_analytic["bf_itp"]
-    #
-    # bz = []
-    # for i in range(len(r[:, 0])):
-    #     bz.append(bfield([r[i, 0], r[i, 1], r[i, 2]])[2])
-    #
-    # plt.plot(np.array(bz))
-    # plt.show()
-
-    vmag = np.sqrt(vr[:, 0]**2 + vr[:, 1]**2 + vr[:, 2]**2)
-    plt.plot(vmag)
-    plt.show()
-
-    # theta[theta < 0] += 2 * np.pi
-    # theta1[theta1 < 0] += 2 * np.pi
-    # theta2[theta2 < 0] += 2 * np.pi
-
-    sampling_angles = np.linspace(0.0, 2.0 * np.pi - 1E-6, 1000)
-
-    _x_itp = scipy.interpolate.interp1d(theta, r[:, 0], kind='cubic', fill_value="extrapolate")
-    _y_itp = scipy.interpolate.interp1d(theta, r[:, 1], kind='cubic', fill_value="extrapolate")
-    x, y = _x_itp(sampling_angles), _y_itp(sampling_angles)
-    #
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111)
-    # ax.plot(x, y, color=colors[0])
-    # ax.set_xlim([-0.3, 0.3])
-    # ax.set_ylim([-0.3, 0.3])
-    # ax.set_aspect(1)
-    # ax.set_xlabel('x (m)')
-    # ax.set_ylabel('y (m)')
-    # plt.show()
-
-    # Returns best r, vr
-    return _x_itp(sampling_angles), _y_itp(sampling_angles)
+    return r[:, 0], r[:, 1]
 
 
 def generate_analytical_trajectory(si):

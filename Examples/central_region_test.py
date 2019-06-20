@@ -36,10 +36,7 @@ cr.load_bfield(bfield='/home/philip/Downloads/RFQ-DIP_TestCyclotron_MainField.ta
 
 bfield = cr._params_analytic["bf_itp"]
 
-# energy_list = [0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]
-# energy_list = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-
-energy_list = [0.1, 0.2] #, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+energy_list = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
@@ -50,7 +47,6 @@ for E in energy_list:
     xavg = np.mean(x)
     yavg = np.mean(y)
     # ax.scatter(xavg, yavg, marker='X')
-
 
 ax.set_xlim([-0.3, 0.3])
 ax.set_ylim([-0.3, 0.3])
