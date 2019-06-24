@@ -312,16 +312,77 @@ def cr_track(ion, r_init, v_init, symmetry="full", end_type="termination", input
     return 0
 
 
-def gordon_algorithm(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
+def minimizer_orbit_finder(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
+    from scipy.optimize import minimize
 
+    freq_orbit = cr.rf_frequency / cr.harmonic
+    omega_orbit = 2.0 * np.pi * freq_orbit
+    ion = IonSpecies("H2_1+", energy_mev)
+
+    v = ion.v_m_per_s()
+    a = (clight / omega_orbit)
+
+    def opt_func(x):
+        initial_r, initial_vr = x
+        initial_vtheta = np.sqrt(v ** 2 - initial_vr ** 2)
+
+        r_init = np.array([initial_r, 1e-9, 0.0])
+        v_init = np.array([initial_vr, initial_vtheta, 0.0])
+        r, vr = cr_track(ion=ion,
+                         r_init=r_init,
+                         v_init=v_init,
+                         symmetry=symmetry_mode,
+                         end_type="termination",
+                         input_bfield=cr._params_analytic["bf_itp"],
+                         maxsteps=100000,
+                         dt=5e-11,
+                         omit_e=True,
+                         omit_b=False)
+
+        vtheta = np.sqrt(v ** 2 - vr[-1, 0] ** 2)
+
+        r_err, v_err = np.abs((r[-1, 0] - initial_r) / initial_r), \
+                       np.abs((vtheta - initial_vtheta) / initial_vtheta)
+        # print(r_err, v_err)
+        return np.sqrt(r_err ** 2 + v_err ** 2)
+
+    sol = minimize(opt_func,
+                   method='Nelder-Mead',
+                   x0=np.array([ion.beta() * a, 0.0]))
+                   # bounds=[(0.0, 0.3), (0.0, ion.v_m_per_s())])
+
+    initial_r, initial_vr = sol.x
+
+    initial_vtheta = np.sqrt(v ** 2 - initial_vr ** 2)
+
+    r_init = np.array([initial_r, 1e-9, 0.0])
+    v_init = np.array([initial_vr, initial_vtheta, 0.0])
+    r, v = cr_track(ion=ion,
+                     r_init=r_init,
+                     v_init=v_init,
+                     symmetry=symmetry_mode,
+                     end_type="termination",
+                     input_bfield=cr._params_analytic["bf_itp"],
+                     maxsteps=100000,
+                     dt=5e-11,
+                     omit_e=True,
+                     omit_b=False)
+
+    plt.plot(r[:, 0], r[:, 1])
+    plt.show()
+
+    return r, v
+
+
+def gordon_algorithm(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
     import scipy.interpolate
 
     if symmetry_mode == "full":
-        theta_range = 2*np.pi
+        theta_range = 2 * np.pi
     elif symmetry_mode == "half":
         theta_range = np.pi
     elif symmetry_mode == "quarter":
-        theta_range = 0.5*np.pi
+        theta_range = 0.5 * np.pi
     else:
         print("Symmetry mode not recognized.")
         return 1
@@ -480,26 +541,13 @@ def gordon_algorithm(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
         px1 = pr1_sampled - pr_sampled
         px2 = pr2_sampled - pr_sampled
 
-        tm = np.array([[cx*x1[-1], cx*x2[-1]],
-                       [cpx*px1[-1], cpx*px2[-1]]])
+        tmr = np.array([[cx * x1[-1], cx * x2[-1]],
+                       [cpx * px1[-1], cpx * px2[-1]]])
 
-        # _tm = np.array([[cx*x1, cx*x2],
-        #                [cpx*px1, cpx*px2]])
+        _tmr = np.array([[cx * x1, cx * x2],
+                        [cpx * px1, cpx * px2]])
 
-        tm_det = tm[0, 0]*tm[1, 1] - tm[0, 1]*tm[1, 0]
-
-        # print("Transfer Matrix:")
-        # print(tm)
-        # print("Eigenvalues: ")
-        # w, v = np.linalg.eig(tm)
-        # mult = 1.0
-        # for eig in w:
-        #     print(eig)
-        #     mult *= eig
-        # print("Product of eigenvalues: ", mult)
-        # print("Trace: ", np.trace(tm))
-        # print("Det: ", tm_det)
-
+        tm_det = tmr[0, 0] * tmr[1, 1] - tmr[0, 1] * tmr[1, 0]
 
         ep1 = (r_sampled[-1] - np.sqrt(r_init[0] ** 2 + r_init[1] ** 2)) * cx
         ep2 = (pr_sampled[-1] - initial_pr) * cpx
@@ -508,10 +556,13 @@ def gordon_algorithm(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
         # Positive ep2: Final radial momentum > Initial radial momentum
         # Negative ep2: Final radial momentum < Initial radial momentum
 
-        dri = (((tm[1, 1] - 1) * ep1 - tm[0, 1] * ep2) / (tm[0, 0] + tm[1, 1] - 1 - tm_det))
-        dpri = ((-ep2 - dri * tm[1, 0]) / (tm[1, 1] - 1))
+        dri = (((tmr[1, 1] - 1) * ep1 - tmr[0, 1] * ep2) / (tmr[0, 0] + tmr[1, 1] - 1 - tm_det))
+        dpri = ((-ep2 - dri * tmr[1, 0]) / (tmr[1, 1] - 1))
 
-        err = (1.0 / (initial_r * cx)) * np.sqrt(dri**2 + (dpri**2))
+        err = (1.0 / (initial_r * cx)) * np.sqrt(dri ** 2 + (dpri ** 2))
+
+        sign_r = np.sign(x2)
+        nr = np.sum(((np.roll(sign_r, 1) - sign_r) != 0).astype(int))
 
         print(" Total Error: {}".format(err))
         print("*** Epsilon 1: {}".format(ep1))
@@ -524,15 +575,15 @@ def gordon_algorithm(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
     print("# of iterations: {}".format(it))
     print("Final error: {:.6f}".format(err))
     print("Intial r: {:.6f} m".format(initial_r))
-    print("Initial pr: {:.6f} kg*m/s\n".format(initial_pr))  # TODO: Fix this output
+    # print("Initial pr: {:.6f} kg*m/s\n".format(initial_pr))  # TODO: Fix this output
 
-    r_init = np.array([initial_r, 1e-6, 0.0])
-    pr_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
-    vr_init = pr_init / (ion.gamma() * ion.mass_kg())
+    z_init = np.array([initial_r, 1e-6, 0.0])
+    pz_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
+    vz_init = pz_init / (ion.gamma() * ion.mass_kg())
 
-    r, vr = cr_track(ion=ion,
-                     r_init=r_init,
-                     v_init=vr_init,
+    z, vz = cr_track(ion=ion,
+                     r_init=z_init,
+                     v_init=vz_init,
                      symmetry="full",
                      end_type="termination",
                      input_bfield=cr._params_analytic["bf_itp"],
@@ -541,9 +592,124 @@ def gordon_algorithm(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
                      omit_e=True,
                      omit_b=False)
 
-    cos_sigma = 0.5*(tm[0, 0] + tm[1, 1])
+    z_mag = np.sqrt(z[:, 0] ** 2 + z[:, 1] ** 2)
+    pz = ion.gamma() * ion.mass_kg() * vz
 
-    return r[:, 0], r[:, 1]
+    pz_mag = []
+    for i in range(len(z_mag)):
+        rhat = z[i, :2] / np.linalg.norm(z[i, :2])
+        _p = np.dot(pz[i, :2], rhat)
+        pz_mag.append(_p)
+    pz_mag = np.array(pz_mag)
+
+    z1_init = np.array([initial_r, 1e-6, 0.001])
+    pz1_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
+    vz1_init = pz1_init / (ion.gamma() * ion.mass_kg())
+
+    z1, vz1 = cr_track(ion=ion,
+                     r_init=z1_init,
+                     v_init=vz1_init,
+                     symmetry="full",
+                     end_type="termination",
+                     input_bfield=cr._params_analytic["bf_itp"],
+                     maxsteps=5000,
+                     dt=1e-10,
+                     omit_e=True,
+                     omit_b=False)
+
+    z1_mag = np.sqrt(z1[:, 0] ** 2 + z1[:, 1] ** 2)
+    pz1 = ion.gamma() * ion.mass_kg() * vz1
+
+    pz1_mag = []
+    for i in range(len(z1_mag)):
+        rhat = z1[i, :2] / np.linalg.norm(z1[i, :2])
+        _p = np.dot(pz1[i, :2], rhat)
+        pz1_mag.append(_p)
+    pz1_mag = np.array(pz1_mag)
+
+    z2_init = np.array([initial_r, 1e-6, 0.0])
+    pz_offset = initial_pr + ion.mass_kg() * clight / a
+    pz2_init = np.array([initial_pr,
+                         np.sqrt(total_momentum ** 2 - initial_pr ** 2 - pz_offset**2),
+                         pz_offset])
+    vz2_init = pz2_init / (ion.gamma() * ion.mass_kg())
+
+    z2, vz2 = cr_track(ion=ion,
+                     r_init=z2_init,
+                     v_init=vz2_init,
+                     symmetry="full",
+                     end_type="termination",
+                     input_bfield=cr._params_analytic["bf_itp"],
+                     maxsteps=5000,
+                     dt=1e-10,
+                     omit_e=True,
+                     omit_b=False)
+
+    z2_mag = np.sqrt(z2[:, 0] ** 2 + z2[:, 1] ** 2)
+    pz2 = ion.gamma() * ion.mass_kg() * vz2
+
+    pz2_mag = []
+    for i in range(len(z2_mag)):
+        rhat = z2[i, :2] / np.linalg.norm(z2[i, :2])
+        _p = np.dot(pz2[i, :2], rhat)
+        pz2_mag.append(_p)
+    pz2_mag = np.array(pz2_mag)
+
+    theta = np.arctan2(z[:, 1], z[:, 0])
+    theta1 = np.arctan2(z1[:, 1], z1[:, 0])
+    theta2 = np.arctan2(z2[:, 1], z2[:, 0])
+
+    theta[theta < 0] += 2 * np.pi
+    theta1[theta1 < 0] += 2 * np.pi
+    theta2[theta2 < 0] += 2 * np.pi
+
+    z_itp = scipy.interpolate.interp1d(theta, z_mag, kind='cubic', fill_value="extrapolate")
+    z1_itp = scipy.interpolate.interp1d(theta1, z1_mag, kind='cubic', fill_value="extrapolate")
+    z2_itp = scipy.interpolate.interp1d(theta2, z2_mag, kind='cubic', fill_value="extrapolate")
+
+    pz_itp = scipy.interpolate.interp1d(theta, pz_mag, kind='cubic', fill_value="extrapolate")
+    pz1_itp = scipy.interpolate.interp1d(theta1, pz1_mag, kind='cubic', fill_value="extrapolate")
+    pz2_itp = scipy.interpolate.interp1d(theta2, pz2_mag, kind='cubic', fill_value="extrapolate")
+
+    sampling_angles = np.linspace(0.0, theta_range - 1E-9, 1000)
+
+    z_sampled = z_itp(sampling_angles)
+    z1_sampled = z1_itp(sampling_angles)
+    z2_sampled = z2_itp(sampling_angles)
+
+    pz_sampled = pz_itp(sampling_angles)
+    pz1_sampled = pz1_itp(sampling_angles)
+    pz2_sampled = pz2_itp(sampling_angles)
+
+    z1 = z1_sampled - z_sampled
+    z2 = z2_sampled - z_sampled
+    pz1 = pz1_sampled - pz_sampled
+    pz2 = pz2_sampled - pz_sampled
+
+    tmz = np.array([[cx * z1[-1], cx * z2[-1]],
+                    [cpx * pz1[-1], cpx * pz2[-1]]])
+
+    # plt.plot(x2)
+    # plt.show()
+    # Tune calculations
+    # cos_sigmap = 0.5 * (tm[0, 0] + tm[1, 1])
+    # sigma = np.arccos(cos_sigmap) * (-1)**nr + nr * np.pi
+    # nu_r = sigma / (2*np.pi)
+
+    cos_sigma = 0.5 * (tmr[0, 0] + tmr[1, 1])
+    sigma = np.arccos(cos_sigma)
+    nu_r = sigma / (np.pi / 2.0)
+
+    cos_sigma = 0.5 * (tmz[0, 0] + tmz[1, 1])
+    sigma = np.arccos(cos_sigma)
+    nu_z = sigma / (2.0 * np.pi)
+
+    # TODO: Check these values with another program -PW
+
+    print("nu_r: {}".format(nu_r))
+    print("nu_z: {}".format(nu_z))
+
+    return nu_r, nu_z
 
 
 def generate_analytical_trajectory(si):
