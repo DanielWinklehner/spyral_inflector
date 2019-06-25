@@ -1,6 +1,8 @@
 from spyral_inflector import *
 import numpy as np
 
+np.random.seed(137)
+
 h2p = IonSpecies("H2_1+", 0.035)
 h2p.calculate_from_energy_mev(0.07 / h2p.a())
 #
@@ -49,15 +51,26 @@ cr.add_dee(my_dee)
 cr.add_dee(my_second_dee)
 cr.add_dee(my_third_dee)
 cr.add_dee(my_fourth_dee)
-cr.plot_dees()
+# cr.plot_dees()
+#
+# cr.split_dees()
+# cr.plot_dees()
 
 thetas = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0]
 
 for theta in thetas:
     for dee in cr._dees:
-        dee.next_top_segment(angle_offset=theta)
-        dee.next_bottom_segment(angle_offset=theta)
-cr.plot_dees()
+        dee.next_top_segment(angle_offset=np.random.randint(-5, 5))
+        dee.next_bottom_segment(angle_offset=np.random.randint(-5, 5))
+        # dee.next_top_segment(angle_offset=theta)
+        # dee.next_bottom_segment(angle_offset=theta)
+cr.split_dees()
+# cr.plot_dees()
+# cr.generate_dee_geometry()
+
+my_third_dee.generate_geometry()
+
+# TODO: Right now!!! Check this split plot again, look towards the edges of the spirals! May need a rot mat? -PW
 
 # cr.load_bfield(bfield='/home/philip/Downloads/RFQ-DIP_TestCyclotron_MainField.table',
 #                bf_scale=1E-4,

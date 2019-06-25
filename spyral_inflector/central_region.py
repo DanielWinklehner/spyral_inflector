@@ -161,9 +161,17 @@ class CentralRegion(object):
             self.initialize()
 
     def add_dee(self, dee):
+
         self._dees.append(dee)
 
-        return 1
+        return 0
+
+    def split_dees(self):
+
+        for dee in self._dees:
+            dee.split()
+
+        return 0
 
     def plot_dees(self):
         fig = plt.figure()
@@ -207,6 +215,26 @@ class CentralRegion(object):
         self._track_trjs_vel.append(v)
         return r, v
 
+    def generate_dee_geometry(self):
+
+        indices = [0, 0, 0, 0, 1]
+
+        geo_str = """// Full dee geometry\n"""
+
+        for dee in self._dees:
+            _g, indices = dee.generate_geometry(indices)
+            geo_str += _g
+
+        # geo_str += "Extrude {{ 0, 0, 0.025}} {{ Surface{{ 0:{} }}; }}\n".format(indices[3]-1)
+        # indices[4] += indices[3] + 1
+
+        # geo_str += "Translate {{ 0, 0, 0.05 }} {{ Volume{{ 0:{} }}; }}\n".format(indices[4]-1)
+        # geo_str += "Translate {{ 0, 0, -0.1 }} {{ Volume{{ {} }}; }}\n".format(indices[4]-1)
+        geo_str += "\n"
+
+        with open("full_dees.geo", 'w') as f:
+            f.write(geo_str)
+
 
 class Dee(object):
 
@@ -216,9 +244,17 @@ class Dee(object):
         self.opening_angle = 45.0
         self._opening_angle = np.deg2rad(self.opening_angle)
         self.angle = 0.0
+        self._angle = 0.0
 
         self._top_segments, self._bottom_segments = [], []
-        self._char_len = 0.05  # Characteristic length of CRSegments
+        self._char_len = 0.1  # Characteristic length of CRSegments
+
+        self.is_split = False
+
+        self.top_dummy_dee_segs = []
+        self.top_dee_segs = []
+        self.bottom_dummy_dee_segs = []
+        self.bottom_dee_segs = []
 
     def rotate(self, angle, angle_unit="deg"):
         """
@@ -226,7 +262,14 @@ class Dee(object):
         :param angle:
         :return:
         """
-        self.angle = angle
+        if angle_unit == "deg":
+            self.angle = angle
+            self._angle = np.deg2rad(angle)
+        elif angle_unit == "rad":
+            self.angle = np.rad2deg(angle)
+            self._angle = angle
+        else:
+            return 1
 
         for seg in self._top_segments + self._bottom_segments:
             seg.rotate(angle, angle_unit=angle_unit)
@@ -304,18 +347,37 @@ class Dee(object):
 
         return 0
 
-    def split(self):
-        pass
+    def split(self, gap=0.025):
 
-    # def add_seg(self, seg, dummy=False):
-    #     if dummy:
-    #         self.dummy_dee_segs.append(seg)
-    #     else:
-    #         self.dee_segs.append(seg)
-    #
-    #     return 0
+        # Split top
+        for mid_seg in self._top_segments:
+
+            theta = self._opening_angle / 2.0 + np.pi / 2.0 + self._angle
+            gap_vec = (gap / 2.0) * np.array([np.cos(theta), np.sin(theta)])
+
+            dd_seg = CRSegment(ra=mid_seg.ra + gap_vec, rb=mid_seg.rb + gap_vec, color=2)
+            d_seg = CRSegment(ra=mid_seg.ra - gap_vec, rb=mid_seg.rb - gap_vec, color=1)
+
+            self.top_dummy_dee_segs.append(dd_seg)
+            self.top_dee_segs.append(d_seg)
+
+        # Split bottom
+        for mid_seg in self._bottom_segments:
+            theta = -self._opening_angle / 2.0 + np.pi / 2.0 + self._angle
+            gap_vec = (gap / 2.0) * np.array([np.cos(theta), np.sin(theta)])
+
+            dd_seg = CRSegment(ra=mid_seg.ra - gap_vec, rb=mid_seg.rb - gap_vec, color=2)
+            d_seg = CRSegment(ra=mid_seg.ra + gap_vec, rb=mid_seg.rb + gap_vec, color=1)
+
+            self.bottom_dummy_dee_segs.append(dd_seg)
+            self.bottom_dee_segs.append(d_seg)
+
+        self.is_split = True
+
+        return 0
 
     def set_meeting_point(self, point):
+
         self.meeting_point = point
 
         return 0
@@ -326,15 +388,22 @@ class Dee(object):
             fig = plt.figure()
             ax = fig.add_subplot(111)
 
-        for seg in self._top_segments:
-            ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
-            ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[0])
-            ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[0])
+        if not self.is_split:
+            for seg in self._top_segments:
+                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
+                ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[0])
+                ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[0])
 
-        for seg in self._bottom_segments:
-            ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
-            ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[0])
-            ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[0])
+            for seg in self._bottom_segments:
+                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
+                ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[0])
+                ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[0])
+        else:
+            all_segs = self.top_dee_segs + self.top_dummy_dee_segs + self.bottom_dee_segs + self.bottom_dummy_dee_segs
+            for seg in all_segs:
+                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
+                ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[seg.color])
+                ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[seg.color])
 
         if show:
             ax.grid(True)
@@ -346,6 +415,87 @@ class Dee(object):
             plt.show()
 
         return 0
+
+    def generate_geometry(self, starting_indices=(0, 0, 0, 0, 1)):
+
+        if not self.is_split:
+            return 1
+
+        # indices[0] = Points
+        # indices[1] = Lines
+        # indices[2] = Line Loops
+        # indices[3] = Surfaces
+        # indices[4] = Volumes
+
+        geo_str = """SetFactory("OpenCASCADE");\n"""
+
+        indices = list(starting_indices)
+
+        # Points are 2D (x,y)
+        # For N segments, there are N+1 points
+        for i, seg in enumerate(self.top_dee_segs):
+            if i == 0:
+                geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], seg.ra[0], seg.ra[1])
+                indices[0] += 1
+            geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], seg.rb[0], seg.rb[1])
+            indices[0] += 1
+            geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-2, indices[0]-1)
+            indices[1] += 1
+
+        # Outer arc center point
+        r1, r2 = self.top_dee_segs[-1].rb, self.bottom_dee_segs[-1].rb
+        rc = 0.5*(r2 - r1)
+        ro = r1 + rc
+        R = 1.0  # TODO
+        a = np.linalg.norm(rc)
+        dr = np.array([rc[1], -rc[0]]) * np.sqrt((R/a)**2 - 1)
+        rp = ro + dr
+        geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], rp[0], rp[1])
+        outer_arc_center_idx = indices[0]
+        indices[0] += 1
+
+        dtheta = np.arccos(np.dot(r1, r2) / (np.linalg.norm(r1) * np.linalg.norm(r2)))
+
+        for i, seg in enumerate(self.bottom_dee_segs[::-1]):
+            geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], seg.rb[0], seg.rb[1])
+            indices[0] += 1
+
+            if i == 0:
+                geo_str += "Circle ({}) = {{ {}, {}, {} }};\n".format(indices[1], indices[0] - 3,
+                                                                      outer_arc_center_idx, indices[0] - 1)
+                indices[1] += 1
+            else:
+                geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-2, indices[0]-1)
+                indices[1] += 1
+
+            if i == len(self.bottom_dee_segs)-1:
+                geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], seg.ra[0], seg.ra[1])
+                indices[0] += 1
+                geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0] - 2, indices[0] - 1)
+                indices[1] += 1
+
+        geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-1, starting_indices[0])
+        indices[1] += 1
+        geo_str += "Wire ({}) = {{ {}:{} }};\n".format(indices[2], starting_indices[1], indices[1]-1)
+        # geo_str += "Wire ({}) = {{ {}:{} }};\n".format(indices[2], starting_indices[1], indices[1]-1)
+
+        indices[2] += 1
+
+        geo_str += "Surface ({}) = {{ {} }};\n".format(indices[3], indices[2]-1)
+        indices[3] += 1
+
+        # geo_str += "Extrude {{ 0, 0, 0.025}} {{ Surface{{ {} }}; }}\n".format(indices[3]-1)
+        # indices[4] += 1
+        # geo_str += "Extrude {{ 0, 0, 0.025 }} {{ Surface{{ {} }}; }}\n".format(indices[3]-1)
+        # indices[4] += 1
+        # geo_str += "Translate {{ 0, 0, 0.05 }} {{ Volume{{ {} }}; }}\n".format(indices[4]-2)
+        # geo_str += "Translate {{ 0, 0, -0.05 }} {{ Volume{{ {} }}; }}\n".format(indices[4]-1)
+        # geo_str += "\n"
+
+        with open('_dee.geo', 'w') as f:
+            f.write(geo_str)
+
+        return geo_str, indices
 
 
 class CRSegment(object):
