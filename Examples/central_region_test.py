@@ -66,11 +66,9 @@ for theta in thetas:
         # dee.next_bottom_segment(angle_offset=theta)
 cr.split_dees()
 # cr.plot_dees()
-# cr.generate_dee_geometry()
+cr.generate_dee_geometry()
 
-my_third_dee.generate_geometry()
-
-# TODO: Right now!!! Check this split plot again, look towards the edges of the spirals! May need a rot mat? -PW
+# my_third_dee.generate_geometry()
 
 # cr.load_bfield(bfield='/home/philip/Downloads/RFQ-DIP_TestCyclotron_MainField.table',
 #                bf_scale=1E-4,

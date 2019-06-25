@@ -221,16 +221,64 @@ class CentralRegion(object):
 
         geo_str = """// Full dee geometry\n"""
 
-        for dee in self._dees:
+        geo_str += """
+
+Macro MakeDeeSurface
+
+    // Make the n'th dee
+    // Assume there's a variable start_idx, which defines the first point
+    // and another variable end_idx, which defines the last
+    
+    first_line_idx = newl; Line(first_line_idx) = {start_idx, start_idx + 1};
+    
+    For k In {1:end_idx-start_idx-1}
+        Line (newl) = {start_idx + k, start_idx + k + 1};
+    EndFor
+    
+    // Make the last line, close the loop with a wire, and create a surface
+    last_line_idx = newl; Line (last_line_idx) = {start_idx, end_idx};
+    wire_idx = newll; Wire (wire_idx) = { first_line_idx:last_line_idx };
+    surface_idx = news; Surface (surface_idx) = { wire_idx };
+
+Return
+
+Macro MakeDeeVolume
+    
+    // Extrude the top part of the dee
+    top_extrude[] = Extrude {0.0, 0.0, 0.025} { Surface { surface_idx }; };
+    dee_top_vol = top_extrude[1];  // Volume tag stored in [1]
+    
+    // Extrude the bottom part of the dee
+    bottom_extrude[] = Extrude {0.0, 0.0, -0.025} { Surface { surface_idx }; };
+    dee_bottom_vol = bottom_extrude[1];
+    
+    // Translate to create a 5 cm gap
+    Translate {0.0, 0.0, 0.025} { Volume { dee_top_vol }; }
+    Translate {0.0, 0.0, -0.025} { Volume { dee_bottom_vol }; }
+    
+Return
+
+"""
+        for k, dee in enumerate(self._dees):
             _g, indices = dee.generate_geometry(indices)
             geo_str += _g
+            geo_str += """
 
+\nCall MakeDeeSurface;\n
+surface_idx_arr[{}] = surface_idx;
+
+""".format(k)
         # geo_str += "Extrude {{ 0, 0, 0.025}} {{ Surface{{ 0:{} }}; }}\n".format(indices[3]-1)
         # indices[4] += indices[3] + 1
 
         # geo_str += "Translate {{ 0, 0, 0.05 }} {{ Volume{{ 0:{} }}; }}\n".format(indices[4]-1)
         # geo_str += "Translate {{ 0, 0, -0.1 }} {{ Volume{{ {} }}; }}\n".format(indices[4]-1)
-        geo_str += "\n"
+        geo_str += """
+For idx In {0:#surface_idx_arr[]-1}
+    surface_idx = surface_idx_arr[idx];
+    Call MakeDeeVolume;
+EndFor
+"""
 
         with open("full_dees.geo", 'w') as f:
             f.write(geo_str)
@@ -427,9 +475,12 @@ class Dee(object):
         # indices[3] = Surfaces
         # indices[4] = Volumes
 
-        geo_str = """SetFactory("OpenCASCADE");\n"""
-
         indices = list(starting_indices)
+
+        geo_str = """SetFactory("OpenCASCADE");
+start_idx = {};
+""".format(indices[0])
+
 
         # Points are 2D (x,y)
         # For N segments, there are N+1 points
@@ -439,50 +490,50 @@ class Dee(object):
                 indices[0] += 1
             geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], seg.rb[0], seg.rb[1])
             indices[0] += 1
-            geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-2, indices[0]-1)
-            indices[1] += 1
+            # geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-2, indices[0]-1)
+            # indices[1] += 1
 
         # Outer arc center point
-        r1, r2 = self.top_dee_segs[-1].rb, self.bottom_dee_segs[-1].rb
-        rc = 0.5*(r2 - r1)
-        ro = r1 + rc
-        R = 1.0  # TODO
-        a = np.linalg.norm(rc)
-        dr = np.array([rc[1], -rc[0]]) * np.sqrt((R/a)**2 - 1)
-        rp = ro + dr
-        geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], rp[0], rp[1])
-        outer_arc_center_idx = indices[0]
-        indices[0] += 1
-
-        dtheta = np.arccos(np.dot(r1, r2) / (np.linalg.norm(r1) * np.linalg.norm(r2)))
+        # r1, r2 = self.top_dee_segs[-1].rb, self.bottom_dee_segs[-1].rb
+        # rc = 0.5*(r2 - r1)
+        # ro = r1 + rc
+        # R = 1.0  # TODO
+        # a = np.linalg.norm(rc)
+        # dr = np.array([rc[1], -rc[0]]) * np.sqrt((R/a)**2 - 1)
+        # rp = ro + dr
+        # geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], rp[0], rp[1])
+        # outer_arc_center_idx = indices[0]
+        # indices[0] += 1
+        #
+        # dtheta = np.arccos(np.dot(r1, r2) / (np.linalg.norm(r1) * np.linalg.norm(r2)))
 
         for i, seg in enumerate(self.bottom_dee_segs[::-1]):
             geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], seg.rb[0], seg.rb[1])
             indices[0] += 1
 
-            if i == 0:
-                geo_str += "Circle ({}) = {{ {}, {}, {} }};\n".format(indices[1], indices[0] - 3,
-                                                                      outer_arc_center_idx, indices[0] - 1)
-                indices[1] += 1
-            else:
-                geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-2, indices[0]-1)
-                indices[1] += 1
+            # if i == 0:
+            #     geo_str += "Circle ({}) = {{ {}, {}, {} }};\n".format(indices[1], indices[0] - 3,
+            #                                                           outer_arc_center_idx, indices[0] - 1)
+            #     indices[1] += 1
+            # else:
+            #     geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-2, indices[0]-1)
+            #     indices[1] += 1
 
             if i == len(self.bottom_dee_segs)-1:
                 geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], seg.ra[0], seg.ra[1])
                 indices[0] += 1
-                geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0] - 2, indices[0] - 1)
-                indices[1] += 1
+                # geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0] - 2, indices[0] - 1)
+                # indices[1] += 1
 
-        geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-1, starting_indices[0])
-        indices[1] += 1
-        geo_str += "Wire ({}) = {{ {}:{} }};\n".format(indices[2], starting_indices[1], indices[1]-1)
+        # geo_str += "Line ({}) = {{ {}, {} }};\n".format(indices[1], indices[0]-1, starting_indices[0])
+        # indices[1] += 1
+        # geo_str += "Wire ({}) = {{ {}:{} }};\n".format(indices[2], starting_indices[1], indices[1]-1)
         # geo_str += "Wire ({}) = {{ {}:{} }};\n".format(indices[2], starting_indices[1], indices[1]-1)
 
-        indices[2] += 1
-
-        geo_str += "Surface ({}) = {{ {} }};\n".format(indices[3], indices[2]-1)
-        indices[3] += 1
+        # indices[2] += 1
+        #
+        # geo_str += "Surface ({}) = {{ {} }};\n".format(indices[3], indices[2]-1)
+        # indices[3] += 1
 
         # geo_str += "Extrude {{ 0, 0, 0.025}} {{ Surface{{ {} }}; }}\n".format(indices[3]-1)
         # indices[4] += 1
@@ -491,6 +542,8 @@ class Dee(object):
         # geo_str += "Translate {{ 0, 0, 0.05 }} {{ Volume{{ {} }}; }}\n".format(indices[4]-2)
         # geo_str += "Translate {{ 0, 0, -0.05 }} {{ Volume{{ {} }}; }}\n".format(indices[4]-1)
         # geo_str += "\n"
+
+        geo_str += "\nend_idx = {};\n".format(indices[0]-1)
 
         with open('_dee.geo', 'w') as f:
             f.write(geo_str)
