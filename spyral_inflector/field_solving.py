@@ -54,7 +54,7 @@ def calculate_efield_bempp(si):
 
     ex, ey, ez = np.gradient(phi, _d[X], _d[Y], _d[Z])
 
-    _field = Field("Spiral Inflector E-Field",
+    _field = Field("E-Field",
                    dim=3,
                    field={"x": RegularGridInterpolator(points=_r, values=-ex,
                                                        bounds_error=False, fill_value=0.0),
@@ -215,14 +215,18 @@ def calculate_potential(si,
     return 0
 
 
-def solve_bempp(si):
+def solve_bempp(electrode_assm):
 
     assert HAVE_BEMPP, "BEMPP not found. Aborting!"
 
-    numerical_vars = si.numerical_variables
-    bempp_params = si.numerical_parameters
+    numerical_vars = electrode_assm.numerical_variables
+    bempp_params = electrode_assm.numerical_parameters
 
-    electrodes = numerical_vars["objects"].electrodes
+    try:
+        electrodes = numerical_vars["objects"].electrodes
+    except KeyError:
+        electrodes = electrode_assm.electrodes
+
     gmres_tol = bempp_params["gmres_tol"]
 
     if numerical_vars["full mesh"] is None:
@@ -256,7 +260,7 @@ def solve_bempp(si):
     numerical_vars["grid_fun"] = dirichlet_fun
     numerical_vars["d_fun_coeff"] = dirichlet_fun.coefficients
 
-    if si.debug:
+    if electrode_assm.debug:
         dirichlet_fun.plot()
 
     sol, info, res = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
@@ -269,7 +273,7 @@ def solve_bempp(si):
     numerical_vars["f_space"] = dp0_space
     numerical_vars["operator"] = slp
 
-    si.numerical_variables = numerical_vars
+    electrode_assm.numerical_variables = numerical_vars
 
     return 0
 

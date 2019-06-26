@@ -28,47 +28,26 @@ h2p.calculate_from_energy_mev(0.07 / h2p.a())
 #
 # si.generate_geometry()
 
-cr = CentralRegion(r_cr=0.5)
-cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
+
+cr = CentralRegion(r_cr=0.5, dee_voltage=70e3)
+cr.initialize(xi=np.array([0.1, 0.0, 0.0]),
               vi=np.array([0.0, h2p.v_m_per_s(), 0.0]))
 
-my_dee = Dee()
-my_dee.initialize()
+cr.make_dees(n=5, voltage=cr.dee_voltage, gap=0.056, thickness=0.025)
+cr.make_dummy_dees(gap=0.056, thickness=0.025)
 
-my_second_dee = Dee()
-my_second_dee.initialize()
-my_second_dee.rotate(90, angle_unit="deg")
+cr.show(show_screen=True)
 
-my_third_dee = Dee()
-my_third_dee.initialize()
-my_third_dee.rotate(180, angle_unit="deg")
+cr.solve_bempp()
+calculate_potential(cr,
+                    limits=((-0.5, 0.5), (-0.5, 0.5), (-0.005, 0.005)),
+                    res=0.005,
+                    domain_decomp=(4, 4, 4),
+                    overlap=0)
 
-my_fourth_dee = Dee()
-my_fourth_dee.initialize()
-my_fourth_dee.rotate(270, angle_unit="deg")
-
-cr.add_dee(my_dee)
-cr.add_dee(my_second_dee)
-cr.add_dee(my_third_dee)
-cr.add_dee(my_fourth_dee)
-# cr.plot_dees()
-#
-# cr.split_dees()
-# cr.plot_dees()
-
-thetas = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0]
-
-for theta in thetas:
-    for dee in cr._dees:
-        dee.next_top_segment(angle_offset=np.random.randint(-5, 5))
-        dee.next_bottom_segment(angle_offset=np.random.randint(-5, 5))
-        # dee.next_top_segment(angle_offset=theta)
-        # dee.next_bottom_segment(angle_offset=theta)
-cr.split_dees()
-# cr.plot_dees()
-cr.generate_dee_geometry()
-
-# my_third_dee.generate_geometry()
+calculate_efield_bempp(cr)
+with open('cr_ef_itp.pickle', 'wb') as f:
+    pickle.dump(cr.numerical_variables["ef_itp"], f)
 
 # cr.load_bfield(bfield='/home/philip/Downloads/RFQ-DIP_TestCyclotron_MainField.table',
 #                bf_scale=1E-4,
