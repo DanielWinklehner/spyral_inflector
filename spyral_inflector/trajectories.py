@@ -256,7 +256,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     _v[0, :] = v_start[:]
 
     # Create a new electric field, which will be repeatedly re-defined
-    field_val = analytic_vars["ef_design"]
+    field_val = analytic_vars["ef_design"] * np.sign(analytic_params["ion"].q())
     efield1 = Field(dim=0, field={"x": field_val, "y": 0.0, "z": 0.0})
 
     if bf is not None:

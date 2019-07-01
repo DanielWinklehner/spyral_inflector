@@ -797,12 +797,6 @@ def generate_numerical_geometry(si):
         if thickness == 0.0:
             analytic_vars["d"] = d
 
-        # Rotation/flip
-        if not ((analytic_vars["bf_design"] > 0.0) ^ (_ion.q() > 0.0)):
-            if si.debug:
-                print("Flipping direction of cyclotron motion...", end="")
-            vy = -vy
-
         v2 = np.sqrt((vx ** 2.0) + (vy ** 2.0))  # xy-magnitude of the velocity
         v3 = np.sqrt((vx ** 2.0) + (vy ** 2.0) + (vz ** 2.0))  # 3-d magnitude of the velocity vector (Should = v)
 
@@ -865,10 +859,10 @@ def generate_numerical_geometry(si):
         #         v_rh[1, i, :] = np.matmul(xrot, v_rh[1, i, :])
         #     # print("Applied a {:.4f} rad x rotation.".format(si._variables_optimization["x_rot"]))
 
-        if analytic_params["rotation"] != 0.0:
-            for i in range(analytic_params["ns"]):
-                v_rh[0, i, :] = np.matmul(analytic_vars["rot"], v_rh[0, i, :])
-                v_rh[1, i, :] = np.matmul(analytic_vars["rot"], v_rh[1, i, :])
+        # if analytic_params["rotation"] != 0.0:
+        #     for i in range(analytic_params["ns"]):
+        #         v_rh[0, i, :] = np.matmul(analytic_vars["rot"], v_rh[0, i, :])
+        #         v_rh[1, i, :] = np.matmul(analytic_vars["rot"], v_rh[1, i, :])
 
         for i in range(ns):
             for j in range(3):

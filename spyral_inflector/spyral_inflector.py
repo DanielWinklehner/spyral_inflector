@@ -658,6 +658,4 @@ if __name__ == "__main__":
         outfile.write("Tracking took {:.4f} s\n".format(time.time() - ts))
 
     si.draw_geometry(show=True, filename='auto')
-    si.export_electrode_geometry(fname='electrode_macro.ivb')
-    si.export_aperture_geometry(fname='aperture_macro.ivb')
     si.save_geo_files()
