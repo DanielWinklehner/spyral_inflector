@@ -25,4 +25,4 @@ si.initialize()
 si.generate_geometry()
 
 # Save the geometry as an AutoDesk Inventor macro
-export_electrode_geometry(si, fname='electrode_macro.ivb')
+si.electrode_geometry_macro(fname='electrode_macro.ivb')
