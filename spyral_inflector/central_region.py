@@ -75,7 +75,14 @@ Return
 
 
 class CentralRegion(PyElectrodeAssembly):
-    def __init__(self, spiral_inflector=None, r_cr=0.3, dee_voltage=70e3):
+    def __init__(self, spiral_inflector=None,
+                 r_cr=0.3,
+                 dee_voltage=70e3,
+                 dee_opening_angle=30.0,
+                 rf_phase=0.0,
+                 rf_freq=32.8e6,
+                 harmonic=4,
+                 ion=None):
         super().__init__(name="Central Region")
 
         self._debug = False
@@ -96,17 +103,20 @@ class CentralRegion(PyElectrodeAssembly):
         self._tracked_trjs = []
         self._track_trjs_vel = []
 
-        self.rf_phase = 0.0
-        self.rf_freq = 32.8E6
-        self.harmonic = 4
+        self.rf_phase = rf_phase
+        self.rf_freq = rf_freq
+        self.harmonic = harmonic
         self.dee_voltage = dee_voltage
         self.r_cr = r_cr  # Radius at which we no longer consider the central region as a different entity
-        self.dee_opening_angle = 30.0
+        self.dee_opening_angle = dee_opening_angle
 
         self._dee_z_func = None
 
         if spiral_inflector is not None:
             self.set_inflector(spiral_inflector)
+
+        if ion is not None:
+            self.analytic_parameters["ion"] = ion
 
         self._xi, self._vi = None, None
 
@@ -195,6 +205,10 @@ class CentralRegion(PyElectrodeAssembly):
         self._params_analytic["ion"] = self._spiral_inflector.analytic_parameters["ion"]
         self._params_analytic["bf_itp"] = self._spiral_inflector.analytic_parameters["bf_itp"]
 
+        for electrode in spiral_inflector.numerical_variables["objects"].electrodes.values():
+            self.add_electrode(electrode)
+
+
     def load_bfield(self, bfield=None, bf_scale=1.0, spatial_unit="cm", **kwargs):
 
         bf_load_from_file = False
@@ -265,21 +279,6 @@ class CentralRegion(PyElectrodeAssembly):
 
         return 0
 
-    def plot_dees(self):
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-
-        for dee in self._dees:
-            dee.plot_segments(show=False, ax=ax)
-
-        ax.grid(True)
-        ax.set_xlim([-self.r_cr, self.r_cr])
-        ax.set_ylim([-self.r_cr, self.r_cr])
-        ax.set_aspect(1)
-        ax.set_xlabel('x (m)')
-        ax.set_ylabel('y (m)')
-        plt.show()
-
     def plot_bfield(self, nx=100, ny=100):
         from matplotlib import cm
 
@@ -291,8 +290,11 @@ class CentralRegion(PyElectrodeAssembly):
 
         fig = plt.figure()
         xx, yy = np.meshgrid(x, y)
-        ax = fig.add_subplot(111, projection='3d')
-        ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
+        ax = fig.add_subplot(111)
+        sc = ax.contourf(xx, yy, B, levels=30, cmap=cm.coolwarm)
+        ax.set_aspect(1)
+        fig.colorbar(sc)
+        # ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
         plt.show()
 
     def track(self, **kwargs):
@@ -309,21 +311,25 @@ class CentralRegion(PyElectrodeAssembly):
 
         return r, v
 
-    def make_dees(self, n, gap, thickness, **kwargs):
+    def make_dees(self, n, gap, thickness, cl=0.1, **kwargs):
 
-        cl = 0.1
-        my_dee = AbstractDee(char_len=cl, gap=gap, thickness=thickness)
+        # cl = 0.1
+        my_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
+                             gap=gap, thickness=thickness)
         my_dee.initialize()
 
-        my_second_dee = AbstractDee(char_len=cl, gap=gap, thickness=thickness)
+        my_second_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
+                                    gap=gap, thickness=thickness)
         my_second_dee.initialize()
         my_second_dee.rotate(90, angle_unit="deg")
 
-        my_third_dee = AbstractDee(char_len=cl, gap=gap, thickness=thickness)
+        my_third_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
+                                   gap=gap, thickness=thickness)
         my_third_dee.initialize()
         my_third_dee.rotate(180, angle_unit="deg")
 
-        my_fourth_dee = AbstractDee(char_len=cl, gap=gap, thickness=thickness)
+        my_fourth_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
+                                    gap=gap, thickness=thickness)
         my_fourth_dee.initialize()
         my_fourth_dee.rotate(270, angle_unit="deg")
 
@@ -370,11 +376,20 @@ class CentralRegion(PyElectrodeAssembly):
         self.numerical_parameters["gmres_tol"] = 0.0001
         solve_bempp(self)
 
+    def plot_dees(self, ax=None, show=False):
+        for abs_dee in self._abstract_dees:
+            abs_dee.plot_segments(show=show, ax=ax)
+
 class AbstractDee(PyElectrode):
-    def __init__(self, char_len=0.03, gap=0.05, thickness=0.025, **kwargs):
+    def __init__(self,
+                 char_len=0.03,
+                 opening_angle=30.0,
+                 gap=0.05,
+                 thickness=0.025,
+                 **kwargs):
         super().__init__(name="Dee", **kwargs)
 
-        self.opening_angle = 30.0
+        self.opening_angle = opening_angle
         self._opening_angle = np.deg2rad(self.opening_angle)
         self.angle = 0.0
         self._angle = 0.0
@@ -491,7 +506,7 @@ class AbstractDee(PyElectrode):
 
         return 0
 
-    def split(self, gap=0.025):
+    def split(self, gap=0.012):
 
         # Split top
         for mid_seg in self._top_segments:
@@ -659,7 +674,7 @@ def check_intersection(q, b, p, d):
         return False
 
 
-def generate_dee_geometry(top_segments, bottom_segments,
+def generate_dee_geometry(top_segments, bottom_segments, h=0.025,
                           gap=0.05, thickness=0.025,
                           starting_indices=(0, 0, 0, 0, 1)):
     # indices[0] = Points
@@ -671,11 +686,12 @@ def generate_dee_geometry(top_segments, bottom_segments,
     indices = list(starting_indices)
 
     geo_str = 'SetFactory("OpenCASCADE");\n'
+    geo_str += "Mesh.CharacteristicLengthMax = {};\n".format(h)
 
     geo_str += gmsh_macros
 
-    geo_str += "gap = {};".format(gap)
-    geo_str += "thickness = {};".format(thickness)
+    geo_str += "gap = {};\n".format(gap)
+    geo_str += "thickness = {};\n".format(thickness)
 
     geo_str += "start_idx = {};\n".format(indices[0])
 
