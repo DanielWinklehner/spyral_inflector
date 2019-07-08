@@ -1,11 +1,5 @@
-import numpy as np
-from dans_pymodules import *
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
-
 from .field_solving import *
 from .geometry import *
-from .optimization import *
 from .plotting import *
 from .trajectories import *
 
@@ -76,7 +70,7 @@ Return
 
 class CentralRegion(PyElectrodeAssembly):
     def __init__(self, spiral_inflector=None,
-                 r_cr=[0.1, 0.3],
+                 r_cr=(0.1, 0.3),
                  dee_voltage=70e3,
                  dee_opening_angle=30.0,
                  rf_phase=0.0,
@@ -107,7 +101,7 @@ class CentralRegion(PyElectrodeAssembly):
         self.rf_freq = rf_freq
         self.harmonic = harmonic
         self.dee_voltage = dee_voltage
-        self.r_cr = r_cr  # Radius at which we no longer consider the central region as a different entity
+        self.r_cr = r_cr
         self.dee_opening_angle = dee_opening_angle
 
         self._dee_z_func = None
@@ -163,26 +157,6 @@ class CentralRegion(PyElectrodeAssembly):
     @track_variables.setter
     def track_variables(self, track_variables):
         self._variables_track = track_variables
-
-    # def dee_crossing(self, rc, rd, v, t):
-    #     ion = self._params_analytic["ion"]
-    #     initial_v = ion.v_m_per_s()
-    #
-    #     dE = 0.0
-    #     ttf = 1.0
-    #
-    #     for segment in self._segments:
-    #         if segment.check_intersection(rc[:2], rd[:2]):
-    #             print('Intersection')
-    #             dE += ion.q() * np.sin(2 * np.pi * self.rf_freq * t + self.rf_phase + segment.phase) * self.v_peak * ttf
-    #             print(np.mod(np.rad2deg(2 * np.pi * self.rf_freq * t + self.rf_phase), 360))
-    #
-    #     # if not intersected:
-    #     #     return v
-    #     # dE = ion.q() * np.sin( 2 * np.pi * self.rf_freq * t + self.rf_phase) * self.v_peak * ttf
-    #     # print("Gained energy {:.3f} keV".format(dE / 1E3))
-    #     ion.calculate_from_energy_mev(ion._energy_mev + dE / 1E6)
-    #     return ion.v_m_per_s() * v / initial_v
 
     def initialize(self, xi=None, vi=None, dee_z_func=None):
         if xi is None and vi is None:
@@ -278,14 +252,15 @@ class CentralRegion(PyElectrodeAssembly):
 
         return 0
 
-    def plot_bfield(self, nx=100, ny=100, fig=None, ax=None):
+    def plot_bfield(self, nx=100, ny=100, xlims=(-0.3, 0.3), ylims=(-0.3, 0.3), z=0.0, fig=None, ax=None):
         from matplotlib import cm
 
-        x, y = np.linspace(-0.3, 0.3, nx), np.linspace(-0.3, 0.3, ny)
+        x, y = np.linspace(xlims[0], xlims[1], nx), \
+               np.linspace(ylims[0], ylims[1], ny)
         B = np.zeros([ny, nx])
         for i, xi in enumerate(x):
             for j, yi in enumerate(y):
-                B[j, i] = self._params_analytic["bf_itp"](np.array([xi, yi, 0.0]))[2]
+                B[j, i] = self._params_analytic["bf_itp"](np.array([xi, yi, z]))[2]
 
         xx, yy = np.meshgrid(x, y)
         if ax is None:
@@ -294,20 +269,18 @@ class CentralRegion(PyElectrodeAssembly):
             sc = ax.contour(xx, yy, B, levels=15, cmap=cm.coolwarm, vmin=np.min(B), vmax=np.max(B))
             ax.set_aspect(1)
             fig.colorbar(sc)
-            # ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
             plt.show()
         else:
             sc = ax.contour(xx, yy, B, levels=15, cmap=cm.coolwarm, vmin=np.min(B), vmax=np.max(B))
             ax.set_aspect(1)
             cbar = fig.colorbar(sc)
             cbar.set_label("B (T)")
-            # ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
-            # plt.show()
 
     def track(self, **kwargs):
         r, v = central_region_track(self, r_start=self._xi, v_start=self._vi, dt=1e-11, **kwargs)
         self._tracked_trjs.append(r)
         self._track_trjs_vel.append(v)
+
         return r, v
 
     def track_segment(self, **kwargs):
@@ -526,12 +499,6 @@ class AbstractDee(PyElectrode):
             self.bottom_gap_vec = gap_vec
 
         self._is_split = True
-
-        return 0
-
-    def set_meeting_point(self, point):
-
-        self.meeting_point = point
 
         return 0
 

@@ -789,6 +789,7 @@ def generate_analytical_trajectory(si):
 
     h = analytic_vars["height"]
     tilt = analytic_params["tilt"]  # type: float
+    ion_vel = analytic_params["ion"].v_m_per_s()
 
     analytic_vars["kp"] = np.tan(np.deg2rad(tilt))  # Tilt parameter
     analytic_vars["k"] = ((h / analytic_vars["r_cyc"]) + analytic_vars["kp"]) / 2.0
@@ -800,14 +801,20 @@ def generate_analytical_trajectory(si):
     _x = +0.5 * h * ((2.0 / (1.0 - (4.0 * (analytic_vars["k"] ** 2.0)))) -
                      (np.cos(cp * analytic_vars["b"]) / cp) - np.cos(
                 -cm * analytic_vars["b"]) / cm)
+    _vx = 0.5 * ion_vel * (np.sin((2*analytic_vars["k"] + 1) * analytic_vars["b"]) +
+                           np.sin(-(2*analytic_vars["k"] - 1) * analytic_vars["b"]))
 
     _y = -0.5 * h * (np.sin(cp * analytic_vars["b"]) / cp +
                      np.sin(-cm * analytic_vars["b"]) / cm)
+    _vy = 0.5 * ion_vel * (np.cos((2*analytic_vars["k"] + 1) * analytic_vars["b"]) -
+                           np.cos(-(2*analytic_vars["k"] - 1) * analytic_vars["b"]))
 
     _z = - h * (1.0 - np.sin(analytic_vars["b"]))
+    _vz = ion_vel * np.sqrt(1 - np.sin(analytic_vars["b"])**2)
 
     analytic_vars["trj_design"] = np.array([_x, _y, _z]).T
-
+    analytic_vars["trj_vel"] = np.array([_vx, _vy, _vz]).T
+    
     # Rotation/flip
     if not ((analytic_vars["bf_design"] < 0.0) ^ (analytic_params["ion"].q() < 0.0)):
         if si.debug:
@@ -893,31 +900,6 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     ef = efield1(_r[0])
     bf = bfield1(_r[0])
     _, _v[0] = pusher.push(_r[0], _v[0], ef, bf, -0.5 * dt)
-
-    # Track for n steps
-    # for i in range(nsteps):
-    #     ef = efield1(_r[i])
-    #     bf = bfield1(_r[i])
-    #
-    #     _r[i + 1], _v[i + 1] = pusher.push(_r[i], _v[i], ef, bf, dt)
-    #
-    #     vx, vy, vz = _v[i + 1]
-    #     vo = np.sqrt(vx ** 2.0 + vy ** 2.0 + vz ** 2.0)
-    #     _b[i + 1] = i * dt * vo / analytic_vars["height"]
-    #
-    #     # Toprek theory with surgery
-    #     Eh = field_val * analytic_vars["kp"] * np.sin(_b[i + 1])
-    #     Ehx = -Eh * vy / (np.sqrt(vo ** 2.0 - vz ** 2.0))
-    #     Ehy = Eh * vx / (np.sqrt(vo ** 2.0 - vz ** 2.0))
-    #
-    #     ex = field_val * vx * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + Ehx
-    #     ey = field_val * vy * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + Ehy
-    #     ez = -field_val * (vo ** 2.0 - vz ** 2.0) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0))
-    #     efield1 = Field(dim=0, field={"x": ex, "y": ey, "z": ez})
-    #     if vz < 0:  # Stop when the z-component of the velocity is zero
-    #         if si._debug:
-    #             print(_r[i + 1, :])  # Print the final position
-    #         break
 
     i = 0
     while i < nsteps:
