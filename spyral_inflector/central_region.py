@@ -76,7 +76,7 @@ Return
 
 class CentralRegion(PyElectrodeAssembly):
     def __init__(self, spiral_inflector=None,
-                 r_cr=0.3,
+                 r_cr=[0.1, 0.3],
                  dee_voltage=70e3,
                  dee_opening_angle=30.0,
                  rf_phase=0.0,
@@ -208,7 +208,6 @@ class CentralRegion(PyElectrodeAssembly):
         for electrode in spiral_inflector.numerical_variables["objects"].electrodes.values():
             self.add_electrode(electrode)
 
-
     def load_bfield(self, bfield=None, bf_scale=1.0, spatial_unit="cm", **kwargs):
 
         bf_load_from_file = False
@@ -279,23 +278,31 @@ class CentralRegion(PyElectrodeAssembly):
 
         return 0
 
-    def plot_bfield(self, nx=100, ny=100):
+    def plot_bfield(self, nx=100, ny=100, fig=None, ax=None):
         from matplotlib import cm
 
-        x, y = np.linspace(-0.1, 0.1, nx), np.linspace(-0.1, 0.1, ny)
-        B = np.zeros([nx, ny])
+        x, y = np.linspace(-0.3, 0.3, nx), np.linspace(-0.3, 0.3, ny)
+        B = np.zeros([ny, nx])
         for i, xi in enumerate(x):
             for j, yi in enumerate(y):
-                B[i, j] = self._params_analytic["bf_itp"](np.array([xi, yi, 0.0]))[2]
+                B[j, i] = self._params_analytic["bf_itp"](np.array([xi, yi, 0.0]))[2]
 
-        fig = plt.figure()
         xx, yy = np.meshgrid(x, y)
-        ax = fig.add_subplot(111)
-        sc = ax.contourf(xx, yy, B, levels=30, cmap=cm.coolwarm)
-        ax.set_aspect(1)
-        fig.colorbar(sc)
-        # ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
-        plt.show()
+        if ax is None:
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            sc = ax.contour(xx, yy, B, levels=15, cmap=cm.coolwarm, vmin=np.min(B), vmax=np.max(B))
+            ax.set_aspect(1)
+            fig.colorbar(sc)
+            # ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
+            plt.show()
+        else:
+            sc = ax.contour(xx, yy, B, levels=15, cmap=cm.coolwarm, vmin=np.min(B), vmax=np.max(B))
+            ax.set_aspect(1)
+            cbar = fig.colorbar(sc)
+            cbar.set_label("B (T)")
+            # ax.plot_surface(xx, yy, B, cmap=cm.coolwarm)
+            # plt.show()
 
     def track(self, **kwargs):
         r, v = central_region_track(self, r_start=self._xi, v_start=self._vi, dt=1e-11, **kwargs)
@@ -311,29 +318,11 @@ class CentralRegion(PyElectrodeAssembly):
 
         return r, v
 
-    def make_dees(self, n, gap, thickness, cl=0.1, **kwargs):
+    def make_dees(self, dees, n, gap, thickness, cl=0.1, **kwargs):
 
         # cl = 0.1
-        my_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
-                             gap=gap, thickness=thickness)
-        my_dee.initialize()
 
-        my_second_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
-                                    gap=gap, thickness=thickness)
-        my_second_dee.initialize()
-        my_second_dee.rotate(90, angle_unit="deg")
-
-        my_third_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
-                                   gap=gap, thickness=thickness)
-        my_third_dee.initialize()
-        my_third_dee.rotate(180, angle_unit="deg")
-
-        my_fourth_dee = AbstractDee(opening_angle=self.dee_opening_angle, char_len=cl,
-                                    gap=gap, thickness=thickness)
-        my_fourth_dee.initialize()
-        my_fourth_dee.rotate(270, angle_unit="deg")
-
-        self._abstract_dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
+        self._abstract_dees = dees
 
         for abs_dee in self._abstract_dees:
             for _ in range(n):
@@ -380,14 +369,18 @@ class CentralRegion(PyElectrodeAssembly):
         for abs_dee in self._abstract_dees:
             abs_dee.plot_segments(show=show, ax=ax)
 
+
 class AbstractDee(PyElectrode):
     def __init__(self,
+                 r_init=0.1,
                  char_len=0.03,
                  opening_angle=30.0,
                  gap=0.05,
                  thickness=0.025,
                  **kwargs):
         super().__init__(name="Dee", **kwargs)
+
+        self._r_init = r_init
 
         self.opening_angle = opening_angle
         self._opening_angle = np.deg2rad(self.opening_angle)
@@ -438,21 +431,21 @@ class AbstractDee(PyElectrode):
 
         # Initial top segment
 
-        ra = self._char_len * np.array([np.cos(self._opening_angle / 2.0),
-                                        np.sin(self._opening_angle / 2.0),
-                                        0.0])
-        rb = 2 * self._char_len * np.array([np.cos(self._opening_angle / 2.0),
-                                            np.sin(self._opening_angle / 2.0),
-                                            0.0])
+        ra = self._r_init * np.array([np.cos(self._opening_angle / 2.0),
+                                      np.sin(self._opening_angle / 2.0),
+                                      0.0])
+        rb = (self._r_init + self._char_len) * np.array([np.cos(self._opening_angle / 2.0),
+                                                         np.sin(self._opening_angle / 2.0),
+                                                         0.0])
         top_seg = CRSegment(ra, rb)
 
         # Initial bottom segment
-        ra = self._char_len * np.array([np.cos(-self._opening_angle / 2.0),
-                                        np.sin(-self._opening_angle / 2.0),
-                                        0.0])
-        rb = 2 * self._char_len * np.array([np.cos(-self._opening_angle / 2.0),
-                                            np.sin(-self._opening_angle / 2.0),
-                                            0.0])
+        ra = self._r_init * np.array([np.cos(-self._opening_angle / 2.0),
+                                      np.sin(-self._opening_angle / 2.0),
+                                      0.0])
+        rb = (self._r_init + self._char_len) * np.array([np.cos(-self._opening_angle / 2.0),
+                                                         np.sin(-self._opening_angle / 2.0),
+                                                         0.0])
         bottom_seg = CRSegment(ra, rb)
 
         self._top_segments.append(top_seg)

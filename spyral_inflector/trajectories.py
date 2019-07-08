@@ -258,7 +258,7 @@ def track_segment(cr,
 
 
 def cr_track(ion, r_init, v_init, symmetry="full", starting_angle=0.0,
-             end_type="termination", input_bfield=None,
+             end_type="termination", nterms=1, input_bfield=None,
              maxsteps=20000, dt=1e-11, omit_e=True, omit_b=False):
     from .central_region import CRSegment
 
@@ -268,7 +268,7 @@ def cr_track(ion, r_init, v_init, symmetry="full", starting_angle=0.0,
     ra, rb = np.array([0.0, 0.0]), np.array([99.0, 0.0])
 
     if symmetry == "quarter":
-        segment = CRSegment(ra=ra, rb=z_rotate(rb, starting_angle + np.pi/2.0))
+        segment = CRSegment(ra=ra, rb=z_rotate(rb, starting_angle + np.pi / 2.0))
     elif symmetry == "half":
         segment = CRSegment(ra=ra, rb=z_rotate(rb, starting_angle + np.pi))
     else:
@@ -309,14 +309,14 @@ def cr_track(ion, r_init, v_init, symmetry="full", starting_angle=0.0,
 
     # Track until termination
     elif end_type == "termination":
-        intersected = False
+        intersections = 0
         i = 0
-        while not intersected and i < maxsteps:
+        while intersections < nterms and i < maxsteps:
             ef = efield1(r[i])
             bf = bfield1(r[i])
 
             r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
-            intersected = segment.check_intersection(r[i, :2], r[i + 1, :2])
+            intersections += segment.check_intersection(r[i, :2], r[i + 1, :2])
             # v[i + 1] = cr.dee_crossing(r[i], r[i + 1], v[i + 1], dt * i)
             i += 1
 
@@ -329,66 +329,73 @@ def cr_track(ion, r_init, v_init, symmetry="full", starting_angle=0.0,
     return 0
 
 
-def minimizer_orbit_finder(cr, energy_mev=1.0, symmetry_mode="full", verbose=False):
-    from scipy.optimize import minimize
+def orbit_finder(cr, energy_mev, verbose=False):
+    import scipy.optimize
+    import scipy.interpolate
 
-    freq_orbit = cr.rf_frequency / cr.harmonic
+    freq_orbit = cr.rf_freq / cr.harmonic
     omega_orbit = 2.0 * np.pi * freq_orbit
-    ion = IonSpecies("H2_1+", energy_mev)
+    ion = IonSpecies("H2_1+", energy_mev)  # TODO: Generalize -PW
 
-    v = ion.v_m_per_s()
-    a = (clight / omega_orbit)
+    errors = []
 
-    def opt_func(x):
-        initial_r, initial_vr = x
-        initial_vtheta = np.sqrt(v ** 2 - initial_vr ** 2)
+    def optimization_function(x):
 
-        r_init = np.array([initial_r, 1e-9, 0.0])
-        v_init = np.array([initial_vr, initial_vtheta, 0.0])
-        r, vr = cr_track(ion=ion,
-                         r_init=r_init,
-                         v_init=v_init,
-                         symmetry=symmetry_mode,
-                         end_type="termination",
-                         input_bfield=cr._params_analytic["bf_itp"],
-                         maxsteps=100000,
-                         dt=5e-11,
-                         omit_e=True,
-                         omit_b=False)
+        if verbose:
+            print("Initial R: {:.9f}".format(x[0]))
+            print("Initial v angle: {:.9f}".format(x[1]))
 
-        vtheta = np.sqrt(v ** 2 - vr[-1, 0] ** 2)
+        if x[0] > 0.3:
+            return 100 + 100*x[0]
 
-        r_err, v_err = np.abs((r[-1, 0] - initial_r) / initial_r), \
-                       np.abs((vtheta - initial_vtheta) / initial_vtheta)
-        # print(r_err, v_err)
-        return np.sqrt(r_err ** 2 + v_err ** 2)
+        r_init = np.array([x[0], 1e-12, 0.0])
+        v_angle = x[1]
 
-    sol = minimize(opt_func,
-                   method='Nelder-Mead',
-                   x0=np.array([ion.beta() * a, 0.0]))
-    # bounds=[(0.0, 0.3), (0.0, ion.v_m_per_s())])
+        v_init = np.array([ion.v_m_per_s() * np.sin(v_angle),
+                           ion.v_m_per_s() * np.cos(v_angle),
+                           0.0])
 
-    initial_r, initial_vr = sol.x
+        r_final, v_final = cr_track(ion,
+                                    r_init=r_init,
+                                    v_init=v_init,
+                                    symmetry="full",
+                                    dt=1e-10,
+                                    nterms=1,
+                                    input_bfield=cr.analytic_parameters["bf_itp"])
 
-    initial_vtheta = np.sqrt(v ** 2 - initial_vr ** 2)
+        theta = np.arctan2(r_final[:, 1], r_final[:, 0])
+        theta[theta < 0] += 2 * np.pi
+        r_itp = scipy.interpolate.interp1d(theta,
+                                           np.sqrt(r_final[:, 0] ** 2 + r_final[:, 1] ** 2),
+                                           fill_value="extrapolate")
 
-    r_init = np.array([initial_r, 1e-9, 0.0])
-    v_init = np.array([initial_vr, initial_vtheta, 0.0])
-    r, v = cr_track(ion=ion,
-                    r_init=r_init,
-                    v_init=v_init,
-                    symmetry=symmetry_mode,
-                    end_type="termination",
-                    input_bfield=cr._params_analytic["bf_itp"],
-                    maxsteps=100000,
-                    dt=5e-11,
-                    omit_e=True,
-                    omit_b=False)
+        vx_itp = scipy.interpolate.interp1d(theta,
+                                            v_final[:, 0],
+                                            fill_value="extrapolate")
+        vy_itp = scipy.interpolate.interp1d(theta,
+                                            v_final[:, 1],
+                                            fill_value="extrapolate")
+        vz_itp = scipy.interpolate.interp1d(theta,
+                                            v_final[:, 2],
+                                            fill_value="extrapolate")
 
-    # plt.plot(r[:, 0], r[:, 1])
-    # plt.show()
+        v_end = np.array([vx_itp(2*np.pi), vy_itp(2*np.pi), vz_itp(2*np.pi)])
+        v_diff = np.arccos(np.dot(v_init[:2], v_end[:2]) / (np.linalg.norm(v_init[:2]) * np.linalg.norm(v_end[:2])))
+        error = (1e2 * r_itp(2.0 * np.pi) - 1e2 * x[0]) ** 2 + (v_diff) ** 2
 
-    return r, v
+        errors.append(error)
+
+        return error
+
+    sol = scipy.optimize.minimize(optimization_function,
+                                  method="Nelder-Mead",
+                                  x0=np.array([1.15*ion.v_m_per_s() / omega_orbit, 0.0]),
+                                  options={'fatol': 1e-5, 'xatol': 1e-5})
+
+    if verbose:
+        print(">>> Finished {:.3f} MeV <<<".format(energy_mev))
+        print(sol.x)
+    return sol.x
 
 
 def gordon_algorithm(cr,
@@ -512,7 +519,8 @@ def gordon_algorithm(cr,
         r2_init = r_init
         # initial_pr2 = initial_pr + total_momentum * 1E-4
         initial_pr2 = initial_pr + ion.mass_kg() * clight / a  # Offset by one unit of momentum in Gordon's units
-        pr2_init = z_rotate(np.array([initial_pr2, np.sqrt(total_momentum ** 2 - initial_pr2 ** 2), 0.0]), starting_angle)
+        pr2_init = z_rotate(np.array([initial_pr2, np.sqrt(total_momentum ** 2 - initial_pr2 ** 2), 0.0]),
+                            starting_angle)
         # pr2_init = np.array([-np.sqrt(total_momentum ** 2 - initial_pr2 ** 2), initial_pr2, 0.0])
 
         if verbose:
@@ -608,9 +616,6 @@ def gordon_algorithm(cr,
         print(" Total Error: {}".format(err))
         print("*** Epsilon 1: {}".format(ep1))
         print("*** Epsilon 2: {}".format(ep2))
-
-        # plt.plot(r[:, 0], r[:, 1])
-        # plt.show()
 
         it += 1
 
@@ -997,3 +1002,7 @@ def calculate_orbit_center(k, kp, height):
     yc = height * (2 * k / (1 - 4 * k ** 2) + 1 / (2 * k - kp)) * np.cos(k * np.pi)
 
     return xc, yc
+
+
+def central_region_simple_track(cr):
+    pass
