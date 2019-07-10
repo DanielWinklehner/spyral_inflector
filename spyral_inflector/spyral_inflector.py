@@ -69,8 +69,6 @@ class SpiralInflector(object):
                                  "sigma": None,  # The "v-shape" of the electrodes (m)
                                  "ns": None,  # Resolution of the analytical solution (steps along beam trajectory s)
                                  "b_lim": np.deg2rad(np.array([0.0, 90.0])),  # Limits of the curvature
-                                 "rotation": 0.0,  # Clockwise rotation of the spiral inflector, assuming that at
-                                 # 0.0 deg the entrance E-field points in the x-dir
                                  }
 
         for key in self._params_analytic.keys():
