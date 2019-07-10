@@ -327,10 +327,10 @@ class SpiralInflector(object):
         self._variables_analytic["geo"] = None  # type: np.ndarray
 
         # Create global rotation matrix
-        _rot = np.deg2rad(self._params_analytic["rotation"])
-        self._variables_analytic["rot"] = np.array([[np.cos(_rot), -np.sin(_rot), 0.0],
-                                                    [np.sin(_rot), np.cos(_rot), 0.0],
-                                                    [0.0, 0.0, 1.0]])
+        # _rot = np.deg2rad(self._params_analytic["rotation"])
+        # self._variables_analytic["rot"] = np.array([[np.cos(_rot), -np.sin(_rot), 0.0],
+        #                                             [np.sin(_rot), np.cos(_rot), 0.0],
+        #                                             [0.0, 0.0, 1.0]])
 
         self._initialized = True
 

@@ -28,7 +28,9 @@ si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
 
 si.generate_geometry()
 si.generate_meshed_model()
-#
+
+r_start = si.analytic_variables["trj_design"][-1, :]
+v_start = si.analytic_variables["trj_vel"][-1, :]
 
 cr = CentralRegion(r_cr=[0.1, 0.3],
                    dee_voltage=70e3,
@@ -38,14 +40,35 @@ cr = CentralRegion(r_cr=[0.1, 0.3],
 
 cr.set_inflector(si)
 
-cr.initialize(xi=np.array([0.15, 0.0, 0.0]),
-              vi=np.array([0.0, h2p.v_m_per_s(), 0.0]))
+cr.initialize(xi=r_start,
+              vi=v_start)
+
+cr.track_from_si()
 
 cr.load_bfield(bfield='/home/philip/Downloads/RFQ-DIP_TestCyclotron_MainField.table',
                bf_scale=1E-4,
                spatial_unit="cm",
                extents=np.array([[-30.0, 30.0], [-30.0, 30.0], [-2.0, 2.0]]),
                extents_dims=["X", "Y", "Z"])
+
+trj = si.analytic_variables["trj_design"]
+plt.plot(trj[:, 0], trj[:, 1])
+
+r, v = cr.track_from_si(nsteps=10000, dt=1e-11)
+
+plt.plot(r[:, 0], r[:, 1])
+plt.show()
+
+# r, v = cr_track(h2p,
+#                 r_init=r_start,
+#                 v_init=v_start,
+#                 end_type="steps",
+#                 dt=5e-11,
+#                 maxsteps=2000,
+#                 input_bfield=cr.analytic_parameters["bf_itp"])
+#
+# plt.plot(r[:, 0], r[:, 1])
+# plt.show()
 
 # fig = plt.figure()
 # ax = fig.add_subplot(111)

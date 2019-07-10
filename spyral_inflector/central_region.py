@@ -65,6 +65,15 @@ Macro MakePost
     BooleanUnion(dee_vol) = { Volume { dee_top_vol, dee_bottom_vol }; Delete; } { Volume { post_vol }; Delete; };
     
 Return
+
+Macro MakeSomething
+
+    // Macro for interfacing the end of the spiral inflector to the beginning of the dee system
+    // Suppose there are a start index and end index for the points in the trajectory
+    
+
+Return
+
 """
 
 
@@ -277,7 +286,7 @@ class CentralRegion(PyElectrodeAssembly):
             cbar.set_label("B (T)")
 
     def track(self, **kwargs):
-        r, v = central_region_track(self, r_start=self._xi, v_start=self._vi, dt=1e-11, **kwargs)
+        r, v = modulated_track(self, r_start=self._xi, v_start=self._vi, dt=1e-11, **kwargs)
         self._tracked_trjs.append(r)
         self._track_trjs_vel.append(v)
 
@@ -336,11 +345,24 @@ class CentralRegion(PyElectrodeAssembly):
                                                  "elems": leaf_view["elems"],
                                                  "domns": leaf_view["domns"]}
         self.numerical_parameters["gmres_tol"] = 0.0001
+
         solve_bempp(self)
 
     def plot_dees(self, ax=None, show=False):
         for abs_dee in self._abstract_dees:
             abs_dee.plot_segments(show=show, ax=ax)
+
+    def track_from_si(self, nsteps=1000, dt=1e-11):
+        si = self._spiral_inflector
+
+        r_start, v_start = si.analytic_variables["trj_design"][-1, :], \
+                           si.analytic_variables["trj_vel"][-1, :]
+
+        r, v = cr_track(ion=self.analytic_parameters["ion"], r_init=r_start, v_init=v_start,
+                        end_type="steps", maxsteps=nsteps, dt=dt,
+                        input_bfield=self.analytic_parameters["bf_itp"])
+
+        return r, v
 
 
 class AbstractDee(PyElectrode):

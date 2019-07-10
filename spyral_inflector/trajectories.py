@@ -137,7 +137,7 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
     return r, v
 
 
-def central_region_track(cr,
+def modulated_track(cr,
                          r_start=None,
                          v_start=None,
                          nsteps=10000,
@@ -814,7 +814,7 @@ def generate_analytical_trajectory(si):
 
     analytic_vars["trj_design"] = np.array([_x, _y, _z]).T
     analytic_vars["trj_vel"] = np.array([_vx, _vy, _vz]).T
-    
+
     # Rotation/flip
     if not ((analytic_vars["bf_design"] < 0.0) ^ (analytic_params["ion"].q() < 0.0)):
         if si.debug:
@@ -841,10 +841,10 @@ def generate_analytical_trajectory(si):
     #     for i in range(analytic_params["ns"]):
     #         analytic_vars["trj_design"][i, :] = np.matmul(xrot, analytic_vars["trj_design"][i, :])
 
-    if analytic_params["rotation"] != 0.0:
-        for i in range(analytic_params["ns"]):
-            analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
-                                                          analytic_vars["trj_design"][i, :])
+    # if analytic_params["rotation"] != 0.0:
+    #     for i in range(analytic_params["ns"]):
+    #         analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
+    #                                                       analytic_vars["trj_design"][i, :])
 
     print("Done!")
 
@@ -966,12 +966,12 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
 
     analytic_params["ns"] = len(r[:, 0])
 
-    if analytic_params["rotation"] != 0.0:
-        for i in range(analytic_params["ns"]):
-            analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
-                                                          analytic_vars["trj_design"][i, :])
-            analytic_vars["trj_vel"][i, :] = np.matmul(analytic_vars["rot"],
-                                                       analytic_vars["trj_vel"][i, :])
+    # if analytic_params["rotation"] != 0.0:
+    #     for i in range(analytic_params["ns"]):
+    #         analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
+    #                                                       analytic_vars["trj_design"][i, :])
+    #         analytic_vars["trj_vel"][i, :] = np.matmul(analytic_vars["rot"],
+    #                                                    analytic_vars["trj_vel"][i, :])
 
     si.analytic_parameters = analytic_params
     si.analytic_variables = analytic_vars

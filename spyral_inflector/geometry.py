@@ -716,10 +716,10 @@ def generate_analytical_geometry(si):
 
         xi = 0.5 * aspect_ratio * gap
 
-        if analytic_params["rotation"] != 0.0:
-            for i in range(analytic_params["ns"]):
-                v_rh[0, i, :] = np.matmul(analytic_vars["rot"], v_rh[0, i, :])
-                v_rh[1, i, :] = np.matmul(analytic_vars["rot"], v_rh[1, i, :])
+        # if analytic_params["rotation"] != 0.0:
+        #     for i in range(analytic_params["ns"]):
+        #         v_rh[0, i, :] = np.matmul(analytic_vars["rot"], v_rh[0, i, :])
+        #         v_rh[1, i, :] = np.matmul(analytic_vars["rot"], v_rh[1, i, :])
 
         for i in range(ns):
             for j in range(3):
