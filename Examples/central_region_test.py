@@ -16,7 +16,6 @@ si = SpiralInflector(ion=h2p,
                      dx=10e-3,
                      sigma=1.5E-3,
                      ns=60,
-                     rotation=-12.5-90,
                      debug=False)
 
 # si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
