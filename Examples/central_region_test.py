@@ -27,9 +27,14 @@ si.set_parameter(key="h", value=0.01)  # Mesh characteristic length
 
 si.generate_geometry()
 si.generate_meshed_model()
-
+# Currently want to start on the x-axis for CR stuff
 r_start = si.analytic_variables["trj_design"][-1, :]
 v_start = si.analytic_variables["trj_vel"][-1, :]
+print(-np.arctan2(r_start[1], r_start[0]) + np.pi/4 + 2*np.pi * (np.arctan2(r_start[1], r_start[0]) < 0))
+si.apply_rotation(angle=-np.arctan2(r_start[1], r_start[0]) + np.pi/4 + 2*np.pi * (np.arctan2(r_start[1], r_start[0]) < 0), angle_unit='rad')
+# si.apply_rotation(angle=-45, angle_unit='deg')
+print(r_start)
+print(si.analytic_variables["trj_design"][-1, :])
 
 cr = CentralRegion(r_cr=[0.1, 0.3],
                    dee_voltage=70e3,
@@ -39,24 +44,21 @@ cr = CentralRegion(r_cr=[0.1, 0.3],
 
 cr.set_inflector(si)
 
-cr.initialize(xi=r_start,
-              vi=v_start)
+cr.initialize()
 
-cr.track_from_si()
+# cr.load_bfield(bfield='/home/philip/work/C-44_AIMA_Poles_wVP_large_r_z=pm1cm.comsol',
+#                bf_scale=1E-4,
+#                spatial_unit="cm",
+#                extents=np.array([[-30.0, 30.0], [-30.0, 30.0], [-2.0, 2.0]]),
+#                extents_dims=["X", "Y", "Z"])
 
-cr.load_bfield(bfield='/home/philip/Downloads/RFQ-DIP_TestCyclotron_MainField.table',
-               bf_scale=1E-4,
-               spatial_unit="cm",
-               extents=np.array([[-30.0, 30.0], [-30.0, 30.0], [-2.0, 2.0]]),
+cr.load_bfield(bfield='/home/philip/work/C-44_AIMA_Poles_wVP_large_r_z=pm1cm.comsol',
+               bf_scale=10.36,
+               spatial_unit="m",
+               extents=np.array([[-0.3, 0.3], [-0.3, 0.3], [-0.01, 0.01]]),
                extents_dims=["X", "Y", "Z"])
 
-trj = si.analytic_variables["trj_design"]
-plt.plot(trj[:, 0], trj[:, 1])
-
-r, v = cr.track_from_si(nsteps=10000, dt=1e-11)
-
-plt.plot(r[:, 0], r[:, 1])
-plt.show()
+central_region_simple_track(cr)
 
 # r, v = cr_track(h2p,
 #                 r_init=r_start,
@@ -146,6 +148,8 @@ dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
 cr.make_dees(dees, n=5, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
 cr.make_dummy_dees(gap=gap, thickness=thickness)
 # cr.plot_dees(ax=ax, show=False)
+
+
 cr.show(show_screen=True)
 
 # cr.solve_bempp()

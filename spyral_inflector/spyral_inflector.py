@@ -135,8 +135,8 @@ class SpiralInflector(object):
                                      }
 
         # --- Additional parameters used for particle tracking ------------------------------------------------------- #
-        self._params_track = {"dt": 1e-10,
-                              "nsteps": 10000}
+        self._params_track = {"dt": 1e-11,
+                              "nsteps": 15000}
         self._variables_track = {"trj_tracker": None,
                                  "shift": None,  # type: np.ndarray
                                  }
@@ -166,6 +166,41 @@ class SpiralInflector(object):
             printstr += "     * {}: {}\n".format(key, item)
 
         return printstr
+
+    def apply_rotation(self, angle=0.0, angle_unit='deg'):  # TODO
+
+        if angle_unit == "deg":
+            _angle = np.deg2rad(angle)
+        elif angle_unit == "rad":
+            _angle = angle
+        else:
+            return 1
+
+        rot = np.array([[np.cos(_angle), -np.sin(_angle), 0.0],
+                        [np.sin(_angle), np.cos(_angle), 0.0],
+                        [0.0, 0.0, 1.0]])
+
+        analytic_vars = self.analytic_variables
+        numerical_vars = self.numerical_variables
+
+        # a = np.matmul(rot, a[np.newaxis].T)[:, 0]
+        analytic_vars["trj_design"] = np.matmul(rot, analytic_vars["trj_design"].T).T
+        analytic_vars["trj_vel"] = np.matmul(rot, analytic_vars["trj_vel"].T).T
+        _orbit_center = np.array([analytic_vars["orbit_center"][0], analytic_vars["orbit_center"][1], 0.0])
+        # analytic_vars["orbit_center"] = np.matmul(rot, _orbit_center[np.newaxis].T)[:2, 0] TODO
+
+        for obj in numerical_vars["objects"].electrodes.values():
+            obj.set_rotation_angle_axis(angle=_angle, axis=Z_AXIS, absolute=True)
+            obj.update_transformations()
+
+        # Apply a rotation to all relevant geometries/trajectories
+        # analytic_vars["trj_design"]
+        # analytic_vars["trj_vel"]
+        # analytic_vars["orbit_center"]
+        # numerical_vars["objects"]
+        # Redo field calculations?
+
+        return 0
 
     def generate_design_trajectory(self):
         r = None

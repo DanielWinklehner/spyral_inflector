@@ -138,14 +138,14 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
 
 
 def modulated_track(cr,
-                         r_start=None,
-                         v_start=None,
-                         nsteps=10000,
-                         dt=1e-12,
-                         freq=0.0,
-                         phase=0.0,
-                         omit_b=False,
-                         omit_e=False):
+                    r_start=None,
+                    v_start=None,
+                    nsteps=10000,
+                    dt=1e-12,
+                    freq=0.0,
+                    phase=0.0,
+                    omit_b=False,
+                    omit_e=False):
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
     analytic_params = cr.analytic_parameters
@@ -257,10 +257,12 @@ def track_segment(cr,
     return r[:i], v[:i]
 
 
-def cr_track(ion, r_init, v_init, symmetry="full", starting_angle=0.0,
+def cr_track(cr, r_init, v_init, symmetry="full", starting_angle=0.0,
              end_type="termination", nterms=1, input_bfield=None,
              maxsteps=20000, dt=1e-11, omit_e=True, omit_b=False):
     from .central_region import CRSegment
+
+    ion = cr.analytic_parameters["ion"]
 
     r_start = r_init
     v_start = v_init
@@ -285,7 +287,10 @@ def cr_track(ion, r_init, v_init, symmetry="full", starting_angle=0.0,
     if omit_b:
         bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     else:
-        bfield1 = input_bfield
+        if input_bfield is not None:
+            bfield1 = input_bfield
+        else:
+            bfield1 = cr.analytic_parameters["bf_itp"]
 
     r = np.zeros([maxsteps + 1, 3])
     v = np.zeros([maxsteps + 1, 3])
@@ -346,7 +351,7 @@ def orbit_finder(cr, energy_mev, verbose=False):
             print("Initial v angle: {:.9f}".format(x[1]))
 
         if x[0] > 0.3:
-            return 100 + 100*x[0]
+            return 100 + 100 * x[0]
 
         r_init = np.array([x[0], 1e-12, 0.0])
         v_angle = x[1]
@@ -379,7 +384,7 @@ def orbit_finder(cr, energy_mev, verbose=False):
                                             v_final[:, 2],
                                             fill_value="extrapolate")
 
-        v_end = np.array([vx_itp(2*np.pi), vy_itp(2*np.pi), vz_itp(2*np.pi)])
+        v_end = np.array([vx_itp(2 * np.pi), vy_itp(2 * np.pi), vz_itp(2 * np.pi)])
         v_diff = np.arccos(np.dot(v_init[:2], v_end[:2]) / (np.linalg.norm(v_init[:2]) * np.linalg.norm(v_end[:2])))
         error = (1e2 * r_itp(2.0 * np.pi) - 1e2 * x[0]) ** 2 + (v_diff) ** 2
 
@@ -389,7 +394,7 @@ def orbit_finder(cr, energy_mev, verbose=False):
 
     sol = scipy.optimize.minimize(optimization_function,
                                   method="Nelder-Mead",
-                                  x0=np.array([1.15*ion.v_m_per_s() / omega_orbit, 0.0]),
+                                  x0=np.array([1.15 * ion.v_m_per_s() / omega_orbit, 0.0]),
                                   options={'fatol': 1e-5, 'xatol': 1e-5})
 
     if verbose:
@@ -456,7 +461,7 @@ def gordon_algorithm(cr,
         vr_init = pr_init / (ion.gamma() * ion.mass_kg())
 
         # Trial orbit
-        r, vr = cr_track(ion=ion,
+        r, vr = cr_track(cr=cr,
                          r_init=r_init,
                          v_init=vr_init,
                          symmetry=symmetry_mode,
@@ -492,7 +497,7 @@ def gordon_algorithm(cr,
             print("-> Initial pr: {}".format(pr1_init))
         vr1_init = pr1_init / (ion.gamma() * ion.mass_kg())
 
-        r1, vr1 = cr_track(ion=ion,
+        r1, vr1 = cr_track(cr=cr,
                            r_init=r1_init,
                            v_init=vr1_init,
                            symmetry=symmetry_mode,
@@ -530,7 +535,7 @@ def gordon_algorithm(cr,
 
         vr2_init = pr2_init / (ion.gamma() * ion.mass_kg())
 
-        r2, vr2 = cr_track(ion=ion,
+        r2, vr2 = cr_track(cr=cr,
                            r_init=r2_init,
                            v_init=vr2_init,
                            symmetry=symmetry_mode,
@@ -631,7 +636,7 @@ def gordon_algorithm(cr,
         pz_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
         vz_init = pz_init / (ion.gamma() * ion.mass_kg())
 
-        z, vz = cr_track(ion=ion,
+        z, vz = cr_track(cr=cr,
                          r_init=z_init,
                          v_init=vz_init,
                          symmetry="full",
@@ -656,7 +661,7 @@ def gordon_algorithm(cr,
         pz1_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
         vz1_init = pz1_init / (ion.gamma() * ion.mass_kg())
 
-        z1, vz1 = cr_track(ion=ion,
+        z1, vz1 = cr_track(cr=cr,
                            r_init=z1_init,
                            v_init=vz1_init,
                            symmetry="full",
@@ -684,7 +689,7 @@ def gordon_algorithm(cr,
                              pz_offset])
         vz2_init = pz2_init / (ion.gamma() * ion.mass_kg())
 
-        z2, vz2 = cr_track(ion=ion,
+        z2, vz2 = cr_track(cr=cr,
                            r_init=z2_init,
                            v_init=vz2_init,
                            symmetry="full",
@@ -762,7 +767,7 @@ def gordon_algorithm(cr,
         return nu_r, nu_z
 
     if retrack:
-        r, vr = cr_track(ion=ion,
+        r, vr = cr_track(cr=cr,
                          r_init=r_init,
                          v_init=vr_init,
                          symmetry="full",
@@ -801,16 +806,16 @@ def generate_analytical_trajectory(si):
     _x = +0.5 * h * ((2.0 / (1.0 - (4.0 * (analytic_vars["k"] ** 2.0)))) -
                      (np.cos(cp * analytic_vars["b"]) / cp) - np.cos(
                 -cm * analytic_vars["b"]) / cm)
-    _vx = 0.5 * ion_vel * (np.sin((2*analytic_vars["k"] + 1) * analytic_vars["b"]) +
-                           np.sin(-(2*analytic_vars["k"] - 1) * analytic_vars["b"]))
+    _vx = 0.5 * ion_vel * (np.sin((2 * analytic_vars["k"] + 1) * analytic_vars["b"]) +
+                           np.sin(-(2 * analytic_vars["k"] - 1) * analytic_vars["b"]))
 
     _y = -0.5 * h * (np.sin(cp * analytic_vars["b"]) / cp +
                      np.sin(-cm * analytic_vars["b"]) / cm)
-    _vy = 0.5 * ion_vel * (np.cos((2*analytic_vars["k"] + 1) * analytic_vars["b"]) -
-                           np.cos(-(2*analytic_vars["k"] - 1) * analytic_vars["b"]))
+    _vy = 0.5 * ion_vel * (np.cos((2 * analytic_vars["k"] + 1) * analytic_vars["b"]) -
+                           np.cos(-(2 * analytic_vars["k"] - 1) * analytic_vars["b"]))
 
     _z = - h * (1.0 - np.sin(analytic_vars["b"]))
-    _vz = ion_vel * np.sqrt(1 - np.sin(analytic_vars["b"])**2)
+    _vz = ion_vel * np.sqrt(1 - np.sin(analytic_vars["b"]) ** 2)
 
     analytic_vars["trj_design"] = np.array([_x, _y, _z]).T
     analytic_vars["trj_vel"] = np.array([_vx, _vy, _vz]).T
@@ -859,7 +864,7 @@ def generate_analytical_trajectory(si):
     return analytic_vars["trj_design"]
 
 
-def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
+def generate_numerical_trajectory(si, bf=None, nsteps=15000, dt=1e-11):
     # TODO: Make sure the nsteps and dt are being consistent throughout the code
 
     analytic_params = si.analytic_parameters
@@ -933,7 +938,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         if i_init == 0:
             i_init = 1
     except IndexError:
-        i_init = 1
+        i_init = 1  # TODO: This doesn't seem right -PW
 
     try:
         i_final = np.where(_b >= analytic_params["b_lim"][1])[0][0]
@@ -946,25 +951,58 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     # The arrays cannot be as large as they're made initially.
     # This would cause the BEMPP routines to perform the computations
     # with incredibly high resolution and would never finish. -PW
-    step = int(np.floor((ns / 50)))
-    interval = [j for j in range(i_init, i_final, step)]
-    interval.append(i_final)
 
-    b = _b[interval]
-    r = _r[interval, :]
-    v = _v[interval, :]
+    from scipy.interpolate import interp1d
+    _r, _v, _b = _r[i_init:i_final, :], _v[i_init:i_final, :], _b[i_init:i_final]
 
-    # Redefine the analytical variables (will change name eventually)
+    _b_itp = interp1d(_v[:, 2], _b, fill_value='extrapolate')
+    _b_end = _b_itp(0.0)
+
+    _z_wrt_v = interp1d(_v[:, 2], _r[:, 2], fill_value='extrapolate')
+    shift = np.array([0.0, 0.0, - _z_wrt_v(0.0)])
+    height = np.abs(_r[0, 2] - _z_wrt_v(0.0))
+
+    _vz = interp1d(_b, _v[:, 2], fill_value='extrapolate')
+
+    _x, _y, _z = interp1d(_b, _r[:, 0], fill_value='extrapolate'), \
+                 interp1d(_b, _r[:, 1], fill_value='extrapolate'), \
+                 interp1d(_b, _r[:, 2], fill_value='extrapolate')
+
+    _vx, _vy, _vz = interp1d(_b, _v[:, 0], fill_value='extrapolate'), \
+                    interp1d(_b, _v[:, 1], fill_value='extrapolate'), \
+                    interp1d(_b, _v[:, 2], fill_value='extrapolate')
+
+    b = np.linspace(0.0, _b_end, analytic_params["ns"])  # TODO: Should _b_end be a b_lim?
+
+    r = np.array([_x(b), _y(b), _z(b)]).T
+    v = np.array([_vx(b), _vy(b), _vz(b)]).T
+
+    r += shift  # TODO: Make sure this doesn't mess up shifts anywhere else (i.e. py_electrodes)
+
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111)
+    # ax.plot(v[:, 0], v[:, 1])
+    # ax.grid(True)
+    # ax.set_aspect(1)
+    # plt.show()
+    #
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111)
+    # ax.plot(v[:, 1], v[:, 2])
+    # ax.plot(vp[:, 1], vp[:, 2])
+    # ax.grid(True)
+    # ax.set_aspect(1)
+    # plt.show()
+
     analytic_vars["trj_design"] = r
     analytic_vars["trj_vel"] = v
-    analytic_vars["b"] = b
 
     # If there is a known shift, apply it now...
     # TODO: Commented this out due to possible shifting error -PW
     # if si._variables_track["shift"] is not None:
     #     analytic_vars["trj_design"] += si._variables_track["shift"]
 
-    analytic_params["ns"] = len(r[:, 0])
+    # analytic_params["ns"] = len(r[:, 0])
 
     # if analytic_params["rotation"] != 0.0:
     #     for i in range(analytic_params["ns"]):
@@ -987,4 +1025,119 @@ def calculate_orbit_center(k, kp, height):
 
 
 def central_region_simple_track(cr):
-    pass
+    starting_phase = 0.0
+    # Track from SI exit (gap 0) to gap 1
+    # Check phase
+    # If lagging, increase curvature (more inward)
+    # If leading, decrease curvature (more outward)
+    # Track from gap i-2 to gap i
+    # Repeat
+
+    # E ~ E_0 * np.sin(2 * pi * rf_freq * t + phase)
+    # E * (-1)**gap_n
+
+    gap_angles = []
+
+    ion = cr.analytic_parameters["ion"]
+    time_step = 1e-11
+
+    # Number of time steps for an RF period
+    nsteps = 1.5 * (1.0 / cr.rf_freq) / time_step  # 32.8 MHz w/ 0.1 ns --> ~300 turns per sector
+
+    def delta_kinetic_energy(dee_voltage, gap, radius, phase):
+        return ion.q() * echarge * dee_voltage * np.sinc(gap / (2 * radius)) * np.sin(phase)
+
+    rstart, vstart = cr._xi, cr._vi
+    # rstart = np.array([0.1, 0.0, 0.0])
+    # vstart = ion.v_m_per_s() * np.array([0.0, 1.0, 0.0])
+
+    theta_init = np.arctan2(rstart[1], rstart[0])
+    if theta_init < 0:
+        theta_init += 2 * np.pi
+
+    # gap_angle = np.deg2rad(42.5 / 2)
+    gap_angles = [np.deg2rad(90 - 42.5 / 2), np.deg2rad(90 + 42.5 / 2),
+                  np.deg2rad(180 - 42.5 / 2), np.deg2rad(180 + 42.5 / 2), np.deg2rad(270 - 42.5 / 2),
+                  np.deg2rad(270 + 42.5 / 2), np.deg2rad(360 - 42.5 / 2), np.deg2rad(42.5 / 2)]
+
+    gap_angles *= 3
+
+    colors = MyColors()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    for angle in gap_angles:
+        para = np.linspace(0, 0.5, 10)
+        ax.plot(para * np.cos(angle), para * np.sin(angle), '--', color=colors[2])
+    i = 0
+    n_turns = 0
+
+    while i < len(gap_angles):
+
+        gap_angle = gap_angles[i]
+
+        r, v = cr_track(cr=cr,
+                        r_init=rstart,
+                        v_init=vstart,
+                        end_type="steps",
+                        maxsteps=int(nsteps),
+                        input_bfield=None,
+                        dt=time_step)
+
+        theta = np.arctan2(r[:, 1], r[:, 0])
+        theta[theta < 0] += 2 * np.pi
+
+        _ft = np.sum([1 if theta[i - 1] > 3 * np.pi / 2 and theta[i] < np.pi / 2 else 0 for i in range(1, len(theta))])
+        if _ft == 1:
+            theta[theta < np.pi] += 2 * np.pi
+            if gap_angle < np.pi:
+                gap_angle += 2 * np.pi
+        rmag = np.sqrt(r[:, 0] ** 2 + r[:, 1] ** 2 + r[:, 2] ** 2)
+        vel_theta = np.arctan2(v[:, 1], v[:, 0])
+        vel_theta[vel_theta < 0] += 2 * np.pi
+
+        post_gap_angle = theta[theta >= gap_angle]
+        post_gap_r = rmag[theta >= gap_angle]
+        post_gap_z = r[:, 2][theta >= gap_angle]
+        post_gap_v_angle = vel_theta[theta >= gap_angle]
+        post_gap_vz = v[:, 2][theta >= gap_angle]
+
+        pre_gap_angle = theta[theta < gap_angle]
+        pre_gap_r = rmag[theta < gap_angle]
+        pre_gap_z = r[:, 2][theta < gap_angle]
+        pre_gap_v_angle = vel_theta[theta < gap_angle]
+        pre_gap_vz = v[:, 2][theta < gap_angle]
+
+        delta_t = len(pre_gap_r) * time_step
+        delta_phase = delta_t * cr.rf_freq
+
+        crossover_angle = 0.5 * (post_gap_angle[0] + pre_gap_angle[-1])
+        crossover_r = 0.5 * (post_gap_r[0] + pre_gap_r[-1])
+        crossover_z = 0.5 * (post_gap_z[0] + pre_gap_z[-1])
+        crossover_v_angle = 0.5 * (post_gap_v_angle[0] + pre_gap_v_angle[-1])
+
+        x, y, z = crossover_r * np.cos(crossover_angle), \
+                  crossover_r * np.sin(crossover_angle), \
+                  crossover_z
+
+        dK = delta_kinetic_energy(cr.dee_voltage, gap=cr.dee_gap, radius=crossover_r, phase=np.pi / 2)
+
+        ion.calculate_from_energy_mev(energy_mev=(ion.total_kinetic_energy_mev() + dK / (echarge * 1e6)) / ion.a())
+
+        rstart = np.array([x, y, z])
+        vstart = np.array(
+            [ion.v_m_per_s() * np.cos(crossover_v_angle), ion.v_m_per_s() * np.sin(crossover_v_angle), 0.0])
+
+        # para = np.linspace(0, 0.5, 10)
+        ax.plot(pre_gap_r * np.cos(pre_gap_angle), pre_gap_r * np.sin(pre_gap_angle))
+        # ax.plot(post_gap_r*np.cos(post_gap_angle), post_gap_r*np.sin(post_gap_angle), color=colors[1])
+        ax.scatter([x], [y], marker='X', color=colors[2])
+        # ax.plot(para*np.cos(gap_angle), para*np.sin(gap_angle), '--', color=colors[2])
+        i += 1
+
+    ax.grid(True)
+    ax.set_xlim([-0.3, 0.3])
+    ax.set_ylim([-0.3, 0.3])
+    ax.set_aspect(1)
+    plt.show()

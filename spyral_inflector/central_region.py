@@ -110,6 +110,7 @@ class CentralRegion(PyElectrodeAssembly):
         self.rf_freq = rf_freq
         self.harmonic = harmonic
         self.dee_voltage = dee_voltage
+        self.dee_gap = 0.056
         self.r_cr = r_cr
         self.dee_opening_angle = dee_opening_angle
 
@@ -170,7 +171,7 @@ class CentralRegion(PyElectrodeAssembly):
     def initialize(self, xi=None, vi=None, dee_z_func=None):
         if xi is None and vi is None:
             trj_design = self._spiral_inflector.analytic_variables["trj_design"]
-            v_design = self._spiral_inflector.analytic_variables["v_design"]
+            v_design = self._spiral_inflector.analytic_variables["trj_vel"]
             self._xi, self._vi = trj_design[-1, :], v_design[-1, :]
         else:
             self._xi, self._vi = xi, vi
