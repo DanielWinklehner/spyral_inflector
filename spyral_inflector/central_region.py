@@ -365,6 +365,11 @@ class CentralRegion(PyElectrodeAssembly):
 
         return r, v
 
+    def simple_track(self, r_start, v_start):
+        return central_region_simple_track(self, r_start, v_start)
+
+    def optimize(self):
+        pass
 
 class AbstractDee(PyElectrode):
     def __init__(self,

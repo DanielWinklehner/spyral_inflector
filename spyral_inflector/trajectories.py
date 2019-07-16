@@ -1024,7 +1024,7 @@ def calculate_orbit_center(k, kp, height):
     return xc, yc
 
 
-def central_region_simple_track(cr):
+def central_region_simple_track(cr, r_start=None, v_start=None):
     starting_phase = 0.0
     # Track from SI exit (gap 0) to gap 1
     # Check phase
@@ -1047,11 +1047,10 @@ def central_region_simple_track(cr):
     def delta_kinetic_energy(dee_voltage, gap, radius, phase):
         return ion.q() * echarge * dee_voltage * np.sinc(gap / (2 * radius)) * np.sin(phase)
 
-    rstart, vstart = cr._xi, cr._vi
-    # rstart = np.array([0.1, 0.0, 0.0])
-    # vstart = ion.v_m_per_s() * np.array([0.0, 1.0, 0.0])
+    if r_start is None and v_start is None:
+        r_start, v_start = cr._xi, cr._vi
 
-    theta_init = np.arctan2(rstart[1], rstart[0])
+    theta_init = np.arctan2(r_start[1], r_start[0])
     if theta_init < 0:
         theta_init += 2 * np.pi
 
@@ -1060,7 +1059,7 @@ def central_region_simple_track(cr):
                   np.deg2rad(180 - 42.5 / 2), np.deg2rad(180 + 42.5 / 2), np.deg2rad(270 - 42.5 / 2),
                   np.deg2rad(270 + 42.5 / 2), np.deg2rad(360 - 42.5 / 2), np.deg2rad(42.5 / 2)]
 
-    gap_angles *= 3
+    gap_angles *= 2
 
     colors = MyColors()
 
@@ -1140,4 +1139,56 @@ def central_region_simple_track(cr):
     ax.set_xlim([-0.3, 0.3])
     ax.set_ylim([-0.3, 0.3])
     ax.set_aspect(1)
+    plt.show()
+
+
+def si_exit_parameter_space(si):
+
+    analytic_params = si.analytic_parameters
+    analytic_vars = si.analytic_variables
+
+    ion = analytic_params["ion"]
+
+    tilt = analytic_params["tilt"]  # type: float
+
+    analytic_vars["kp"] = np.tan(np.deg2rad(tilt))  # Tilt parameter
+    analytic_vars["k"] = ((analytic_vars["height"] / analytic_vars["r_cyc"]) + analytic_vars["kp"]) / 2.0
+
+    # tilt_param = np.tan(np.deg2rad(np.linspace(0, 45, 100)))
+    tilt_param = np.array([np.deg2rad(-20)])
+    # heights = np.linspace(0.05, 0.12, 8)
+    heights = [analytic_vars["height"]]
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    for h in heights:
+        # K = analytic_vars["k"]
+        # h = analytic_vars["height"]
+        K = ((h / analytic_vars["r_cyc"]) + tilt_param) / 2.0
+        b = np.pi / 2.0
+
+        x = h * (1.0 - 2.0 * K * np.sin(K * np.pi)) / (1.0 - 4.0 * K **2)
+        y = h * (2.0 * K * np.cos(K * np.pi)) / (1.0 - 4.0 * K **2)
+        rmag = np.sqrt(x**2 + y**2)
+        r = np.array([x / rmag, y / rmag]).T
+
+        tx = 0.5 * (np.sin((2*K+1)*b) - np.sin((2*K-1)*b))
+        ty = 0.5 * (np.cos((2*K+1)*b) - np.cos((2*K-1)*b))
+        txy = np.array([tx, ty]).T
+        tr = np.zeros(len(K))
+
+        print(tx, ty)
+
+        for i in range(len(K)):
+            tr1 = r[i, 0] * txy[i, 0]
+            tr2 = r[i, 1] * txy[i, 1]
+            tr[i] = 1 - (tr1 + tr2)
+
+        ax.scatter(rmag, tr)
+
+    ax.set_xlim([0, 0.15])
+    ax.set_ylim([-1, 1])
+    # ax.set_aspect(1)
+    ax.grid(True)
     plt.show()
