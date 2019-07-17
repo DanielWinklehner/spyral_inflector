@@ -76,6 +76,76 @@ Return
 
 """
 
+two_dim_dee_gmsh_str = """
+
+// Top dee electrode
+//Point(1) = {-(h_gap / 2 + dee_len), v_gap / 2 + dee_thk, 0.0};
+Point(2) = {-(h_gap / 2 + dee_len), v_gap / 2, 0.0};
+Point(3) = {-(h_gap / 2), v_gap / 2, 0.0};
+Point(4) = {-(h_gap / 2), v_gap / 2 + dee_thk, 0.0};
+
+//Line(1) = {1, 2};
+Line(2) = {2, 3};
+Line(3) = {3, 4};
+//Line(4) = {4, 1};
+//Line Loop(1) = {1:4};
+
+// Bottom dee electrode
+//Point(5) = {-(h_gap / 2 + dee_len), -(v_gap / 2 + dee_thk), 0.0};
+Point(6) = {-(h_gap / 2 + dee_len), -(v_gap / 2), 0.0};
+Point(7) = {-(h_gap / 2), -(v_gap / 2), 0.0};
+Point(8) = {-(h_gap / 2), -(v_gap / 2 + dee_thk), 0.0};
+
+//Line(5) = {5, 6};
+Line(6) = {6, 7};
+Line(7) = {7, 8};
+//Line(8) = {8, 5};
+//Line Loop(2) = {5:8};
+
+// Top dummy dee electrode
+//Point(9) = {h_gap / 2 + dee_len, v_gap / 2 + dee_thk, 0.0};
+Point(10) = {h_gap / 2 + dee_len, v_gap / 2, 0.0};
+Point(11) = {h_gap / 2, v_gap / 2, 0.0};
+Point(12) = {h_gap / 2, v_gap / 2 + dee_thk, 0.0};
+
+//Line(9) = {9, 10};
+Line(10) = {10, 11};
+Line(11) = {11, 12};
+//Line(12) = {12, 9};
+//Line Loop(3) = {9:12};
+
+// Bottom dummy dee electrode
+//Point(13) = {h_gap / 2 + dee_len, -(v_gap / 2 + dee_thk), 0.0};
+Point(14) = {h_gap / 2 + dee_len, -(v_gap / 2), 0.0};
+Point(15) = {h_gap / 2, -(v_gap / 2), 0.0};
+Point(16) = {h_gap / 2, -(v_gap / 2 + dee_thk), 0.0};
+
+//Line(13) = {13, 14};
+Line(14) = {14, 15};
+Line(15) = {15, 16};
+//Line(16) = {16, 13};
+//Line Loop(4) = {13:16};
+
+// Neumann boundary lines, clockwise
+
+Line(100) = {6, 2}; // left
+Line(101) = {16, 8}; // bottom
+Line(102) = {4, 12}; // top
+Line(103) = {10, 14}; // right
+
+Line Loop(1) = {2, 3, 102, -11, -10, 103, 14, 15, 101, -7, -6, 100};
+Surface(1) = {1};
+
+Physical Curve(1) = {2, 3, 6, 7}; // Dee
+Physical Curve(2) = {10, 11, 14, 15}; // Dummy Dee
+Physical Curve(3) = {102, 101}; // Top/Bottom boundary
+Physical Curve(4) = {100, 103}; // Left/Right boundary
+
+Physical Surface(1) = {1}; // Domain
+
+"""
+
+
 
 class CentralRegion(PyElectrodeAssembly):
     def __init__(self, spiral_inflector=None,
@@ -359,7 +429,7 @@ class CentralRegion(PyElectrodeAssembly):
         r_start, v_start = si.analytic_variables["trj_design"][-1, :], \
                            si.analytic_variables["trj_vel"][-1, :]
 
-        r, v = cr_track(ion=self.analytic_parameters["ion"], r_init=r_start, v_init=v_start,
+        r, v = cr_track(cr=self, r_init=r_start, v_init=v_start,
                         end_type="steps", maxsteps=nsteps, dt=dt,
                         input_bfield=self.analytic_parameters["bf_itp"])
 
@@ -370,6 +440,109 @@ class CentralRegion(PyElectrodeAssembly):
 
     def optimize(self):
         pass
+
+
+class TwoDeeField(object):
+    def __init__(self, gap_center_angle=0.0, dee_voltage=70e3, h_gap=0.01, v_gap=0.05):
+
+        # Calculate a two dimensional field with the dee parameters.
+        # Create a copy and multiply the field by -1 to represent DD-->D
+        # Dee field is always a perpendicular slice w.r.t dee edge
+        # --> Need a geometrical factor for off-angle trajectories
+
+        self._id = uuid.uuid1()
+
+        self._gap_center_angle = gap_center_angle
+        self._dee_voltage = dee_voltage
+        self._h_gap = h_gap
+        self._v_gap = v_gap
+
+        gmsh_str_prelude = """
+SetFactory("OpenCASCADE");
+Mesh.CharacteristicLengthMax = 0.0025;
+dee_len = {};
+h_gap = {};
+v_gap = {};
+dee_thk = {};
+
+""".format(0.1, self._h_gap, self._v_gap, 0.02)
+
+        self._gmsh_str = gmsh_str_prelude + two_dim_dee_gmsh_str
+
+        with open(TEMP_DIR + '/{}.geo'.format(self._id), 'w') as f:
+            f.write(self._gmsh_str)
+
+        os.system('gmsh -2 ' + TEMP_DIR + '/{}.geo -format msh2 -v 0 -o '.format(self._id) + TEMP_DIR + '/{}.msh'.format(self._id))
+        msh = meshio.read(TEMP_DIR + "/{}.msh".format(self._id))
+        meshio.write_points_cells(TEMP_DIR + "/{}_markers.xdmf".format(self._id),
+                                  msh.points,
+                                  {"triangle": msh.cells["triangle"]},
+                                  cell_data={"triangle": {"gmsh:physical": msh.cell_data["triangle"]["gmsh:physical"]}})
+
+        meshio.write_points_cells(TEMP_DIR + "/{}_boundaries.xdmf".format(self._id),
+                                  msh.points,
+                                  {"line": msh.cells["line"]},
+                                  cell_data={"line": {"gmsh:physical": msh.cell_data["line"]["gmsh:physical"]}})
+
+        mesh = fn.Mesh()
+        fn.XDMFFile(TEMP_DIR + "/{}_markers.xdmf".format(self._id)).read(mesh)
+
+        markers = fn.MeshFunction("size_t", mesh, mesh.topology().dim())
+        fn.XDMFFile(TEMP_DIR + "/{}_markers.xdmf".format(self._id)).read(markers, "gmsh:physical")
+
+        _boundaries = fn.MeshValueCollection("size_t", mesh, mesh.topology().dim() - 1)
+        fn.XDMFFile(TEMP_DIR + "/{}_boundaries.xdmf".format(self._id)).read(_boundaries, "gmsh:physical")
+        boundaries = fn.MeshFunction("size_t", mesh, _boundaries)
+
+        dx = fn.Measure('dx', domain=mesh, subdomain_data=markers)
+        V = fn.FunctionSpace(mesh, 'P', 1)
+
+        bcs = [fn.DirichletBC(V, fn.Constant(self._dee_voltage), boundaries, 1),
+               fn.DirichletBC(V, fn.Constant(0), boundaries, 2)]
+
+        # Test and trial functions
+        u = fn.TrialFunction(V)
+        v = fn.TestFunction(V)
+
+        a = fn.dot(fn.grad(u), fn.grad(v)) * dx
+        L = fn.Constant("0.0") * v * dx
+
+        u = fn.Function(V)
+
+        fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "cg", "preconditioner": "ilu"})
+        # print("Done!", flush=True)
+
+        # potentialFile = fn.File(TEMP_DIR + '/{}_potential.pvd'.format(self._id))
+        # potentialFile << u
+        #
+        # meshfile = fn.File(TEMP_DIR + '/{}_mesh.pvd'.format(self._id))
+        # meshfile << mesh
+
+        fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
+        electric_field = FenicsField(fenics_field)
+
+        xr = np.linspace(-0.1, 0.1, 100)
+        ef = []
+        for x in xr:
+            ef.append(electric_field(np.array([x, 0.0, 0.0]))[0])
+
+        plt.plot(xr, ef)
+        plt.plot(xr, np.max(ef) * np.exp(-650 * xr ** 2))
+        plt.show()
+
+
+class SimpleGap(object):  # TODO: Might not need this class for CR, higher N turns might be better
+    def __init__(self, segments, phase=0.0):
+        self.segments = segments
+        self.phase = phase
+
+    def check_intersection(self, start, end):
+        for seg in self.segments:
+            if check_intersection(seg.ra, seg.rb, start, end):
+                return True
+
+        return False
+
 
 class AbstractDee(PyElectrode):
     def __init__(self,
@@ -406,6 +579,14 @@ class AbstractDee(PyElectrode):
 
         self._debug = True
         self.zfun = None
+
+    def make_gaps(self, phase=0.0):
+
+        bottom_gap = SimpleGap(segments=self._bottom_segments, phase=phase)
+        top_gap = SimpleGap(segments=self._top_segments, phase=phase + self._opening_angle)
+
+        return bottom_gap, top_gap
+
 
     def rotate(self, angle, angle_unit="deg"):
         # TODO: This should be done using the PyElectrodes methods

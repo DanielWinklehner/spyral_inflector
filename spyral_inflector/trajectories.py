@@ -197,6 +197,7 @@ def track_segment(cr,
                   maxsteps=10000,
                   omit_b=False,
                   omit_e=True):
+
     # Calculate gap field from theta_seg, theta_rf
     # Track through gap field
     # Initialize r0, v0
@@ -207,8 +208,6 @@ def track_segment(cr,
     # If no: Check if early or late
     # If early: Decrease theta_seg
     # If late: increase theta_seg
-
-    # seg1_field = initial_segment.get_field()
 
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
     assert end_segment is not None, "Needs a segment to terminate on!"
@@ -248,7 +247,6 @@ def track_segment(cr,
 
         r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
         intersected = end_segment.check_intersection(r[i, :2], r[i + 1, :2])
-        # v[i + 1] = cr.dee_crossing(r[i], r[i + 1], v[i + 1], dt * i)
         i += 1
 
     track_vars["trj_tracker"] = r[:i, :]
@@ -1024,25 +1022,13 @@ def calculate_orbit_center(k, kp, height):
     return xc, yc
 
 
-def central_region_simple_track(cr, r_start=None, v_start=None):
-    starting_phase = 0.0
-    # Track from SI exit (gap 0) to gap 1
-    # Check phase
-    # If lagging, increase curvature (more inward)
-    # If leading, decrease curvature (more outward)
-    # Track from gap i-2 to gap i
-    # Repeat
-
-    # E ~ E_0 * np.sin(2 * pi * rf_freq * t + phase)
-    # E * (-1)**gap_n
-
-    gap_angles = []
+def central_region_simple_track(cr, r_start=None, v_start=None, dt=1e-11):
 
     ion = cr.analytic_parameters["ion"]
-    time_step = 1e-11
+    time_step = dt
 
     # Number of time steps for an RF period
-    nsteps = 1.5 * (1.0 / cr.rf_freq) / time_step  # 32.8 MHz w/ 0.1 ns --> ~300 turns per sector
+    # nsteps = 1.5 * (1.0 / cr.rf_freq) / time_step  # 32.8 MHz w/ 0.1 ns --> ~300 turns per sector
 
     def delta_kinetic_energy(dee_voltage, gap, radius, phase):
         return ion.q() * echarge * dee_voltage * np.sinc(gap / (2 * radius)) * np.sin(phase)
@@ -1141,6 +1127,70 @@ def central_region_simple_track(cr, r_start=None, v_start=None):
     ax.set_aspect(1)
     plt.show()
 
+# not_so_simple_tracker
+def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
+
+    ion = cr.analytic_parameters["ion"]
+
+    def delta_kinetic_energy(dee_voltage, gap, radius, phase):
+        return ion.q() * echarge * dee_voltage * np.sinc(gap / (2 * radius)) * np.sin(phase)
+
+    if r_start is None and v_start is None:
+        r_start, v_start = cr._xi, cr._vi
+
+    ### Generate simple gaps that will provide acceleration
+
+    # TODO: Think about the phases here. Check the SimpleGap for the geometrical phase differences -PW
+    abstract_dees = cr._abstract_dees
+    gaps = []
+    phase = 0.0  # Initial phase
+    delta_phase = np.pi / 2.0  # Change in phase between sectors
+    for abs_dee in abstract_dees:  # Create the SimpleGaps with specified phases
+        bg, tg = abs_dee.make_gaps(phase=phase)
+        gaps += [bg, tg]  # Ordered bottom-top-bottom-top-...
+        phase += delta_phase
+
+    ### Tracking
+
+    some_condition = True  # A constraint on r? E?
+
+    analytic_params = cr.analytic_parameters
+    numerical_vars = cr.numerical_variables
+    track_vars = cr.track_variables
+
+    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+
+    efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+    bfield1 = analytic_params["bf_itp"]  # type: Field
+
+    maxsteps = 100000  # Figure out a good way to figure this out, maybe omega_orbit * nturns * 1.25?
+
+    r = np.zeros([maxsteps + 1, 3])
+    v = np.zeros([maxsteps + 1, 3])
+    r[0, :] = r_start[:]
+    v[0, :] = v_start[:]
+
+    # initialize the velocity half a step back:
+    ef = np.array([0.0, 0.0, 0.0])  # This will always be zero for this method
+    bf = bfield1(r[0])
+    _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
+
+    i = 0
+    while i < maxsteps and some_condition:
+
+        bf = bfield1(r[i])
+
+        r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
+        for gap in gaps:
+            if gap.check_intersection(r[i], r[i+1]):
+
+                break
+        i += 1
+
+    track_vars["trj_tracker"] = r[:i, :]
+    cr.track_variables = track_vars
+
+    return 0
 
 def si_exit_parameter_space(si):
 

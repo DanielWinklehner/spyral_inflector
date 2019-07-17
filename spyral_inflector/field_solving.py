@@ -21,13 +21,13 @@ except ImportError:
 HAVE_FENICS = False
 try:
     import fenics as fn
-    fn.set_log_level(60)
+    # fn.set_log_level(60)
     HAVE_FENICS = True
 except ImportError:
     fn = None
 
 
-class FenicsField(object):
+class FenicsField(object):  # TODO: Implement this into the dans_pymodules Field class -PW
     def __init__(self, field):
         self._field = field
         self._field.set_allow_extrapolation(True)
