@@ -3,9 +3,72 @@ import numpy as np
 from matplotlib import pyplot as plt
 from spyral_inflector import *
 
-x = TwoDeeField()
+h2p = IonSpecies("H2_1+", energy_mev=0.1)
+vel = h2p.v_m_per_s()
 
-#
+# alpha = TwoDeeField(left_voltage=0.0, right_voltage=70e3)
+# beta = TwoDeeField(left_voltage=70e3, right_voltage=0.0)
+# alphaf = alpha._efield
+# betaf = beta._efield
+
+omega_orbit = 32.8e6 / 4.0
+omega_rf = 32.8e6
+
+times = np.linspace(0.0, 1.0 / (omega_orbit * 8.0), 1000)
+azi_0 = h2p.q_over_m() * 1.3
+
+# initial_phase = np.deg2rad(75.0)
+initial_phase = np.deg2rad(15)
+
+dee_angle = np.deg2rad(42.5 / 2.0)
+
+dee1 = np.array([[0.0, 0.0], [np.cos(dee_angle), np.sin(dee_angle)]])
+dee2 = np.array([[0.0, 0.0], [np.cos(-dee_angle), np.sin(-dee_angle)]])
+
+x = np.random.rand() * 0.12 + 0.05
+y = (2.0 * np.random.rand() - 1.0) * x * np.tan(dee_angle) * 0.8
+pos = np.array([x, y])
+
+proj_1 = np.dot(pos, dee1[1, :]) * dee1[1, :]
+proj_2 = np.dot(pos, dee2[1, :]) * dee2[1, :]
+
+d1 = pos - proj_1
+d2 = pos - proj_2
+
+
+def calculate_distance_to_edge(pos, edge):
+    proj_vec = np.dot(pos, edge) * edge
+    dist_vec = pos - proj_vec
+    return dist_vec
+
+print(np.linalg.norm(d1))
+print(np.linalg.norm(d2))
+
+print(np.linalg.norm(calculate_distance_to_edge(pos, dee1[1, :])))
+
+proj_1v = np.array([[0.0, 0.0], [proj_1[0], proj_1[1]]])
+proj_2v = np.array([[0.0, 0.0], [proj_2[0], proj_2[1]]])
+
+d1v = np.array([[0.0, 0.0], [d1[0], d1[1]]])
+d2v = np.array([[0.0, 0.0], [d2[0], d2[1]]])
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+
+ax.plot(dee1[:, 0], dee1[:, 1], color=colors[0])
+ax.plot(dee2[:, 0], dee2[:, 1], color=colors[0])
+ax.plot(proj_1v[:, 0], proj_1v[:, 1], color=colors[1])
+ax.plot(proj_2v[:, 0], proj_2v[:, 1], color=colors[1])
+ax.plot(d1v[:, 0] + proj_1[0], d1v[:, 1] + proj_1[1], color=colors[2])
+ax.plot(d2v[:, 0] + proj_2[0], d2v[:, 1] + proj_2[1], color=colors[2])
+
+ax.scatter(x, y)
+ax.set_aspect(1)
+ax.grid(True)
+ax.set_xlim([-0.2, 0.2])
+ax.set_ylim([-0.2, 0.2])
+
+plt.show()
 # gmsh_str = """
 # SetFactory("OpenCASCADE");
 # Mesh.CharacteristicLengthMax = 0.0025;

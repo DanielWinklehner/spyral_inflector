@@ -1127,30 +1127,31 @@ def central_region_simple_track(cr, r_start=None, v_start=None, dt=1e-11):
     ax.set_aspect(1)
     plt.show()
 
+
 # not_so_simple_tracker
 def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
+
+    from .central_region import TwoDeeField
 
     ion = cr.analytic_parameters["ion"]
 
     def delta_kinetic_energy(dee_voltage, gap, radius, phase):
         return ion.q() * echarge * dee_voltage * np.sinc(gap / (2 * radius)) * np.sin(phase)
 
+    def calculate_distance_to_edge(pos, edge):
+        proj_vec = np.dot(pos, edge) * edge
+        dist_vec = pos - proj_vec
+        return dist_vec
+
     if r_start is None and v_start is None:
         r_start, v_start = cr._xi, cr._vi
 
-    ### Generate simple gaps that will provide acceleration
+    dd2d = TwoDeeField(left_voltage=0.0, right_voltage=70e3)
+    d2dd = TwoDeeField(left_voltage=70e3, right_voltage=0.0)
+    dd2df = dd2d._efield
+    d2ddf = d2dd._efield
 
-    # TODO: Think about the phases here. Check the SimpleGap for the geometrical phase differences -PW
-    abstract_dees = cr._abstract_dees
-    gaps = []
-    phase = 0.0  # Initial phase
-    delta_phase = np.pi / 2.0  # Change in phase between sectors
-    for abs_dee in abstract_dees:  # Create the SimpleGaps with specified phases
-        bg, tg = abs_dee.make_gaps(phase=phase)
-        gaps += [bg, tg]  # Ordered bottom-top-bottom-top-...
-        phase += delta_phase
-
-    ### Tracking
+    # np.rad2deg(np.arccos(np.dot(r, x) / np.linalg.norm(r))) * (-1) ** (np.sign(r[1]) < 0)
 
     some_condition = True  # A constraint on r? E?
 
@@ -1163,10 +1164,13 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     bfield1 = analytic_params["bf_itp"]  # type: Field
 
-    maxsteps = 100000  # Figure out a good way to figure this out, maybe omega_orbit * nturns * 1.25?
+    omega_rf = 2.0 * np.pi * cr.rf_freq
+    omega_orbit = omega_rf / 4.0
+    maxsteps = int(1.25*2*np.pi / (dt * omega_rf))
 
     r = np.zeros([maxsteps + 1, 3])
     v = np.zeros([maxsteps + 1, 3])
+
     r[0, :] = r_start[:]
     v[0, :] = v_start[:]
 
@@ -1176,16 +1180,135 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
 
     i = 0
+
+    dee_angle = np.deg2rad(42.5 / 2.0)
+
+    dee1 = np.array([np.cos(dee_angle), np.sin(dee_angle), 0.0])
+    dee2 = np.array([np.cos(-dee_angle), np.sin(-dee_angle), 0.0])
+
+    alpha = TwoDeeField(left_voltage=0.0, right_voltage=70e3)
+    beta = TwoDeeField(left_voltage=70e3, right_voltage=0.0)
+    alphaf = alpha._efield
+    betaf = beta._efield
+
+    initial_phase = 0.0
+
+    efl = []
+
+    _t = time.time()
+
+    dee_angles = []
+    dee_field_objs = []
+    sep_angle = np.deg2rad(90.0)
+    offset_angle = np.deg2rad(45.0)
+
+    for i in range(4):
+
+        dee_angles.append(i*sep_angle - dee_angle + offset_angle)
+        dee_field_objs.append(alphaf)
+        dee_angles.append(i*sep_angle + dee_angle + offset_angle)
+        dee_field_objs.append(betaf)
+
+    dee_angles = np.array(dee_angles)
+
+    def get_dee_fields(pos):
+        x, y, z = pos
+        theta = np.arctan2(y, x)
+        if theta < 0.0:
+            theta += 2.0 * np.pi
+
+        angle_gt = dee_angles > theta
+        angle_lt = dee_angles <= theta
+        # Check if there are no angle_gt or angle_lt and loop around if so.
+        if len(angle_gt) == 0:  # Between the last angle and 2*pi
+            dee_field_gt = dee_field_objs[0]
+        else:
+            dee_field_gt = dee_field_objs[angle_gt[0]]
+
+        if len(angle_lt) == 0:  # Between 0 and the first angle
+            dee_field_lt = dee_field_objs[-1]
+        else:
+            dee_field_lt = dee_field_objs[angle_lt[-1]]
+
+        # ef1_proper = np.array([ef1[0], 0.0, ef1[1]])
+        # ef2_proper = np.array([ef2[0], 0.0, ef2[1]])
+
+        ef1 = dee_field_lt()
+        ef2 = dee_field_gt()
+
+        d1_vec = calculate_distance_to_edge(r[i, :], dee1)
+        d2_vec = calculate_distance_to_edge(r[i, :], dee2)
+
+        d1 = np.linalg.norm(d1_vec[:2])
+        d2 = np.linalg.norm(d2_vec[:2])
+
+        return dee_field_lt, dee_field_gt
+
+    dee_field_objs = np.array(dee_field_objs)
+
     while i < maxsteps and some_condition:
 
+        d1_vec = calculate_distance_to_edge(r[i, :], dee1)
+        d2_vec = calculate_distance_to_edge(r[i, :], dee2)
+
+        d1 = np.linalg.norm(d1_vec[:2])
+        d2 = np.linalg.norm(d2_vec[:2])
+
+        theta = np.arctan2(r[i, 1], r[i, 0])
+        if theta < 0.0:
+            theta += 2*np.pi
+
+        if theta < -dee_angle + 2*np.pi:
+            d1 = -d1
+            d2 = -d2
+        elif theta >= -dee_angle + 2*np.pi:
+            d1 = d1
+            d2 = -d2
+        elif theta < dee_angle:
+            d1 = d1
+            d2 = -d2
+        elif theta >= dee_angle:
+            d1 = d1
+            d2 = d2
+
+        ef1, ef2 = get_dee_fields(r[i])
+
+        # Need to rotate these fields by 90 degrees counter-clockwise to represent real fields
+        # ef1 = ef1_field(np.array([d1, r[i, 2], 0.0]))
+        # ef2 = ef2_field(np.array([d2, r[i, 2], 0.0]))
+
+        ef1_proper = np.array([ef1[0], 0.0, ef1[1]])
+        ef2_proper = np.array([ef2[0], 0.0, ef2[1]])
+
+        ef1_rot = z_rotate(ef1_proper, dee_angle + np.pi / 2.0)
+        ef2_rot = z_rotate(ef2_proper, -dee_angle + np.pi / 2.0)
+
+        ef = (ef1_rot + ef2_rot) * np.sin(omega_rf * i * dt + initial_phase)
+        efl.append(ef[0])
         bf = bfield1(r[i])
 
         r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
-        for gap in gaps:
-            if gap.check_intersection(r[i], r[i+1]):
 
-                break
         i += 1
+
+    print(time.time() - _t)
+
+    vm = []
+    for vv in v[:i]:
+        vm.append(np.linalg.norm(vv))
+
+    plt.plot(vm)
+    plt.show()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(r[:i, 0], r[:i, 1])
+    ax.set_aspect(1)
+    ax.set_xlim([-0.15, 0.15])
+    ax.set_ylim([-0.15, 0.15])
+    ax.grid(True)
+
+    plt.show()
 
     track_vars["trj_tracker"] = r[:i, :]
     cr.track_variables = track_vars

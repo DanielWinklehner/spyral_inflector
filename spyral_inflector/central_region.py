@@ -136,15 +136,14 @@ Line(103) = {10, 14}; // right
 Line Loop(1) = {2, 3, 102, -11, -10, 103, 14, 15, 101, -7, -6, 100};
 Surface(1) = {1};
 
-Physical Curve(1) = {2, 3, 6, 7}; // Dee
-Physical Curve(2) = {10, 11, 14, 15}; // Dummy Dee
+Physical Curve(1) = {2, 3, 6, 7, 100}; // Dee
+Physical Curve(2) = {10, 11, 14, 15, 103}; // Dummy Dee
 Physical Curve(3) = {102, 101}; // Top/Bottom boundary
-Physical Curve(4) = {100, 103}; // Left/Right boundary
+//Physical Curve(4) = {100, 103}; // Left/Right boundary
 
 Physical Surface(1) = {1}; // Domain
 
 """
-
 
 
 class CentralRegion(PyElectrodeAssembly):
@@ -443,7 +442,9 @@ class CentralRegion(PyElectrodeAssembly):
 
 
 class TwoDeeField(object):
-    def __init__(self, gap_center_angle=0.0, dee_voltage=70e3, h_gap=0.01, v_gap=0.05):
+    def __init__(self, gap_center_angle=0.0, left_voltage=70e3, right_voltage=0.0, h_gap=0.01, v_gap=0.05):
+
+        assert HAVE_FENICS, "This object needs fenics for the field calculations!"
 
         # Calculate a two dimensional field with the dee parameters.
         # Create a copy and multiply the field by -1 to represent DD-->D
@@ -453,7 +454,8 @@ class TwoDeeField(object):
         self._id = uuid.uuid1()
 
         self._gap_center_angle = gap_center_angle
-        self._dee_voltage = dee_voltage
+        self._left_voltage = left_voltage
+        self._right_voltage = right_voltage
         self._h_gap = h_gap
         self._v_gap = v_gap
 
@@ -465,7 +467,7 @@ h_gap = {};
 v_gap = {};
 dee_thk = {};
 
-""".format(0.1, self._h_gap, self._v_gap, 0.02)
+""".format(0.15, self._h_gap, self._v_gap, 0.02)
 
         self._gmsh_str = gmsh_str_prelude + two_dim_dee_gmsh_str
 
@@ -497,8 +499,8 @@ dee_thk = {};
         dx = fn.Measure('dx', domain=mesh, subdomain_data=markers)
         V = fn.FunctionSpace(mesh, 'P', 1)
 
-        bcs = [fn.DirichletBC(V, fn.Constant(self._dee_voltage), boundaries, 1),
-               fn.DirichletBC(V, fn.Constant(0), boundaries, 2)]
+        bcs = [fn.DirichletBC(V, fn.Constant(self._left_voltage), boundaries, 1),
+               fn.DirichletBC(V, fn.Constant(self._right_voltage), boundaries, 2)]
 
         # Test and trial functions
         u = fn.TrialFunction(V)
@@ -521,14 +523,17 @@ dee_thk = {};
         fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
         electric_field = FenicsField(fenics_field)
 
-        xr = np.linspace(-0.1, 0.1, 100)
-        ef = []
-        for x in xr:
-            ef.append(electric_field(np.array([x, 0.0, 0.0]))[0])
+        self._potential = u
+        self._efield = electric_field
 
-        plt.plot(xr, ef)
-        plt.plot(xr, np.max(ef) * np.exp(-650 * xr ** 2))
-        plt.show()
+        # xr = np.linspace(-0.1, 0.1, 100)
+        # ef = []
+        # for x in xr:
+        #     ef.append(electric_field(np.array([x, 0.0, 0.0]))[0])
+        #
+        # plt.plot(xr, ef)
+        # plt.plot(xr, np.max(ef) * np.exp(-650 * xr ** 2))
+        # plt.show()
 
 
 class SimpleGap(object):  # TODO: Might not need this class for CR, higher N turns might be better
@@ -548,6 +553,7 @@ class AbstractDee(PyElectrode):
     def __init__(self,
                  r_init=0.1,
                  char_len=0.03,
+                 angle=0.0,
                  opening_angle=30.0,
                  gap=0.05,
                  thickness=0.025,
@@ -558,8 +564,8 @@ class AbstractDee(PyElectrode):
 
         self.opening_angle = opening_angle
         self._opening_angle = np.deg2rad(self.opening_angle)
-        self.angle = 0.0
-        self._angle = 0.0
+        self.angle = angle
+        self._angle = np.deg2rad(angle)
 
         self._top_segments, self._bottom_segments = [], []
         self._char_len = char_len  # Characteristic length of CRSegments
@@ -579,6 +585,12 @@ class AbstractDee(PyElectrode):
 
         self._debug = True
         self.zfun = None
+
+        # For the 2D field tracking method
+        # self.angle is the angle of the center of the dee
+        # self.opening_angle is the angular span of the dee
+        self._top_transforms = None
+        self._bottom_transforms = None
 
     def make_gaps(self, phase=0.0):
 
@@ -742,6 +754,55 @@ class AbstractDee(PyElectrode):
             ax.set_xlabel('x (m)')
             ax.set_ylabel('y (m)')
             plt.show()
+
+        return 0
+
+    def make_2d_field_model(self):
+        angle_minus = self._angle - self._opening_angle
+        angle_plus = self._angle + self._opening_angle
+
+        field_minus = TwoDeeField(left_voltage=0.0, right_voltage=70e3)
+        field_plus = TwoDeeField(left_voltage=70e3, right_voltage=0.0)
+
+        # Get the fields for the top
+        # Transform coordinates?
+        # Store the coordinate transforms?
+
+        top_transforms = []
+        for segment in self._top_segments:
+            ra = segment.ra
+            print(ra)
+            rb = segment.rb
+            dr = rb - ra
+            s = np.linalg.norm(dr)
+            dth = np.arccos(dr[0] / s)
+            dx, dy, _ = -ra
+
+            T = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]])
+            S = np.array([[1.0 / s, 0.0, 0.0], [0.0, 1.0 / s, 0.0], [0.0, 0.0, 1.0]])
+            R = np.array([[np.cos(dth), -np.sin(dth), 0.0], [np.sin(dth), np.cos(dth), 0.0], [0.0, 0.0, 1.0]])
+
+            M = np.matmul(S, np.matmul(R, T))
+            top_transforms.append(M)
+
+        bottom_transforms = []
+        for segment in self._bottom_segments:
+            ra = segment.ra
+            rb = segment.rb
+            dr = rb - ra
+            s = np.linalg.norm(dr)
+            dth = np.arccos(dr[0] / s)
+            dx, dy, _ = -ra
+            T = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]])
+            S = np.array([[1.0 / s, 0.0, 0.0], [0.0, 1.0 / s, 0.0], [0.0, 0.0, 1.0]])
+            R = np.array([[np.cos(dth), -np.sin(dth), 0.0], [np.sin(dth), np.cos(dth), 0.0], [0.0, 0.0, 1.0]])
+
+            M = np.matmul(S, np.matmul(R, T))
+            # M = np.matmul(R, T)
+            bottom_transforms.append(M)
+
+        self._top_transforms = top_transforms
+        self._bottom_transforms = bottom_transforms
 
         return 0
 
