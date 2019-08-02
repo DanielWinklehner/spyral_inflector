@@ -589,8 +589,8 @@ class AbstractDee(PyElectrode):
         # For the 2D field tracking method
         # self.angle is the angle of the center of the dee
         # self.opening_angle is the angular span of the dee
-        self._top_transforms = None
-        self._bottom_transforms = None
+        self._top_st = None
+        self._bottom_st = None
 
     def make_gaps(self, phase=0.0):
 
@@ -757,12 +757,12 @@ class AbstractDee(PyElectrode):
 
         return 0
 
-    def make_2d_field_model(self):
-        angle_minus = self._angle - self._opening_angle
-        angle_plus = self._angle + self._opening_angle
-
-        field_minus = TwoDeeField(left_voltage=0.0, right_voltage=70e3)
-        field_plus = TwoDeeField(left_voltage=70e3, right_voltage=0.0)
+    def make_transforms(self):
+        # angle_minus = self._angle - self._opening_angle
+        # angle_plus = self._angle + self._opening_angle
+        #
+        # field_minus = TwoDeeField(left_voltage=0.0, right_voltage=70e3)
+        # field_plus = TwoDeeField(left_voltage=70e3, right_voltage=0.0)
 
         # Get the fields for the top
         # Transform coordinates?
@@ -771,7 +771,6 @@ class AbstractDee(PyElectrode):
         top_transforms = []
         for segment in self._top_segments:
             ra = segment.ra
-            print(ra)
             rb = segment.rb
             dr = rb - ra
             s = np.linalg.norm(dr)
@@ -793,16 +792,16 @@ class AbstractDee(PyElectrode):
             s = np.linalg.norm(dr)
             dth = np.arccos(dr[0] / s)
             dx, dy, _ = -ra
+
             T = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]])
             S = np.array([[1.0 / s, 0.0, 0.0], [0.0, 1.0 / s, 0.0], [0.0, 0.0, 1.0]])
             R = np.array([[np.cos(dth), -np.sin(dth), 0.0], [np.sin(dth), np.cos(dth), 0.0], [0.0, 0.0, 1.0]])
 
             M = np.matmul(S, np.matmul(R, T))
-            # M = np.matmul(R, T)
             bottom_transforms.append(M)
 
-        self._top_transforms = top_transforms
-        self._bottom_transforms = bottom_transforms
+        self._top_st = (self._top_segments, top_transforms)
+        self._bottom_st = (self._bottom_segments, bottom_transforms)
 
         return 0
 

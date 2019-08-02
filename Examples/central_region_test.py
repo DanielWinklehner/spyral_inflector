@@ -3,9 +3,9 @@ import numpy as np
 
 np.random.seed(137)
 #
-# h2p = IonSpecies("H2_1+", 0.035)
-# # h2p.calculate_from_energy_mev(0.3 / h2p.a())
-# #
+h2p = IonSpecies("H2_1+", 0.035)
+h2p.calculate_from_energy_mev(0.3 / h2p.a())
+#
 # si = SpiralInflector(ion=h2p,
 #                      method="analytical",
 #                      solver="bempp",
@@ -36,23 +36,22 @@ np.random.seed(137)
 # cr_start_angle = np.pi / 4.0  # Angular position of the spiral inflector
 # si.apply_rotation(angle=-np.arctan2(r_start[1], r_start[0]) + cr_start_angle + 2*np.pi * (np.arctan2(r_start[1], r_start[0]) < 0), angle_unit='rad')
 #
-# cr = CentralRegion(r_cr=[0.1, 0.3],
-#                    dee_voltage=70e3,
-#                    dee_opening_angle=42.5,
-#                    rf_phase=-42.5 / 2.0,
-#                    ion=h2p)
-#
+cr = CentralRegion(r_cr=[0.1, 0.3],
+                   dee_voltage=70e3,
+                   dee_opening_angle=42.5,
+                   rf_phase=-42.5 / 2.0,
+                   ion=h2p)
+
 # cr.set_inflector(si)
-# cr.initialize()
-#
-# cr.load_bfield(bfield='/home/philip/work/C-44_AIMA_Poles_wVP_large_r_z=pm1cm.comsol',
-#                bf_scale=10.36,
-#                spatial_unit="m",
-#                extents=np.array([[-0.3, 0.3], [-0.3, 0.3], [-0.01, 0.01]]),
-#                extents_dims=["X", "Y", "Z"])
-#
-# simple_tracker(cr, r_start=np.array([0.0425, -0.0425, 0.0]), v_start=h2p.v_m_per_s() * np.array([np.sqrt(2)/2, np.sqrt(2)/2, 0.0]))
-#
+cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
+              vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
+
+cr.load_bfield(bfield='/home/philip/work/C-44_AIMA_Poles_wVP_large_r_z=pm1cm.comsol',
+               bf_scale=10.36,
+               spatial_unit="m",
+               extents=np.array([[-0.3, 0.3], [-0.3, 0.3], [-0.01, 0.01]]),
+               extents_dims=["X", "Y", "Z"])
+
 gap = 0.056
 thickness = 0.025
 cl = 0.05
@@ -88,17 +87,28 @@ my_fourth_dee = AbstractDee(opening_angle=42.5,
 my_fourth_dee.initialize()
 my_fourth_dee.rotate(270, angle_unit="deg")
 
-my_dee.next_top_segment()
-# my_dee.next_top_segment()
-# my_dee.next_top_segment()
-my_dee.make_2d_field_model()
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.set_xlim([-3, 3])
+ax.set_ylim([-3, 3])
+ax.grid(True)
+ax.set_aspect(1)
+
+t = np.deg2rad(np.linspace(0, 360, 360))
+r = np.array([0.07 * np.sin(t), 0.07 * np.cos(t), np.ones(360)])
 
 dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
+for dee in dees:
+    dee.make_transforms()
 
 # cr.make_dees(dees, n=5, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
 # cr.make_dummy_dees(gap=gap, thickness=thickness)
+#
 # cr.plot_dees(ax=ax, show=False)
 
+simple_tracker(cr,
+               r_start=np.array([0.05, 0.0, 0.0]),
+               v_start=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
 
 # cr.show(show_screen=True)
 
