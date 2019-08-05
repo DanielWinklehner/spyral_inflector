@@ -1135,6 +1135,8 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     ion = cr.analytic_parameters["ion"]
     gaps = cr._abstract_dees
 
+    # df1 and df2 are simply two 2D fields with the voltages swapped
+
     df1 = TwoDeeField(left_voltage=0.0, right_voltage=70.0e3)
     df2 = TwoDeeField(left_voltage=70.0e3, right_voltage=0.0)
     dee_field1 = df1._efield
@@ -1144,19 +1146,43 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
         _ps, _ms = [], []
         for j, gap in enumerate(gaps):
-            for i, seg, tr in enumerate(gap._top_st):
-                _xp, _yp = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
-                _ps.append([j, i, _xp, _yp, seg.ra, seg.rb])
-            for i, seg, tr in enumerate(gap._bottom_st):
-                _xm, _ym = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
-                _ms.append([j, i, _xm, _ym, seg.ra, seg.rb])
+
+            i = 0
+            for seg, tr in zip(gap._top_st[0], gap._top_st[1]):
+                _rp = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
+                _ps.append([j, i, _rp[0], _rp[1], seg.ra, seg.rb])
+                i += 1
+
+            i = 0
+            for seg, tr in zip(gap._bottom_st[0], gap._bottom_st[1]):
+                _rm = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
+                _ms.append([j, i, _rm[0], _rm[1], seg.ra, seg.rb])
+                i += 1
 
         ps = np.array(_ps)
         ms = np.array(_ms)
 
+        print(ps.shape)
+        print(ms.shape)
+
+        print(ps)
+        print(ms)
+
+        exit()
+
         # This step does not say anything about which one is behind or forward
         a = ps[np.logical_and(ps[:, 2] >= 0.0, ps[:, 2] <= 1.0)]  # Finds the +dee
         b = ms[np.logical_and(ms[:, 2] >= 0.0, ms[:, 2] <= 1.0)]  # Finds the -dee
+
+        print(a)
+        print(b)
+
+        if len(a) > 1:
+            a = np.array(a)
+            a = a[a[:, 2] == np.min(a[:, 2])]
+        if len(b) > 1:
+            b = np.array(b)
+            b = b[b[:, 2] == np.min(b[:, 2])]
 
         if a[3] > 0.0:  # If a[3] > 0, then the +dee is behind the particle, -dee is ahead
             # top = b

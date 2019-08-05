@@ -97,15 +97,16 @@ ax.set_aspect(1)
 t = np.deg2rad(np.linspace(0, 360, 360))
 r = np.array([0.07 * np.sin(t), 0.07 * np.cos(t), np.ones(360)])
 
-dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
+# dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
+dees = [my_dee]
 for dee in dees:
     dee.make_transforms()
 
-# cr.make_dees(dees, n=5, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
+# cr.make_dees(dees, n=2, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
 # cr.make_dummy_dees(gap=gap, thickness=thickness)
 #
 # cr.plot_dees(ax=ax, show=False)
-
+cr._abstract_dees = dees
 simple_tracker(cr,
                r_start=np.array([0.05, 0.0, 0.0]),
                v_start=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))

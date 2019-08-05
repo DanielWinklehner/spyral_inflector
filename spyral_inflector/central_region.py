@@ -599,7 +599,6 @@ class AbstractDee(PyElectrode):
 
         return bottom_gap, top_gap
 
-
     def rotate(self, angle, angle_unit="deg"):
         # TODO: This should be done using the PyElectrodes methods
         """
@@ -770,33 +769,41 @@ class AbstractDee(PyElectrode):
 
         top_transforms = []
         for segment in self._top_segments:
-            ra = segment.ra
-            rb = segment.rb
-            dr = rb - ra
-            s = np.linalg.norm(dr)
-            dth = np.arccos(dr[0] / s)
-            dx, dy, _ = -ra
+            ra = segment.ra  # Initial point of the segment
+            rb = segment.rb  # Final point of the segment
+            dr = rb - ra  # Vector connecting the two points
+            s = np.linalg.norm(dr)  # Length of the segment
+            dth = np.arccos(dr[0] / s)  # Angle between x axis and segment vector
+            dx, dy, _ = -ra  # Offset from origin
 
+            # T = translation matrix
+            # S = scaling matrix
+            # R = rotation matrix
             T = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]])
             S = np.array([[1.0 / s, 0.0, 0.0], [0.0, 1.0 / s, 0.0], [0.0, 0.0, 1.0]])
             R = np.array([[np.cos(dth), -np.sin(dth), 0.0], [np.sin(dth), np.cos(dth), 0.0], [0.0, 0.0, 1.0]])
 
+            # M = overall transformation in order: T, R, S
             M = np.matmul(S, np.matmul(R, T))
             top_transforms.append(M)
 
         bottom_transforms = []
         for segment in self._bottom_segments:
-            ra = segment.ra
-            rb = segment.rb
-            dr = rb - ra
-            s = np.linalg.norm(dr)
-            dth = np.arccos(dr[0] / s)
-            dx, dy, _ = -ra
+            ra = segment.ra  # Initial point of the segment
+            rb = segment.rb  # Final point of the segment
+            dr = rb - ra  # Vector connecting the two points
+            s = np.linalg.norm(dr)  # Length of the segment
+            dth = -np.arccos(dr[0] / s) * np.sign(dr[1])  # Angle between x axis and segment vector
+            dx, dy, _ = -ra  # Offset from origin
 
+            # T = translation matrix
+            # S = scaling matrix
+            # R = rotation matrix
             T = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]])
             S = np.array([[1.0 / s, 0.0, 0.0], [0.0, 1.0 / s, 0.0], [0.0, 0.0, 1.0]])
             R = np.array([[np.cos(dth), -np.sin(dth), 0.0], [np.sin(dth), np.cos(dth), 0.0], [0.0, 0.0, 1.0]])
 
+            # M = overall transformation in order: T, R, S
             M = np.matmul(S, np.matmul(R, T))
             bottom_transforms.append(M)
 
