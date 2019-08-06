@@ -32,7 +32,7 @@ ax.grid(True)
 ax.set_aspect(1)
 
 dee_opening_angle = np.deg2rad(42.5)
-dee_angle = dee_opening_angle / 2.0 + np.deg2rad(180.0)
+dee_angle = dee_opening_angle / 2.0
 
 d1 = 0.05
 d2 = 0.05

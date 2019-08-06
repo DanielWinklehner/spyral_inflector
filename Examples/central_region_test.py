@@ -97,8 +97,8 @@ ax.set_aspect(1)
 t = np.deg2rad(np.linspace(0, 360, 360))
 r = np.array([0.07 * np.sin(t), 0.07 * np.cos(t), np.ones(360)])
 
-# dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
-dees = [my_dee]
+dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
+# dees = [my_dee]
 for dee in dees:
     dee.make_transforms()
 

@@ -1162,27 +1162,46 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
         ps = np.array(_ps)
         ms = np.array(_ms)
 
-        print(ps.shape)
-        print(ms.shape)
-
-        print(ps)
-        print(ms)
-
-        exit()
-
         # This step does not say anything about which one is behind or forward
         a = ps[np.logical_and(ps[:, 2] >= 0.0, ps[:, 2] <= 1.0)]  # Finds the +dee
         b = ms[np.logical_and(ms[:, 2] >= 0.0, ms[:, 2] <= 1.0)]  # Finds the -dee
 
-        print(a)
-        print(b)
-
-        if len(a) > 1:
+        if len(a) == 0:
+            a = None
+            best_metric = 1e9
+            for line in ps:
+                metric = 1.0
+                if line[2] < 0.0:
+                    metric = -line[2]
+                elif line[2] > 1.0:
+                    metric = line[2] - 1.0
+                if metric < best_metric:
+                    a = line
+                    best_metric = metric
+        elif len(a) > 1:
             a = np.array(a)
             a = a[a[:, 2] == np.min(a[:, 2])]
-        if len(b) > 1:
+
+        if len(b) == 0:
+            b = None
+            best_metric = 1e9
+            for line in ms:
+                metric = 1.0
+                if line[2] < 0.0:
+                    metric = -line[2]
+                elif line[2] > 1.0:
+                    metric = line[2] - 1.0
+                if metric < best_metric:
+                    b = line
+                    best_metric = metric
+        elif len(b) > 1:
             b = np.array(b)
             b = b[b[:, 2] == np.min(b[:, 2])]
+
+        if len(a) == 1:
+            a = a[0]
+        if len(b) == 1:
+            b = b[0]
 
         if a[3] > 0.0:  # If a[3] > 0, then the +dee is behind the particle, -dee is ahead
             # top = b
@@ -1207,6 +1226,9 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
         ef1 = dee_field1(np.array([rel_phase[0]*d1, pos[2], 0.0]))  # Field from the top gap
         ef2 = dee_field2(np.array([rel_phase[1]*d2, pos[2], 0.0]))  # Field from the bottom gap
 
+        print(ef1)
+        print(ef2)
+
         return ef1, ef2
 
     def calculate_distance_to_edge(pos, edge):
@@ -1229,7 +1251,7 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     omega_rf = 2.0 * np.pi * cr.rf_freq
     omega_orbit = omega_rf / 4.0
     initial_phase = np.deg2rad(0.0)
-    maxsteps = int(1.25*2*np.pi / (dt * omega_rf))
+    maxsteps = int(0.5*2*np.pi / (dt * omega_rf))
 
     r = np.zeros([maxsteps + 1, 3])
     v = np.zeros([maxsteps + 1, 3])
@@ -1244,7 +1266,7 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     i = 0
     while i < maxsteps:
-
+        print(r[i, :])
         ef1, ef2 = get_dee_vals(r[i, :])
         ef = ef1 + ef2
         ef *= np.sin(omega_rf * i * dt + initial_phase)
@@ -1257,11 +1279,12 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    ax.plot(r[:i, 0], r[:i, 1])
-    ax.set_aspect(1)
-    ax.set_xlim([-0.15, 0.15])
-    ax.set_ylim([-0.15, 0.15])
-    ax.grid(True)
+    # ax.plot(r[:i, 0], r[:i, 1])
+    # ax.set_aspect(1)
+    # ax.set_xlim([-0.15, 0.15])
+    # ax.set_ylim([-0.15, 0.15])
+    ax.plot(np.sqrt(v[:, 0]**2 + v[:, 1]**2 + v[:, 2]**2))
+    # ax.grid(True)
 
     plt.show()
 

@@ -757,15 +757,6 @@ class AbstractDee(PyElectrode):
         return 0
 
     def make_transforms(self):
-        # angle_minus = self._angle - self._opening_angle
-        # angle_plus = self._angle + self._opening_angle
-        #
-        # field_minus = TwoDeeField(left_voltage=0.0, right_voltage=70e3)
-        # field_plus = TwoDeeField(left_voltage=70e3, right_voltage=0.0)
-
-        # Get the fields for the top
-        # Transform coordinates?
-        # Store the coordinate transforms?
 
         top_transforms = []
         for segment in self._top_segments:
@@ -773,7 +764,7 @@ class AbstractDee(PyElectrode):
             rb = segment.rb  # Final point of the segment
             dr = rb - ra  # Vector connecting the two points
             s = np.linalg.norm(dr)  # Length of the segment
-            dth = np.arccos(dr[0] / s)  # Angle between x axis and segment vector
+            dth = -np.arccos(dr[0] / s) * np.sign(dr[1])  # Angle between x axis and segment vector
             dx, dy, _ = -ra  # Offset from origin
 
             # T = translation matrix
