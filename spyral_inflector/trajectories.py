@@ -1161,101 +1161,44 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
                 _ms.append([j, i, _rm[0], _rm[1], seg.ra, seg.rb])
                 i += 1
 
-        ps = np.array(_ps)
-        ms = np.array(_ms)
+        # For each gap, the coordinates are transformed into the SRT coordinates
+        # The x' distance is how off-angle the particle is from the gap edge
+        # The y' distance is how close the particle is in the 2D dee model
+        # x' is used for determining which gaps to use
+        # y' is used for the calculation of the electric field
 
-        # This step does not say anything about which one is behind or forward
-        a = ps[np.logical_and(ps[:, 2] >= 0.0, ps[:, 2] <= 1.0)]  # Finds the +dee
-        b = ms[np.logical_and(ms[:, 2] >= 0.0, ms[:, 2] <= 1.0)]  # Finds the -dee
+        # Idea:
+        # * Using x', choose one gap from ps and ms.
+        # * Make sure that the particle is in between those two gaps
+        # * Calculate the electric field with y'
+
+        # ps = np.array(_ps)
+        # ms = np.array(_ms)
+
+        ps_candidates = _ps[np.logical_and(np.array(_ps)[:, 2] >= 0.0, np.array(_ps)[:, 2] <= 1.0)]
+        ms_candidates = _ms[np.logical_and(np.array(_ms)[:, 2] >= 0.0, np.array(_ms)[:, 2] <= 1.0)]
+
+        if len(ps_candidates) == 0:  # Particle is not in [0, 1] for any gap
+            for k, row in enumerate(_ps):
+                if row[2] < 0.0:
+                    _ps[k][2] = -row[2]
+                elif row[2] > 1.0:
+                    _ps[k][2] = row[2] - 1.0
+        elif len(ps_candidates) > 1:  # Particle is in more than one [0, 1] range for the gaps
+            pass
+
+        for k, row in enumerate(_ms):
+            if row[2] < 0.0:
+                _ms[k][2] = -row[2]
+            elif row[2] > 1.0:
+                _ms[k][2] = row[2] - 1.0
 
         if len(a) == 0:
-            a = None
-            best_metric = 1e9
-            for line in ps:
-                metric = 1.0
-                if line[2] < 0.0:
-                    metric = -line[2]
-                elif line[2] > 1.0:
-                    metric = line[2] - 1.0
-                if metric < best_metric:
-                    a = line
-                    best_metric = metric
-        elif len(a) > 1:
-            a = np.array(a)
-            a = a[a[:, 2] == np.min(a[:, 2])]
+            # This means that the particle is out of the [0, 1] range for every gap
+            pass
 
-        if len(b) == 0:
-            b = None
-            best_metric = 1e9
-            for line in ms:
-                metric = 1.0
-                if line[2] < 0.0:
-                    metric = -line[2]
-                elif line[2] > 1.0:
-                    metric = line[2] - 1.0
-                if metric < best_metric:
-                    b = line
-                    best_metric = metric
-        elif len(b) > 1:
-            b = np.array(b)
-            b = b[b[:, 2] == np.min(b[:, 2])]
-
-        if len(a) == 1:
-            a = a[0]
-        if len(b) == 1:
-            b = b[0]
-
-        if a[3] > 0.0:  # If a[3] > 0, then the +dee is behind the particle, -dee is ahead
-            # top = b
-            # bottom = a
-            rel_phase = [-1.0, 1.0]  # d_a < 0.0, d_b > 0.0
-        elif b[3] > 0.0:  # If b[3] > 0, then the -dee is behind the particle, +dee is ahead
-            # top = a
-            # bottom = b
-            rel_phase = [1.0, -1.0]  # d_a > 0.0, d_b < 0.0
-        else:
-            # Condition check for whic
-            fig = plt.figure()
-            ax = fig.add_subplot(111)
-            ax.set_ylim([-0.15, 0.15])
-            ax.set_xlim([-0.15, 0.15])
-            ax.grid(True)
-            ax.set_aspect(1)
-
-            for ps in _ps:
-                ra = ps[4]
-                rb = ps[5]
-
-                if ps[0] == a[0] and ps[1] == a[1]:
-                    col = 'g'
-                else:
-                    col = 'b'
-
-                ax.plot([ra[0], rb[0]], [ra[1], rb[1]], color=col)
-
-            for ms in _ms:
-                ra = ms[4]
-                rb = ms[5]
-
-                if ms[0] == b[0] and ms[1] == b[1]:
-                    col = 'r'
-                else:
-                    col = 'b'
-
-                ax.plot([ra[0], rb[0]], [ra[1], rb[1]], color=col)
-
-            ax.scatter(pos[0], pos[1], marker='X', color='k')
-
-            plt.show()
-
-            print(a[3], b[3])
-            exit()
-
-        _a_pos = pos - a[4]
-        _b_pos = pos - b[4]
-
-        d1_vec = calculate_distance_to_edge(_a_pos, a[5])
-        d2_vec = calculate_distance_to_edge(_b_pos, b[5])
+        d1_vec = calculate_distance_to_edge(pos - a[4], a[5] - a[4])
+        d2_vec = calculate_distance_to_edge(pos - b[4], b[5] - b[4])
 
         d1 = np.linalg.norm(d1_vec[:2])
         d2 = np.linalg.norm(d2_vec[:2])

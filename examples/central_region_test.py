@@ -102,10 +102,14 @@ dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
 for dee in dees:
     dee.make_transforms()
 
-# cr.make_dees(dees, n=2, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
-# cr.make_dummy_dees(gap=gap, thickness=thickness)
+cr.make_dees(dees, n=2, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
+cr.make_dummy_dees(gap=gap, thickness=thickness)
 #
-# cr.plot_dees(ax=ax, show=False)
+fig = plt.figure()
+ax = fig.add_subplot(111)
+
+cr.plot_dees(ax=ax, show=True)
+exit()
 cr._abstract_dees = dees
 simple_tracker(cr,
                r_start=np.array([0.05*np.cos(-np.pi / 4.0),
