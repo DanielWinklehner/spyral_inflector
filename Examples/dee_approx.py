@@ -14,7 +14,7 @@ dee_opening_angle = np.deg2rad(42.5)
 d1 = 0.05
 d2 = 0.05
 
-dth = np.deg2rad(25.0)
+dth = np.deg2rad(10.0)
 
 a1 = d1*np.array([np.cos(dee_opening_angle / 2.0), np.sin(dee_opening_angle / 2.0)])
 a2 = np.array([a1[0]*np.cos(dth) - a1[1]*np.sin(dth), a1[0]*np.sin(dth) + a1[1]*np.cos(dth)])

@@ -197,7 +197,6 @@ def track_segment(cr,
                   maxsteps=10000,
                   omit_b=False,
                   omit_e=True):
-
     # Calculate gap field from theta_seg, theta_rf
     # Track through gap field
     # Initialize r0, v0
@@ -1023,7 +1022,6 @@ def calculate_orbit_center(k, kp, height):
 
 
 def central_region_simple_track(cr, r_start=None, v_start=None, dt=1e-11):
-
     ion = cr.analytic_parameters["ion"]
     time_step = dt
 
@@ -1130,7 +1128,6 @@ def central_region_simple_track(cr, r_start=None, v_start=None, dt=1e-11):
 
 # not_so_simple_tracker
 def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
-
     from .central_region import TwoDeeField
     ion = cr.analytic_parameters["ion"]
     gaps = cr._abstract_dees
@@ -1149,7 +1146,12 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
             i = 0
             for seg, tr in zip(gap._top_st[0], gap._top_st[1]):
+                # Get the transformed xy coordinates (in the normalized frame of the gap)
                 _rp = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
+
+                # j, i = info about which gap
+                # _rp[0], _rp[1] = transformed xy coordinates
+                # seg.ra, seg.rb = start and end points of the gap face segment
                 _ps.append([j, i, _rp[0], _rp[1], seg.ra, seg.rb])
                 i += 1
 
@@ -1212,7 +1214,42 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
             # bottom = b
             rel_phase = [1.0, -1.0]  # d_a > 0.0, d_b < 0.0
         else:
-            return None
+            # Condition check for whic
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax.set_ylim([-0.15, 0.15])
+            ax.set_xlim([-0.15, 0.15])
+            ax.grid(True)
+            ax.set_aspect(1)
+
+            for ps in _ps:
+                ra = ps[4]
+                rb = ps[5]
+
+                if ps[0] == a[0] and ps[1] == a[1]:
+                    col = 'g'
+                else:
+                    col = 'b'
+
+                ax.plot([ra[0], rb[0]], [ra[1], rb[1]], color=col)
+
+            for ms in _ms:
+                ra = ms[4]
+                rb = ms[5]
+
+                if ms[0] == b[0] and ms[1] == b[1]:
+                    col = 'r'
+                else:
+                    col = 'b'
+
+                ax.plot([ra[0], rb[0]], [ra[1], rb[1]], color=col)
+
+            ax.scatter(pos[0], pos[1], marker='X', color='k')
+
+            plt.show()
+
+            print(a[3], b[3])
+            exit()
 
         _a_pos = pos - a[4]
         _b_pos = pos - b[4]
@@ -1223,8 +1260,8 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
         d1 = np.linalg.norm(d1_vec[:2])
         d2 = np.linalg.norm(d2_vec[:2])
 
-        ef1 = dee_field1(np.array([rel_phase[0]*d1, pos[2], 0.0]))  # Field from the top gap
-        ef2 = dee_field2(np.array([rel_phase[1]*d2, pos[2], 0.0]))  # Field from the bottom gap
+        ef1 = dee_field1(np.array([rel_phase[0] * d1, pos[2], 0.0]))  # Field from the top gap
+        ef2 = dee_field2(np.array([rel_phase[1] * d2, pos[2], 0.0]))  # Field from the bottom gap
 
         print(ef1)
         print(ef2)
@@ -1250,8 +1287,8 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     omega_rf = 2.0 * np.pi * cr.rf_freq
     omega_orbit = omega_rf / 4.0
-    initial_phase = np.deg2rad(0.0)
-    maxsteps = int(0.5*2*np.pi / (dt * omega_rf))
+    initial_phase = np.deg2rad(-90.0)
+    maxsteps = int(1.0 * 2 * np.pi / (dt * omega_rf))
 
     r = np.zeros([maxsteps + 1, 3])
     v = np.zeros([maxsteps + 1, 3])
@@ -1266,7 +1303,6 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     i = 0
     while i < maxsteps:
-        print(r[i, :])
         ef1, ef2 = get_dee_vals(r[i, :])
         ef = ef1 + ef2
         ef *= np.sin(omega_rf * i * dt + initial_phase)
@@ -1279,13 +1315,16 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    # ax.plot(r[:i, 0], r[:i, 1])
-    # ax.set_aspect(1)
-    # ax.set_xlim([-0.15, 0.15])
-    # ax.set_ylim([-0.15, 0.15])
-    ax.plot(np.sqrt(v[:, 0]**2 + v[:, 1]**2 + v[:, 2]**2))
-    # ax.grid(True)
+    ax.plot(r[:i, 0], r[:i, 1])
+    ax.set_aspect(1)
+    ax.set_xlim([-0.15, 0.15])
+    ax.set_ylim([-0.15, 0.15])
+    ax.grid(True)
+    plt.show()
 
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(np.sqrt(v[:i, 0] ** 2 + v[:i, 1] ** 2 + v[:i, 2] ** 2))
     plt.show()
 
     track_vars["trj_tracker"] = r[:i, :]
@@ -1293,8 +1332,8 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     return 0
 
-def si_exit_parameter_space(si):
 
+def si_exit_parameter_space(si):
     analytic_params = si.analytic_parameters
     analytic_vars = si.analytic_variables
 
@@ -1319,13 +1358,13 @@ def si_exit_parameter_space(si):
         K = ((h / analytic_vars["r_cyc"]) + tilt_param) / 2.0
         b = np.pi / 2.0
 
-        x = h * (1.0 - 2.0 * K * np.sin(K * np.pi)) / (1.0 - 4.0 * K **2)
-        y = h * (2.0 * K * np.cos(K * np.pi)) / (1.0 - 4.0 * K **2)
-        rmag = np.sqrt(x**2 + y**2)
+        x = h * (1.0 - 2.0 * K * np.sin(K * np.pi)) / (1.0 - 4.0 * K ** 2)
+        y = h * (2.0 * K * np.cos(K * np.pi)) / (1.0 - 4.0 * K ** 2)
+        rmag = np.sqrt(x ** 2 + y ** 2)
         r = np.array([x / rmag, y / rmag]).T
 
-        tx = 0.5 * (np.sin((2*K+1)*b) - np.sin((2*K-1)*b))
-        ty = 0.5 * (np.cos((2*K+1)*b) - np.cos((2*K-1)*b))
+        tx = 0.5 * (np.sin((2 * K + 1) * b) - np.sin((2 * K - 1) * b))
+        ty = 0.5 * (np.cos((2 * K + 1) * b) - np.cos((2 * K - 1) * b))
         txy = np.array([tx, ty]).T
         tr = np.zeros(len(K))
 

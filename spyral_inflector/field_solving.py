@@ -23,7 +23,9 @@ try:
     import fenics as fn
     # fn.set_log_level(60)
     HAVE_FENICS = True
-except ImportError:
+    print("Loaded fenics...")
+except ImportError as e:
+    print(e)
     fn = None
 
 

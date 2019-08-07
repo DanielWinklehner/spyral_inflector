@@ -4,7 +4,7 @@ import numpy as np
 np.random.seed(137)
 #
 h2p = IonSpecies("H2_1+", 0.035)
-h2p.calculate_from_energy_mev(0.3 / h2p.a())
+h2p.calculate_from_energy_mev(0.2 / h2p.a())
 #
 # si = SpiralInflector(ion=h2p,
 #                      method="analytical",
@@ -87,12 +87,12 @@ my_fourth_dee = AbstractDee(opening_angle=42.5,
 my_fourth_dee.initialize()
 my_fourth_dee.rotate(270, angle_unit="deg")
 
-fig = plt.figure()
-ax = fig.add_subplot(111)
-ax.set_xlim([-3, 3])
-ax.set_ylim([-3, 3])
-ax.grid(True)
-ax.set_aspect(1)
+# fig = plt.figure()
+# ax = fig.add_subplot(111)
+# ax.set_xlim([-3, 3])
+# ax.set_ylim([-3, 3])
+# ax.grid(True)
+# ax.set_aspect(1)
 
 t = np.deg2rad(np.linspace(0, 360, 360))
 r = np.array([0.07 * np.sin(t), 0.07 * np.cos(t), np.ones(360)])
@@ -108,8 +108,12 @@ for dee in dees:
 # cr.plot_dees(ax=ax, show=False)
 cr._abstract_dees = dees
 simple_tracker(cr,
-               r_start=np.array([0.05, 0.0, 0.0]),
-               v_start=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
+               r_start=np.array([0.05*np.cos(-np.pi / 4.0),
+                                 0.05*np.sin(-np.pi / 4.0),
+                                 0.0]),
+               v_start=h2p.v_m_per_s() * np.array([np.cos(-np.pi / 4.0 + np.pi / 2.0),
+                                                   np.sin(-np.pi / 4.0 + np.pi / 2.0),
+                                                   0.0]))
 
 # cr.show(show_screen=True)
 
