@@ -1141,73 +1141,78 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     def get_dee_vals(pos):
 
-        _ps, _ms = [], []
-        for j, gap in enumerate(gaps):
+        # _ps, _ms = [], []
+        # _psrp = []
+        # _msrp = []
+        #
+        # # TODO: These gaps should only be the gaps for a given radius! -PW
+        #
+        # for j, gap in enumerate(gaps):
+        #
+        #     i = 0
+        #     for seg, tr in zip(gap._top_st[0], gap._top_st[1]):
+        #         # Get the transformed xy coordinates (in the normalized frame of the gap)
+        #         _rp = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
+        #
+        #         # j, i = info about which gap
+        #         # _rp[0], _rp[1] = transformed xy coordinates
+        #         # seg.ra, seg.rb = start and end points of the gap face segment
+        #         _ps.append([j, i, seg.ra, seg.rb])
+        #         _psrp.append([_rp[0], _rp[1]])
+        #         i += 1
+        #
+        #     i = 0
+        #     for seg, tr in zip(gap._bottom_st[0], gap._bottom_st[1]):
+        #         _rm = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
+        #         _ms.append([j, i, seg.ra, seg.rb])
+        #         _msrp.append([_rp[0], _rp[1]])
+        #         i += 1
+        #
+        # # For each gap, the coordinates are transformed into the SRT coordinates
+        # # The x' distance is how off-angle the particle is from the gap edge
+        # # The y' distance is how close the particle is in the 2D dee model
+        # # x' is used for determining which gaps to use
+        # # y' is used for the calculation of the electric field
+        #
+        # # Idea:
+        # # * Using x', choose one gap from ps and ms.
+        # # * Make sure that the particle is in between those two gaps
+        # # * Calculate the electric field with y'
+        #
+        # psrp = np.array(_psrp)
+        # msrp = np.array(_msrp)
+        #
+        # print(psrp)
+        # print(msrp)
+        #
+        # psrp_z = np.logical_and(psrp[:, 0] >= 0.0, psrp[:, 0] <= 1.0)
+        # msrp_z = np.logical_and(psrp[:, 0] >= 0.0, psrp[:, 0] <= 1.0)
+        #
+        # if psrp_z.any():
+        #     ps_candidates = psrp[psrp_z]
+        #     print(ps_candidates)
+        #     # if len(ps_candidates) > 1:
+        #     #     ps_candidates = ps_candidates[ps_candidates[:, 1].argsort()]
+        # if msrp_z.any():
+        #     ms_candidates = msrp[msrp_z]
+        #     print(ms_candidates)
+        #
+        # # At this point, ps/ms candidates may have more than one element
+        # exit()
+        #
+        # d1_vec = calculate_distance_to_edge(pos - a[4], a[5] - a[4])
+        # d2_vec = calculate_distance_to_edge(pos - b[4], b[5] - b[4])
+        #
+        # d1 = np.linalg.norm(d1_vec[:2])
+        # d2 = np.linalg.norm(d2_vec[:2])
+        #
+        # ef1 = dee_field1(np.array([rel_phase[0] * d1, pos[2], 0.0]))  # Field from the top gap
+        # ef2 = dee_field2(np.array([rel_phase[1] * d2, pos[2], 0.0]))  # Field from the bottom gap
+        #
+        # print(ef1)
+        # print(ef2)
 
-            i = 0
-            for seg, tr in zip(gap._top_st[0], gap._top_st[1]):
-                # Get the transformed xy coordinates (in the normalized frame of the gap)
-                _rp = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
 
-                # j, i = info about which gap
-                # _rp[0], _rp[1] = transformed xy coordinates
-                # seg.ra, seg.rb = start and end points of the gap face segment
-                _ps.append([j, i, _rp[0], _rp[1], seg.ra, seg.rb])
-                i += 1
-
-            i = 0
-            for seg, tr in zip(gap._bottom_st[0], gap._bottom_st[1]):
-                _rm = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
-                _ms.append([j, i, _rm[0], _rm[1], seg.ra, seg.rb])
-                i += 1
-
-        # For each gap, the coordinates are transformed into the SRT coordinates
-        # The x' distance is how off-angle the particle is from the gap edge
-        # The y' distance is how close the particle is in the 2D dee model
-        # x' is used for determining which gaps to use
-        # y' is used for the calculation of the electric field
-
-        # Idea:
-        # * Using x', choose one gap from ps and ms.
-        # * Make sure that the particle is in between those two gaps
-        # * Calculate the electric field with y'
-
-        # ps = np.array(_ps)
-        # ms = np.array(_ms)
-
-        ps_candidates = _ps[np.logical_and(np.array(_ps)[:, 2] >= 0.0, np.array(_ps)[:, 2] <= 1.0)]
-        ms_candidates = _ms[np.logical_and(np.array(_ms)[:, 2] >= 0.0, np.array(_ms)[:, 2] <= 1.0)]
-
-        if len(ps_candidates) == 0:  # Particle is not in [0, 1] for any gap
-            for k, row in enumerate(_ps):
-                if row[2] < 0.0:
-                    _ps[k][2] = -row[2]
-                elif row[2] > 1.0:
-                    _ps[k][2] = row[2] - 1.0
-        elif len(ps_candidates) > 1:  # Particle is in more than one [0, 1] range for the gaps
-            pass
-
-        for k, row in enumerate(_ms):
-            if row[2] < 0.0:
-                _ms[k][2] = -row[2]
-            elif row[2] > 1.0:
-                _ms[k][2] = row[2] - 1.0
-
-        if len(a) == 0:
-            # This means that the particle is out of the [0, 1] range for every gap
-            pass
-
-        d1_vec = calculate_distance_to_edge(pos - a[4], a[5] - a[4])
-        d2_vec = calculate_distance_to_edge(pos - b[4], b[5] - b[4])
-
-        d1 = np.linalg.norm(d1_vec[:2])
-        d2 = np.linalg.norm(d2_vec[:2])
-
-        ef1 = dee_field1(np.array([rel_phase[0] * d1, pos[2], 0.0]))  # Field from the top gap
-        ef2 = dee_field2(np.array([rel_phase[1] * d2, pos[2], 0.0]))  # Field from the bottom gap
-
-        print(ef1)
-        print(ef2)
 
         return ef1, ef2
 

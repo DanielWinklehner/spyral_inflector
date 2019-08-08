@@ -445,6 +445,7 @@ class TwoDeeField(object):
     def __init__(self, gap_center_angle=0.0, left_voltage=70e3, right_voltage=0.0, h_gap=0.01, v_gap=0.05):
 
         assert HAVE_FENICS, "This object needs fenics for the field calculations!"
+        # TODO: Assert meshio
 
         # Calculate a two dimensional field with the dee parameters.
         # Create a copy and multiply the field by -1 to represent DD-->D
@@ -547,6 +548,123 @@ class SimpleGap(object):  # TODO: Might not need this class for CR, higher N tur
                 return True
 
         return False
+
+
+class Sectors(object):
+    def __init__(self, abstract_dees):
+        self.abstract_dees = abstract_dees
+        self.lookup = None
+
+        self.initialize()
+
+    def initialize(self):
+
+        first_dee = self.abstract_dees[0]
+        last_dee = self.abstract_dees[-1]
+
+        lookup = {}
+
+        # [(0.0, 0.05): <dee1 ... deen>|segments in r_range, (0.05, 0.1): ...]
+
+        char_len = 0.05
+
+        n_segments = 4
+        for k in range(n_segments):
+            tup = (char_len*(k + 1), char_len*(k + 2))  # Skip over [0, char_len] by adding a factor of char_len
+            ordered_dee_segments = []
+            for dee in self.abstract_dees:
+
+                top_seg = dee._top_segments[k]
+                bottom_seg = dee._bottom_segments[k]
+
+                if dee is first_dee:
+                    ordered_dee_segments.append(top_seg)
+                elif dee is last_dee:
+                    ordered_dee_segments.append(bottom_seg)
+                    ordered_dee_segments.append(top_seg)
+                    ordered_dee_segments.append(first_dee._bottom_segments[k])
+                else:
+                    ordered_dee_segments.append(bottom_seg)
+                    ordered_dee_segments.append(top_seg)
+
+            lookup[tup] = ordered_dee_segments
+
+        self.lookup = lookup
+
+    def get_sector(self, pos, test=False):
+
+        pos_r = np.sqrt(pos[0]**2 + pos[1]**2)  # Particle radial position
+
+        rad_idx, next_gap, prev_gap = None, None, None
+
+        for k in self.lookup.keys():  # Loop through each set of rmin, rmax
+            rmin, rmax = k
+            if rmin <= pos_r < rmax:  # If pos is in the r range
+                for i, v in enumerate(self.lookup[k]):  # Enumerate each set of segments for this r range
+                    ra, rb = v.ra, v.rb
+
+                    # For checking if pos is 'before' or 'after' the line
+                    m = (rb[1] - ra[1]) / (rb[0] - ra[0])
+                    b = ra[1] - m * ra[0]
+
+                    if rb[0] < ra[0]:  # Account for the direction of rb w.r.t. ra to get the direction right
+                        dir = -1
+                    else:
+                        dir = 1
+
+                    line_at_posx = m*pos[0] + b  # Find the y position of the line at the x position of the particle
+                    ydiff = dir * (pos[1] - line_at_posx)  # negative = before
+                    # print("-> ", ydiff)
+
+                    if i != 0:  # Skip the first gap, since there is no 'previous' gap with these indices
+                        if prev_ydiff >= 0 and ydiff < 0.0:
+                            # print("^ I'm here!")
+                            rad_idx = k
+                            next_gap = i  # Save the gap indices
+                            prev_gap = i - 1
+                            print(rmin, rmax)
+                            break  # Break out of the first for loop
+
+                    prev_ydiff = ydiff  # Save the y difference from this iteration for the next one
+                else:  # If there is no break, then the particle must be between the last and first gaps
+                    # print("I'm in between the first and last!")
+                    rad_idx = k
+                    next_gap = 0  # In this case, we know what the indices must be
+                    prev_gap = len(self.lookup[k]) - 1
+
+            if rad_idx is not None:  # If we found where the particle is, then break
+                break
+
+        r_range = rad_idx  # TODO: Clean up these variable names... -PW
+        segs_at_r = self.lookup[rad_idx]
+
+        prev_seg = segs_at_r[prev_gap]
+        next_seg = segs_at_r[next_gap]
+
+        if test:
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax.set_xlim([-0.2, 0.2])
+            ax.set_ylim([-0.2, 0.2])
+            ax.set_aspect(1)
+            ax.grid(True)
+
+            t = np.deg2rad(np.linspace(0, 359, 360))
+            c1 = r_range[0] * np.array([np.cos(t), np.sin(t)]).T
+            c2 = r_range[1] * np.array([np.cos(t), np.sin(t)]).T
+
+            ax.plot(c1[:, 0], c1[:, 1], '--', color='g')
+            ax.plot(c2[:, 0], c2[:, 1], '--', color='g')
+
+            for dee in self.abstract_dees:
+                dee.plot_segments(ax=ax, show=False)
+
+            ax.plot([prev_seg.ra[0], prev_seg.rb[0]], [prev_seg.ra[1], prev_seg.rb[1]], color='orange')
+            ax.plot([next_seg.ra[0], next_seg.rb[0]], [next_seg.ra[1], next_seg.rb[1]], color='m')
+
+            ax.scatter(pos[0], pos[1], marker='X', color='k')
+
+            plt.show()
 
 
 class AbstractDee(PyElectrode):

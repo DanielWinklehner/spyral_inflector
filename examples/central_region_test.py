@@ -101,16 +101,26 @@ dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
 # dees = [my_dee]
 for dee in dees:
     dee.make_transforms()
-
-cr.make_dees(dees, n=2, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
-cr.make_dummy_dees(gap=gap, thickness=thickness)
+    dee.next_bottom_segment()
+    dee.next_top_segment()
+    dee.next_bottom_segment()
+    dee.next_top_segment()
+    dee.next_bottom_segment()
+    dee.next_top_segment()
+# cr.make_dees(dees, n=2, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
+# cr.make_dummy_dees(gap=gap, thickness=thickness)
 #
-fig = plt.figure()
-ax = fig.add_subplot(111)
+# fig = plt.figure()
+# ax = fig.add_subplot(111)
+#
+# cr.plot_dees(ax=ax, show=True)
 
-cr.plot_dees(ax=ax, show=True)
-exit()
 cr._abstract_dees = dees
+
+sec = Sectors(dees)
+sec.get_sector(np.array([0.05, 0.0, 0.0]))
+exit()
+
 simple_tracker(cr,
                r_start=np.array([0.05*np.cos(-np.pi / 4.0),
                                  0.05*np.sin(-np.pi / 4.0),
