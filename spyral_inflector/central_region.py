@@ -566,9 +566,9 @@ class Sectors(object):
 
         # [(0.0, 0.05): <dee1 ... deen>|segments in r_range, (0.05, 0.1): ...]
 
-        char_len = 0.05
+        char_len = 0.05  # TODO: Get this dynamically
 
-        n_segments = 4
+        n_segments = 4  # TODO: Get this dynamically
         for k in range(n_segments):
             tup = (char_len*(k + 1), char_len*(k + 2))  # Skip over [0, char_len] by adding a factor of char_len
             ordered_dee_segments = []
@@ -614,20 +614,16 @@ class Sectors(object):
 
                     line_at_posx = m*pos[0] + b  # Find the y position of the line at the x position of the particle
                     ydiff = dir * (pos[1] - line_at_posx)  # negative = before
-                    # print("-> ", ydiff)
 
                     if i != 0:  # Skip the first gap, since there is no 'previous' gap with these indices
                         if prev_ydiff >= 0 and ydiff < 0.0:
-                            # print("^ I'm here!")
                             rad_idx = k
                             next_gap = i  # Save the gap indices
                             prev_gap = i - 1
-                            print(rmin, rmax)
                             break  # Break out of the first for loop
 
                     prev_ydiff = ydiff  # Save the y difference from this iteration for the next one
                 else:  # If there is no break, then the particle must be between the last and first gaps
-                    # print("I'm in between the first and last!")
                     rad_idx = k
                     next_gap = 0  # In this case, we know what the indices must be
                     prev_gap = len(self.lookup[k]) - 1
