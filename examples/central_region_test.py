@@ -39,7 +39,7 @@ h2p.calculate_from_energy_mev(0.2 / h2p.a())
 cr = CentralRegion(r_cr=[0.1, 0.3],
                    dee_voltage=70e3,
                    dee_opening_angle=42.5,
-                   rf_phase=-42.5 / 2.0,
+                   rf_phase=0.0,
                    ion=h2p)
 
 # cr.set_inflector(si)
@@ -99,6 +99,7 @@ r = np.array([0.07 * np.sin(t), 0.07 * np.cos(t), np.ones(360)])
 
 dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
 # dees = [my_dee]
+
 for dee in dees:
     dee.make_transforms()
     dee.next_bottom_segment()
@@ -107,6 +108,7 @@ for dee in dees:
     dee.next_top_segment()
     dee.next_bottom_segment()
     dee.next_top_segment()
+
 # cr.make_dees(dees, n=2, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
 # cr.make_dummy_dees(gap=gap, thickness=thickness)
 #
@@ -117,16 +119,15 @@ for dee in dees:
 
 cr._abstract_dees = dees
 
-sec = Sectors(dees)
-sec.get_sector(np.array([0.05, 0.0, 0.0]))
-exit()
+dth = 0.0
+# dth = -np.pi / 4.0
 
 simple_tracker(cr,
-               r_start=np.array([0.05*np.cos(-np.pi / 4.0),
-                                 0.05*np.sin(-np.pi / 4.0),
+               r_start=np.array([0.09 * np.cos(dth),
+                                 0.09 * np.sin(dth),
                                  0.0]),
-               v_start=h2p.v_m_per_s() * np.array([np.cos(-np.pi / 4.0 + np.pi / 2.0),
-                                                   np.sin(-np.pi / 4.0 + np.pi / 2.0),
+               v_start=h2p.v_m_per_s() * np.array([np.cos(dth + np.pi / 2.0),
+                                                   np.sin(dth + np.pi / 2.0),
                                                    0.0]))
 
 # cr.show(show_screen=True)

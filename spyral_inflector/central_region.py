@@ -566,10 +566,11 @@ class Sectors(object):
 
         # [(0.0, 0.05): <dee1 ... deen>|segments in r_range, (0.05, 0.1): ...]
 
-        char_len = 0.05  # TODO: Get this dynamically
+        char_len = 0.05  # TODO: Get this dynamically -PW
 
-        n_segments = 4  # TODO: Get this dynamically
+        n_segments = 4  # TODO: Get this dynamically -PW
         for k in range(n_segments):
+            # TODO: This tup starting point should be another CR variable (starting length?) -PW
             tup = (char_len*(k + 1), char_len*(k + 2))  # Skip over [0, char_len] by adding a factor of char_len
             ordered_dee_segments = []
             for dee in self.abstract_dees:
@@ -603,7 +604,7 @@ class Sectors(object):
                 for i, v in enumerate(self.lookup[k]):  # Enumerate each set of segments for this r range
                     ra, rb = v.ra, v.rb
 
-                    # For checking if pos is 'before' or 'after' the line
+                    # Make a line for checking if pos is 'before' or 'after' the gap
                     m = (rb[1] - ra[1]) / (rb[0] - ra[0])
                     b = ra[1] - m * ra[0]
 
@@ -634,10 +635,10 @@ class Sectors(object):
         r_range = rad_idx  # TODO: Clean up these variable names... -PW
         segs_at_r = self.lookup[rad_idx]
 
-        prev_seg = segs_at_r[prev_gap]
-        next_seg = segs_at_r[next_gap]
+        prev_seg = segs_at_r[prev_gap]  # The segment that is behind the particle
+        next_seg = segs_at_r[next_gap]  # The segment that is ahead of the particle
 
-        if test:
+        if test:  # Some test things to check if we're getting the right segments
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.set_xlim([-0.2, 0.2])
@@ -661,6 +662,8 @@ class Sectors(object):
             ax.scatter(pos[0], pos[1], marker='X', color='k')
 
             plt.show()
+
+        return prev_seg, next_seg
 
 
 class AbstractDee(PyElectrode):
@@ -744,7 +747,7 @@ class AbstractDee(PyElectrode):
         rb = (self._r_init + self._char_len) * np.array([np.cos(self._opening_angle / 2.0),
                                                          np.sin(self._opening_angle / 2.0),
                                                          0.0])
-        top_seg = CRSegment(ra, rb)
+        top_seg = CRSegment(ra, rb, phase_shift=-1.0)
 
         # Initial bottom segment
         ra = self._r_init * np.array([np.cos(-self._opening_angle / 2.0),
@@ -753,7 +756,7 @@ class AbstractDee(PyElectrode):
         rb = (self._r_init + self._char_len) * np.array([np.cos(-self._opening_angle / 2.0),
                                                          np.sin(-self._opening_angle / 2.0),
                                                          0.0])
-        bottom_seg = CRSegment(ra, rb)
+        bottom_seg = CRSegment(ra, rb, phase_shift=1.0)
 
         self._top_segments.append(top_seg)
         self._bottom_segments.append(bottom_seg)
@@ -774,7 +777,7 @@ class AbstractDee(PyElectrode):
         rb = length * np.array([np.cos(_angle), np.sin(_angle), 0.0])
 
         prev_seg = self._bottom_segments[-1]
-        next_seg = CRSegment(ra, rb, color=1)
+        next_seg = CRSegment(ra, rb, color=1, phase_shift=1.0)
 
         next_seg.rotate(self.angle - self.opening_angle / 2.0, angle_unit="deg")
         next_seg.translate(prev_seg.rb)
@@ -797,7 +800,7 @@ class AbstractDee(PyElectrode):
         rb = length * np.array([np.cos(_angle), np.sin(_angle), 0.0])
 
         prev_seg = self._top_segments[-1]
-        next_seg = CRSegment(ra, rb, color=1)
+        next_seg = CRSegment(ra, rb, color=1, phase_shift=-1.0)
 
         next_seg.rotate(self.angle + self.opening_angle / 2.0, angle_unit="deg")
         next_seg.translate(prev_seg.rb)
@@ -890,6 +893,7 @@ class AbstractDee(PyElectrode):
 
             # M = overall transformation in order: T, R, S
             M = np.matmul(S, np.matmul(R, T))
+            segment.tr = M
             top_transforms.append(M)
 
         bottom_transforms = []
@@ -910,6 +914,7 @@ class AbstractDee(PyElectrode):
 
             # M = overall transformation in order: T, R, S
             M = np.matmul(S, np.matmul(R, T))
+            segment.tr = M
             bottom_transforms.append(M)
 
         self._top_st = (self._top_segments, top_transforms)
@@ -956,10 +961,14 @@ class Dee(PyElectrode):
 
 
 class CRSegment(object):
-    def __init__(self, ra, rb, color=0):
+    def __init__(self, ra, rb, color=0, phase_shift=1.0):
         self.ra = ra  # Inner coordinate (x,y)
         self.rb = rb  # Outer coordinate (x,y)
         self.mid = 0.5 * (ra + rb)
+
+        # Phase shift is either 1.0 or -1.0, coming from the difference betwee dee-->dummy dee and dummy dee-->dee
+        self.phase_shift = phase_shift  # TODO: Maybe 'flip' is a better name? -PW
+        self.tr = None  # Transformation matrix for central region tracking
 
         self.color = color
 

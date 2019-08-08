@@ -1128,98 +1128,77 @@ def central_region_simple_track(cr, r_start=None, v_start=None, dt=1e-11):
 
 # not_so_simple_tracker
 def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
-    from .central_region import TwoDeeField
+    from .central_region import TwoDeeField, Sectors
     ion = cr.analytic_parameters["ion"]
     gaps = cr._abstract_dees
+    sectors = Sectors(gaps)
 
-    # df1 and df2 are simply two 2D fields with the voltages swapped
+    df = TwoDeeField(left_voltage=0.0, right_voltage=70.0e3)
+    dee_field = df._efield
 
-    df1 = TwoDeeField(left_voltage=0.0, right_voltage=70.0e3)
-    df2 = TwoDeeField(left_voltage=70.0e3, right_voltage=0.0)
-    dee_field1 = df1._efield
-    dee_field2 = df2._efield
+    def get_dee_field(pos):
 
-    def get_dee_vals(pos):
+        # TODO: Old explanations below...
+        # For each gap, the coordinates are transformed into the SRT coordinates
+        # The x' distance is how off-angle the particle is from the gap edge
+        # The y' distance is how close the particle is in the 2D dee model
+        # x' is used for determining which gaps to use
+        # y' is used for the calculation of the electric field
 
-        # _ps, _ms = [], []
-        # _psrp = []
-        # _msrp = []
-        #
-        # # TODO: These gaps should only be the gaps for a given radius! -PW
-        #
-        # for j, gap in enumerate(gaps):
-        #
-        #     i = 0
-        #     for seg, tr in zip(gap._top_st[0], gap._top_st[1]):
-        #         # Get the transformed xy coordinates (in the normalized frame of the gap)
-        #         _rp = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
-        #
-        #         # j, i = info about which gap
-        #         # _rp[0], _rp[1] = transformed xy coordinates
-        #         # seg.ra, seg.rb = start and end points of the gap face segment
-        #         _ps.append([j, i, seg.ra, seg.rb])
-        #         _psrp.append([_rp[0], _rp[1]])
-        #         i += 1
-        #
-        #     i = 0
-        #     for seg, tr in zip(gap._bottom_st[0], gap._bottom_st[1]):
-        #         _rm = np.matmul(tr, np.array([pos[0], pos[1], 1.0]))
-        #         _ms.append([j, i, seg.ra, seg.rb])
-        #         _msrp.append([_rp[0], _rp[1]])
-        #         i += 1
-        #
-        # # For each gap, the coordinates are transformed into the SRT coordinates
-        # # The x' distance is how off-angle the particle is from the gap edge
-        # # The y' distance is how close the particle is in the 2D dee model
-        # # x' is used for determining which gaps to use
-        # # y' is used for the calculation of the electric field
-        #
-        # # Idea:
-        # # * Using x', choose one gap from ps and ms.
-        # # * Make sure that the particle is in between those two gaps
-        # # * Calculate the electric field with y'
-        #
-        # psrp = np.array(_psrp)
-        # msrp = np.array(_msrp)
-        #
-        # print(psrp)
-        # print(msrp)
-        #
-        # psrp_z = np.logical_and(psrp[:, 0] >= 0.0, psrp[:, 0] <= 1.0)
-        # msrp_z = np.logical_and(psrp[:, 0] >= 0.0, psrp[:, 0] <= 1.0)
-        #
-        # if psrp_z.any():
-        #     ps_candidates = psrp[psrp_z]
-        #     print(ps_candidates)
-        #     # if len(ps_candidates) > 1:
-        #     #     ps_candidates = ps_candidates[ps_candidates[:, 1].argsort()]
-        # if msrp_z.any():
-        #     ms_candidates = msrp[msrp_z]
-        #     print(ms_candidates)
-        #
-        # # At this point, ps/ms candidates may have more than one element
-        # exit()
-        #
-        # d1_vec = calculate_distance_to_edge(pos - a[4], a[5] - a[4])
-        # d2_vec = calculate_distance_to_edge(pos - b[4], b[5] - b[4])
+        # Idea:
+        # * Using x', choose one gap from ps and ms.
+        # * Make sure that the particle is in between those two gaps
+        # * Calculate the electric field with y'
+
+        prev_seg, next_seg = sectors.get_sector(pos)  # Get the segments before and after the particle pos
+        prev_tr, next_tr = prev_seg.tr, next_seg.tr  # Get the transformations
+
+        # prev_rp, next_rp = np.matmul(prev_tr, np.array([pos[0], pos[1], 1.0])), \
+        #                    np.matmul(next_tr, np.array([pos[0], pos[1], 1.0]))  # Get transformed coordinates
+
+        # Distances in the transformed coordinates to the dee gaps, used for the position in the 2D model
+        # prev_dist = prev_rp[1]
+        # next_dist = next_rp[1]
+
+        dr1 = prev_seg.rb - prev_seg.ra
+        dr2 = next_seg.rb - next_seg.ra
+
+        d1 = calculate_distance_to_edge(pos - prev_seg.ra, dr1)
+        d2 = calculate_distance_to_edge(pos - next_seg.ra, dr2)
+
+        # d1_vec = calculate_distance_to_edge(pos - prev_seg.ra, dr1)
+        # d2_vec = calculate_distance_to_edge(pos - next_seg.ra, dr2)
         #
         # d1 = np.linalg.norm(d1_vec[:2])
         # d2 = np.linalg.norm(d2_vec[:2])
-        #
-        # ef1 = dee_field1(np.array([rel_phase[0] * d1, pos[2], 0.0]))  # Field from the top gap
-        # ef2 = dee_field2(np.array([rel_phase[1] * d2, pos[2], 0.0]))  # Field from the bottom gap
-        #
-        # print(ef1)
-        # print(ef2)
 
+        print(d1, d2)
 
+        # These fields are x,y: x = direction normal to dee gap, y = z
+        ef1 = prev_seg.phase_shift * dee_field(np.array([d1, pos[2], 0.0]))
+        ef2 = next_seg.phase_shift * dee_field(np.array([-d2, pos[2], 0.0]))
+        # ef1 = dee_field(np.array([d1, pos[2], 0.0]))
+        # ef2 = dee_field(np.array([d2, pos[2], 0.0]))
 
-        return ef1, ef2
+        # TODO: Field should be rotated -PW
+        # The angle of the rotation needs to bring the purely x component of this field (ef1, ef2)
+        # to the direction normal to that of the segment. I.e. arctan(dr[1]/dr[0]) + np.pi / 2.0
+        # where dr is rb - ra
+
+        rot1 = np.arctan2(dr1[1], dr1[0]) + np.pi / 2.0
+        rot2 = np.arctan2(dr2[1], dr2[0]) + np.pi / 2.0
+
+        rot_ef1 = np.array([ef1[0] * np.cos(rot1), ef1[0] * np.sin(rot1), ef1[1]])
+        rot_ef2 = np.array([ef2[0] * np.cos(rot2), ef2[0] * np.sin(rot2), ef2[1]])
+
+        # ef = rot_ef1 + rot_ef2
+
+        return rot_ef1, rot_ef2
 
     def calculate_distance_to_edge(pos, edge):
-        proj_vec = np.dot(pos, edge) * edge
-        dist_vec = pos - proj_vec
-        return dist_vec
+        n_vec = np.array([-edge[1], edge[0]])
+        d = np.abs(np.dot(pos[:2], n_vec)) / np.linalg.norm(n_vec)
+        return d
 
     if r_start is None and v_start is None:
         r_start, v_start = cr._xi, cr._vi
@@ -1235,8 +1214,8 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
     omega_rf = 2.0 * np.pi * cr.rf_freq
     omega_orbit = omega_rf / 4.0
-    initial_phase = np.deg2rad(-90.0)
-    maxsteps = int(1.0 * 2 * np.pi / (dt * omega_rf))
+    rf_phase = cr.rf_phase
+    maxsteps = int(4.0 * 2 * np.pi / (dt * omega_rf))
 
     r = np.zeros([maxsteps + 1, 3])
     v = np.zeros([maxsteps + 1, 3])
@@ -1245,21 +1224,31 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     v[0, :] = v_start[:]
 
     # initialize the velocity half a step back:
-    ef = np.array([0.0, 0.0, 0.0])  # This will always be zero for this method
+    ef = np.array([0.0, 0.0, 0.0])  # TODO?
     bf = bfield1(r[0])
     _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
 
+    _ef1, _ef2 = [], []
+
     i = 0
     while i < maxsteps:
-        ef1, ef2 = get_dee_vals(r[i, :])
+        ef1, ef2 = get_dee_field(r[i, :])
+        _ef1.append(ef1)
+        _ef2.append(ef2)
         ef = ef1 + ef2
-        ef *= np.sin(omega_rf * i * dt + initial_phase)
+        ef *= np.sin(omega_rf * i * dt + rf_phase)
 
         bf = bfield1(r[i])
 
         r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
 
         i += 1
+
+    _ef1 = np.array(_ef1)
+    _ef2 = np.array(_ef2)
+    plt.plot(_ef1[:, 0] + _ef2[:, 0])
+    plt.plot(_ef1[:, 1] + _ef2[:, 1])
+    plt.show()
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -1268,6 +1257,8 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     ax.set_xlim([-0.15, 0.15])
     ax.set_ylim([-0.15, 0.15])
     ax.grid(True)
+    for gap in gaps:
+        gap.plot_segments(ax=ax, show=False)
     plt.show()
 
     fig = plt.figure()
