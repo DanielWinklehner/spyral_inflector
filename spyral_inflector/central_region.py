@@ -175,6 +175,7 @@ class CentralRegion(PyElectrodeAssembly):
         self._tracked_trjs = []
         self._track_trjs_vel = []
 
+        # Cyclotron properties
         self.rf_phase = rf_phase
         self.rf_freq = rf_freq
         self.harmonic = harmonic
@@ -362,14 +363,6 @@ class CentralRegion(PyElectrodeAssembly):
 
         return r, v
 
-    def track_segment(self, **kwargs):
-
-        r, v = track_segment(self, r_start=self._xi, v_start=self._vi, dt=1e-11, **kwargs)
-        self._tracked_trjs.append(r)
-        self._track_trjs_vel.append(v)
-
-        return r, v
-
     def make_dees(self, dees, n, gap, thickness, cl=0.1, **kwargs):
 
         # cl = 0.1
@@ -422,20 +415,20 @@ class CentralRegion(PyElectrodeAssembly):
         for abs_dee in self._abstract_dees:
             abs_dee.plot_segments(show=show, ax=ax)
 
+    @NotImplemented
     def track_from_si(self, nsteps=1000, dt=1e-11):
         si = self._spiral_inflector
 
         r_start, v_start = si.analytic_variables["trj_design"][-1, :], \
                            si.analytic_variables["trj_vel"][-1, :]
 
-        r, v = cr_track(cr=self, r_init=r_start, v_init=v_start,
-                        end_type="steps", maxsteps=nsteps, dt=dt,
-                        input_bfield=self.analytic_parameters["bf_itp"])
+        r, v = None, None
+
+        # r, v = cr_track(cr=self, r_init=r_start, v_init=v_start,
+        #                 end_type="steps", maxsteps=nsteps, dt=dt,
+        #                 input_bfield=self.analytic_parameters["bf_itp"])
 
         return r, v
-
-    def simple_track(self, r_start, v_start):
-        return central_region_simple_track(self, r_start, v_start)
 
     def optimize(self):
         pass
@@ -443,7 +436,6 @@ class CentralRegion(PyElectrodeAssembly):
 
 class TwoDeeField(object):
     def __init__(self, gap_center_angle=0.0, left_voltage=70e3, right_voltage=0.0, h_gap=0.01, v_gap=0.05):
-
         assert HAVE_FENICS, "This object needs fenics for the field calculations!"
         # TODO: Assert meshio
 
@@ -475,7 +467,9 @@ dee_thk = {};
         with open(TEMP_DIR + '/{}.geo'.format(self._id), 'w') as f:
             f.write(self._gmsh_str)
 
-        os.system('gmsh -2 ' + TEMP_DIR + '/{}.geo -format msh2 -v 0 -o '.format(self._id) + TEMP_DIR + '/{}.msh'.format(self._id))
+        os.system(
+            'gmsh -2 ' + TEMP_DIR + '/{}.geo -format msh2 -v 0 -o '.format(self._id) + TEMP_DIR + '/{}.msh'.format(
+                self._id))
         msh = meshio.read(TEMP_DIR + "/{}.msh".format(self._id))
         meshio.write_points_cells(TEMP_DIR + "/{}_markers.xdmf".format(self._id),
                                   msh.points,
@@ -515,11 +509,11 @@ dee_thk = {};
         fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "cg", "preconditioner": "ilu"})
         # print("Done!", flush=True)
 
-        # potentialFile = fn.File(TEMP_DIR + '/{}_potential.pvd'.format(self._id))
-        # potentialFile << u
-        #
-        # meshfile = fn.File(TEMP_DIR + '/{}_mesh.pvd'.format(self._id))
-        # meshfile << mesh
+        potentialFile = fn.File(TEMP_DIR + '/{}_potential.pvd'.format(self._id))
+        potentialFile << u
+
+        meshfile = fn.File(TEMP_DIR + '/{}_mesh.pvd'.format(self._id))
+        meshfile << mesh
 
         fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
         electric_field = FenicsField(fenics_field)
@@ -535,19 +529,6 @@ dee_thk = {};
         # plt.plot(xr, ef)
         # plt.plot(xr, np.max(ef) * np.exp(-650 * xr ** 2))
         # plt.show()
-
-
-class SimpleGap(object):  # TODO: Might not need this class for CR, higher N turns might be better
-    def __init__(self, segments, phase=0.0):
-        self.segments = segments
-        self.phase = phase
-
-    def check_intersection(self, start, end):
-        for seg in self.segments:
-            if check_intersection(seg.ra, seg.rb, start, end):
-                return True
-
-        return False
 
 
 class Sectors(object):
@@ -567,11 +548,12 @@ class Sectors(object):
         # [(0.0, 0.05): <dee1 ... deen>|segments in r_range, (0.05, 0.1): ...]
 
         char_len = 0.05  # TODO: Get this dynamically -PW
+        offset = 0.05
+        n_segments = 6  # TODO: Get this dynamically -PW
 
-        n_segments = 4  # TODO: Get this dynamically -PW
         for k in range(n_segments):
             # TODO: This tup starting point should be another CR variable (starting length?) -PW
-            tup = (char_len*(k + 1), char_len*(k + 2))  # Skip over [0, char_len] by adding a factor of char_len
+            tup = (char_len * k + offset, char_len * (k + 1) + offset)
             ordered_dee_segments = []
             for dee in self.abstract_dees:
 
@@ -594,7 +576,7 @@ class Sectors(object):
 
     def get_sector(self, pos, test=False):
 
-        pos_r = np.sqrt(pos[0]**2 + pos[1]**2)  # Particle radial position
+        pos_r = np.sqrt(pos[0] ** 2 + pos[1] ** 2)  # Particle radial position
 
         rad_idx, next_gap, prev_gap = None, None, None
 
@@ -613,7 +595,7 @@ class Sectors(object):
                     else:
                         dir = 1
 
-                    line_at_posx = m*pos[0] + b  # Find the y position of the line at the x position of the particle
+                    line_at_posx = m * pos[0] + b  # Find the y position of the line at the x position of the particle
                     ydiff = dir * (pos[1] - line_at_posx)  # negative = before
 
                     if i != 0:  # Skip the first gap, since there is no 'previous' gap with these indices
@@ -631,6 +613,12 @@ class Sectors(object):
 
             if rad_idx is not None:  # If we found where the particle is, then break
                 break
+        else:
+            print("Something weird happened!")
+            # print(next_gap)
+            # print(prev_gap)
+            # print(ydiff)
+            # print(prev_ydiff)
 
         r_range = rad_idx  # TODO: Clean up these variable names... -PW
         segs_at_r = self.lookup[rad_idx]
@@ -668,7 +656,7 @@ class Sectors(object):
 
 class AbstractDee(PyElectrode):
     def __init__(self,
-                 r_init=0.1,
+                 r_init=0.05,
                  char_len=0.03,
                  angle=0.0,
                  opening_angle=30.0,
@@ -709,13 +697,6 @@ class AbstractDee(PyElectrode):
         self._top_st = None
         self._bottom_st = None
 
-    def make_gaps(self, phase=0.0):
-
-        bottom_gap = SimpleGap(segments=self._bottom_segments, phase=phase)
-        top_gap = SimpleGap(segments=self._top_segments, phase=phase + self._opening_angle)
-
-        return bottom_gap, top_gap
-
     def rotate(self, angle, angle_unit="deg"):
         # TODO: This should be done using the PyElectrodes methods
         """
@@ -737,15 +718,23 @@ class AbstractDee(PyElectrode):
 
         return 0
 
-    def initialize(self):
+    def initialize(self, top_angle_offset=0.0, bottom_angle_offset=0.0, length=None, angle_unit="deg"):
 
         # Initial top segment
+
+        if angle_unit == 'deg':
+            top_offset = np.deg2rad(top_angle_offset)
+            bottom_offset = np.deg2rad(bottom_angle_offset)
+
+        else:
+            top_offset = top_angle_offset
+            bottom_offset = bottom_angle_offset
 
         ra = self._r_init * np.array([np.cos(self._opening_angle / 2.0),
                                       np.sin(self._opening_angle / 2.0),
                                       0.0])
-        rb = (self._r_init + self._char_len) * np.array([np.cos(self._opening_angle / 2.0),
-                                                         np.sin(self._opening_angle / 2.0),
+        rb = (self._r_init + self._char_len) * np.array([np.cos(self._opening_angle / 2.0 + top_offset),
+                                                         np.sin(self._opening_angle / 2.0 + top_offset),
                                                          0.0])
         top_seg = CRSegment(ra, rb, phase_shift=-1.0)
 
@@ -753,8 +742,8 @@ class AbstractDee(PyElectrode):
         ra = self._r_init * np.array([np.cos(-self._opening_angle / 2.0),
                                       np.sin(-self._opening_angle / 2.0),
                                       0.0])
-        rb = (self._r_init + self._char_len) * np.array([np.cos(-self._opening_angle / 2.0),
-                                                         np.sin(-self._opening_angle / 2.0),
+        rb = (self._r_init + self._char_len) * np.array([np.cos(-self._opening_angle / 2.0 + bottom_offset),
+                                                         np.sin(-self._opening_angle / 2.0 + bottom_offset),
                                                          0.0])
         bottom_seg = CRSegment(ra, rb, phase_shift=1.0)
 
@@ -839,7 +828,7 @@ class AbstractDee(PyElectrode):
 
         return 0
 
-    def plot_segments(self, show=True, ax=None):
+    def plot_segments(self, show=True, ax=None, color='g'):
 
         if show:
             fig = plt.figure()
@@ -847,20 +836,23 @@ class AbstractDee(PyElectrode):
 
         if not self._is_split:
             for seg in self._top_segments:
-                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
-                ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[0])
-                ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[0])
+                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=color)
+                ax.scatter(seg.ra[0], seg.ra[1], s=10, marker='o', color=color)
+                ax.scatter(seg.rb[0], seg.rb[1], s=10, marker='o', color=color)
 
             for seg in self._bottom_segments:
-                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
-                ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[0])
-                ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[0])
+                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=color)
+                ax.scatter(seg.ra[0], seg.ra[1], s=10, marker='o', color=color)
+                ax.scatter(seg.rb[0], seg.rb[1], s=10, marker='o', color=color)
         else:
             all_segs = self.top_dee_segs + self.top_dummy_dee_segs + self.bottom_dee_segs + self.bottom_dummy_dee_segs
             for seg in all_segs:
-                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
-                ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[seg.color])
-                ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[seg.color])
+                # ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=colors[seg.color])
+                # ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=colors[seg.color])
+                # ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=colors[seg.color])
+                ax.plot([seg.ra[0], seg.rb[0]], [seg.ra[1], seg.rb[1]], color=color)
+                ax.scatter(seg.ra[0], seg.ra[1], marker='o', color=color)
+                ax.scatter(seg.rb[0], seg.rb[1], marker='o', color=color)
 
         if show:
             ax.grid(True)
@@ -1024,7 +1016,7 @@ def check_intersection(q, b, p, d):
         return False
 
 
-def generate_dee_geometry(top_segments, bottom_segments, h=0.025,
+def generate_dee_geometry(top_segments, bottom_segments, h=0.015,
                           gap=0.05, thickness=0.025,
                           starting_indices=(0, 0, 0, 0, 1)):
     # indices[0] = Points

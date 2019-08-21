@@ -1,6 +1,6 @@
 from dans_pymodules import *
 # import multiprocessing as mp
-import time
+# import time
 
 
 def z_rotate(v, angle):
@@ -146,13 +146,26 @@ def modulated_track(cr,
                     phase=0.0,
                     omit_b=False,
                     omit_e=False):
+    """
+    Method for tracking in the central region, applies a cosine modulation to the efield.
+    :param cr: CentralRegion object
+    :param r_start: Initial position
+    :param v_start: Initial velocity
+    :param nsteps: Number of steps to track
+    :param dt: Time step (s)
+    :param freq: Frequency of the efield oscillations (Hz)
+    :param phase: Phase offset for the modulation
+    :param omit_b: If true, use a zero bfield
+    :param omit_e: If true, use a zero efield
+    :return: Tuple of trajectory r and v
+    """
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
     analytic_params = cr.analytic_parameters
     numerical_vars = cr.numerical_variables
     track_vars = cr.track_variables
 
-    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = ParticlePusher(analytic_params["ion"], "boris")
 
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
@@ -188,75 +201,20 @@ def modulated_track(cr,
     return r, v
 
 
-def track_segment(cr,
-                  initial_segment=None,
-                  end_segment=None,
-                  r_start=None,
-                  v_start=None,
-                  dt=1e-11,
-                  maxsteps=10000,
-                  omit_b=False,
-                  omit_e=True):
-    # Calculate gap field from theta_seg, theta_rf
-    # Track through gap field
-    # Initialize r0, v0
-    # Calculate r(i), v(i)          <--|
-    # Intersection with segment?  No --|
-    # --> Yes: Is current RF within tolerance?
-    # If yes: Stop
-    # If no: Check if early or late
-    # If early: Decrease theta_seg
-    # If late: increase theta_seg
-
-    assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
-    assert end_segment is not None, "Needs a segment to terminate on!"
-
-    analytic_params = cr.analytic_parameters
-    numerical_vars = cr.numerical_variables
-    track_vars = cr.track_variables
-
-    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
-
-    if omit_e:
-        efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
-    else:
-        efield1 = numerical_vars["ef_itp"]  # type: Field
-
-    if omit_b:
-        bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
-    else:
-        bfield1 = analytic_params["bf_itp"]  # type: Field
-
-    r = np.zeros([maxsteps + 1, 3])
-    v = np.zeros([maxsteps + 1, 3])
-    r[0, :] = r_start[:]
-    v[0, :] = v_start[:]
-
-    # initialize the velocity half a step back:
-    ef = efield1(r[0])
-    bf = bfield1(r[0])
-    _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
-
-    # Track for n steps
-    intersected = False
-    i = 0
-    while not intersected and i < maxsteps:
-        ef = efield1(r[i])
-        bf = bfield1(r[i])
-
-        r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
-        intersected = end_segment.check_intersection(r[i, :2], r[i + 1, :2])
-        i += 1
-
-    track_vars["trj_tracker"] = r[:i, :]
-    cr.track_variables = track_vars
-
-    return r[:i], v[:i]
-
-
-def cr_track(cr, r_init, v_init, symmetry="full", starting_angle=0.0,
-             end_type="termination", nterms=1, input_bfield=None,
-             maxsteps=20000, dt=1e-11, omit_e=True, omit_b=False):
+def term_track(cr, r_init, v_init, starting_angle=0.0,
+               maxsteps=20000, dt=1e-11, omit_e=True, omit_b=False):
+    """
+    Method for tracking in the central region, not meant to use the modulated electric field.
+    :param cr: CentralRegion object
+    :param r_start: Initial position
+    :param v_start: Initial velocity
+    :param starting_angle:
+    :param maxsteps:
+    :param dt:
+    :param omit_e:
+    :param omit_b:
+    :return:
+    """
     from .central_region import CRSegment
 
     ion = cr.analytic_parameters["ion"]
@@ -265,29 +223,18 @@ def cr_track(cr, r_init, v_init, symmetry="full", starting_angle=0.0,
     v_start = v_init
 
     ra, rb = np.array([0.0, 0.0]), np.array([99.0, 0.0])
-
-    if symmetry == "quarter":
-        segment = CRSegment(ra=ra, rb=z_rotate(rb, starting_angle + np.pi / 2.0))
-    elif symmetry == "half":
-        segment = CRSegment(ra=ra, rb=z_rotate(rb, starting_angle + np.pi))
-    else:
-        segment = CRSegment(ra=ra, rb=z_rotate(rb, starting_angle))
-        # segment = CRSegment(ra=np.array([0.0, 0.0]), rb=np.array([0.0, 5.0]))
+    segment = CRSegment(ra=ra, rb=rb)  # Make a segment to check for intersections
 
     pusher = ParticlePusher(ion, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     else:
-        efield1 = None
-
+        efield1 = cr.numerical_variables["ef_itp"]
     if omit_b:
         bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     else:
-        if input_bfield is not None:
-            bfield1 = input_bfield
-        else:
-            bfield1 = cr.analytic_parameters["bf_itp"]
+        bfield1 = cr.analytic_parameters["bf_itp"]
 
     r = np.zeros([maxsteps + 1, 3])
     v = np.zeros([maxsteps + 1, 3])
@@ -299,47 +246,36 @@ def cr_track(cr, r_init, v_init, symmetry="full", starting_angle=0.0,
     bf = bfield1(r[0])
     _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
 
-    # Track for n steps
-    if end_type == "steps":
-
-        pusher.set_efield(efield1)
-        pusher.set_bfield(bfield1)
-
-        r, v = pusher.track(r_start, v_start, maxsteps, dt)
-
-        return r, v
-
     # Track until termination
-    elif end_type == "termination":
-        intersections = 0
-        i = 0
-        while intersections < nterms and i < maxsteps:
-            ef = efield1(r[i])
-            bf = bfield1(r[i])
+    intersections = 0
+    i = 0
+    while intersections == 0 and i < maxsteps:
+        ef = efield1(r[i])
+        bf = bfield1(r[i])
 
-            r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
-            intersections += segment.check_intersection(r[i, :2], r[i + 1, :2])
-            # v[i + 1] = cr.dee_crossing(r[i], r[i + 1], v[i + 1], dt * i)
-            i += 1
+        r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
+        intersections = segment.check_intersection(r[i, :2], r[i + 1, :2])  # 1 if there's an intersection, 0 otherwise
+        i += 1
 
-        # print("Tracked through {} steps.".format(i))
-        # track_vars["trj_tracker"] = r[:i, :]
-        # cr.track_variables = track_vars
-
-        return r[:i], v[:i]
-
-    return 0
+    return r[:i], v[:i]
 
 
 def orbit_finder(cr, energy_mev, verbose=False):
+    """
+    Use the scipy Nelder-Mead algorithm and particle tracking methods to find static equilibrium orbits.
+    :param cr: CentralRegion object
+    :param energy_mev: Energy of the ion in MeV
+    :param verbose: Print results at the end
+    :return: Starting point on x-axis, angle of the velocity w.r.t. the y-axis
+    """
     import scipy.optimize
     import scipy.interpolate
 
-    freq_orbit = cr.rf_freq / cr.harmonic
-    omega_orbit = 2.0 * np.pi * freq_orbit
+    freq_orbit = cr.rf_freq / cr.harmonic  # Ideal frequency of an orbit
+    omega_orbit = 2.0 * np.pi * freq_orbit  # Angular orbit frequency
     ion = IonSpecies("H2_1+", energy_mev)  # TODO: Generalize -PW
 
-    errors = []
+    errors = []  # Running list of the errors from the optimization
 
     def optimization_function(x):
 
@@ -347,30 +283,28 @@ def orbit_finder(cr, energy_mev, verbose=False):
             print("Initial R: {:.9f}".format(x[0]))
             print("Initial v angle: {:.9f}".format(x[1]))
 
-        if x[0] > 0.3:
+        if x[0] > 0.3:  # TODO: This is a limit, set this dynamically
             return 100 + 100 * x[0]
 
-        r_init = np.array([x[0], 1e-12, 0.0])
+        r_init = np.array([x[0], 1e-12, 0.0])  # 1e-12 to put it just above the x-axis
         v_angle = x[1]
 
         v_init = np.array([ion.v_m_per_s() * np.sin(v_angle),
                            ion.v_m_per_s() * np.cos(v_angle),
                            0.0])
 
-        r_final, v_final = cr_track(ion,
-                                    r_init=r_init,
-                                    v_init=v_init,
-                                    symmetry="full",
-                                    dt=1e-10,
-                                    nterms=1,
-                                    input_bfield=cr.analytic_parameters["bf_itp"])
+        r_final, v_final = term_track(cr,
+                                      r_init=r_init,
+                                      v_init=v_init,
+                                      dt=1e-10)
 
-        theta = np.arctan2(r_final[:, 1], r_final[:, 0])
-        theta[theta < 0] += 2 * np.pi
-        r_itp = scipy.interpolate.interp1d(theta,
+        theta = np.arctan2(r_final[:, 1], r_final[:, 0])  # Calculate the angle of the particle w.r.t. x-axis
+        theta[theta < 0] += 2 * np.pi  # Change the angles from (-pi, pi) to (0, 2*pi)
+        r_itp = scipy.interpolate.interp1d(theta,  # Interpolate the radius as a function of angle
                                            np.sqrt(r_final[:, 0] ** 2 + r_final[:, 1] ** 2),
                                            fill_value="extrapolate")
 
+        # Interpolate the three components of velocity as a function of angle
         vx_itp = scipy.interpolate.interp1d(theta,
                                             v_final[:, 0],
                                             fill_value="extrapolate")
@@ -381,43 +315,37 @@ def orbit_finder(cr, energy_mev, verbose=False):
                                             v_final[:, 2],
                                             fill_value="extrapolate")
 
+        # Velocity at the end of tracking
         v_end = np.array([vx_itp(2 * np.pi), vy_itp(2 * np.pi), vz_itp(2 * np.pi)])
-        v_diff = np.arccos(np.dot(v_init[:2], v_end[:2]) / (np.linalg.norm(v_init[:2]) * np.linalg.norm(v_end[:2])))
-        error = (1e2 * r_itp(2.0 * np.pi) - 1e2 * x[0]) ** 2 + (v_diff) ** 2
 
+        # Calculate the angular difference between start and end velocities
+        v_diff = np.arccos(np.dot(v_init[:2], v_end[:2]) / (np.linalg.norm(v_init[:2]) * np.linalg.norm(v_end[:2])))
+        error = (1e2 * r_itp(2.0 * np.pi) - 1e2 * x[0]) ** 2 + v_diff ** 2  # Calculate error
+
+        # TODO: Look into how the interpolation affects the results, rather than just getting v[-1]
         errors.append(error)
 
         return error
 
     sol = scipy.optimize.minimize(optimization_function,
                                   method="Nelder-Mead",
-                                  x0=np.array([1.15 * ion.v_m_per_s() / omega_orbit, 0.0]),
+                                  x0=np.array([1.15 * ion.v_m_per_s() / omega_orbit, 0.0]),  # 1.15 is a fudge factor
                                   options={'fatol': 1e-5, 'xatol': 1e-5})
 
     if verbose:
-        print(">>> Finished {:.3f} MeV <<<".format(energy_mev))
+        print("Calculated orbit for {:.3f} MeV <<<".format(energy_mev))
         print(sol.x)
+
     return sol.x
 
 
-def gordon_algorithm(cr,
-                     energy_mev=1.0,
-                     symmetry_mode="full",
-                     starting_angle=0.0,
-                     verbose=False,
-                     tune_calc=False,
-                     retrack=False):
+def modified_gordon_algorithm(cr,
+                              energy_mev=1.0,
+                              starting_angle=0.0,
+                              verbose=False,
+                              tune_calc=False,  # TODO: Tune calculations are a WIP
+                              retrack=False):
     import scipy.interpolate
-
-    if symmetry_mode == "full":
-        theta_range = 2 * np.pi
-    elif symmetry_mode == "half":
-        theta_range = np.pi
-    elif symmetry_mode == "quarter":
-        theta_range = 0.5 * np.pi
-    else:
-        print("Symmetry mode not recognized.")
-        return 1
 
     freq_orbit = cr.rf_freq / cr.harmonic
     omega_orbit = 2.0 * np.pi * freq_orbit
@@ -430,6 +358,7 @@ def gordon_algorithm(cr,
 
     cx = 1000.0  # Conversion from m to mm
     cpx = a / (ion.mass_kg() * clight)  # Conversion from SI to Gordon's units
+    theta_range = 2 * np.pi  # Range of angles, used to be for half/quarter symmetry
 
     dri, dpri = 0.0, 0.0
     initial_r = ion.beta() * a / cx
@@ -458,17 +387,14 @@ def gordon_algorithm(cr,
         vr_init = pr_init / (ion.gamma() * ion.mass_kg())
 
         # Trial orbit
-        r, vr = cr_track(cr=cr,
-                         r_init=r_init,
-                         v_init=vr_init,
-                         symmetry=symmetry_mode,
-                         starting_angle=starting_angle,
-                         end_type="termination",
-                         input_bfield=cr._params_analytic["bf_itp"],
-                         maxsteps=100000,
-                         dt=5e-11,
-                         omit_e=True,
-                         omit_b=False)
+        r, vr = term_track(cr=cr,
+                           r_init=r_init,
+                           v_init=vr_init,
+                           starting_angle=starting_angle,
+                           maxsteps=100000,
+                           dt=5e-11,
+                           omit_e=True,
+                           omit_b=False)
 
         r_mag = np.sqrt(r[:, 0] ** 2 + r[:, 1] ** 2)
 
@@ -494,17 +420,14 @@ def gordon_algorithm(cr,
             print("-> Initial pr: {}".format(pr1_init))
         vr1_init = pr1_init / (ion.gamma() * ion.mass_kg())
 
-        r1, vr1 = cr_track(cr=cr,
-                           r_init=r1_init,
-                           v_init=vr1_init,
-                           symmetry=symmetry_mode,
-                           starting_angle=starting_angle,
-                           end_type="termination",
-                           input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=100000,
-                           dt=5e-11,
-                           omit_e=True,
-                           omit_b=False)
+        r1, vr1 = term_track(cr=cr,
+                             r_init=r1_init,
+                             v_init=vr1_init,
+                             starting_angle=starting_angle,
+                             maxsteps=100000,
+                             dt=5e-11,
+                             omit_e=True,
+                             omit_b=False)
 
         r1_mag = np.sqrt(r1[:, 0] ** 2 + r1[:, 1] ** 2)
         pr1 = ion.gamma() * ion.mass_kg() * vr1
@@ -532,17 +455,14 @@ def gordon_algorithm(cr,
 
         vr2_init = pr2_init / (ion.gamma() * ion.mass_kg())
 
-        r2, vr2 = cr_track(cr=cr,
-                           r_init=r2_init,
-                           v_init=vr2_init,
-                           symmetry=symmetry_mode,
-                           starting_angle=starting_angle,
-                           end_type="termination",
-                           input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=100000,
-                           dt=5e-11,
-                           omit_e=True,
-                           omit_b=False)
+        r2, vr2 = term_track(cr=cr,
+                             r_init=r2_init,
+                             v_init=vr2_init,
+                             starting_angle=starting_angle,
+                             maxsteps=100000,
+                             dt=5e-11,
+                             omit_e=True,
+                             omit_b=False)
 
         r2_mag = np.sqrt(r2[:, 0] ** 2 + r2[:, 1] ** 2)
         pr2 = ion.gamma() * ion.mass_kg() * vr2
@@ -633,16 +553,13 @@ def gordon_algorithm(cr,
         pz_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
         vz_init = pz_init / (ion.gamma() * ion.mass_kg())
 
-        z, vz = cr_track(cr=cr,
-                         r_init=z_init,
-                         v_init=vz_init,
-                         symmetry="full",
-                         end_type="termination",
-                         input_bfield=cr._params_analytic["bf_itp"],
-                         maxsteps=5000,
-                         dt=1e-10,
-                         omit_e=True,
-                         omit_b=False)
+        z, vz = term_track(cr=cr,
+                           r_init=z_init,
+                           v_init=vz_init,
+                           maxsteps=5000,
+                           dt=1e-10,
+                           omit_e=True,
+                           omit_b=False)
 
         z_mag = np.sqrt(z[:, 0] ** 2 + z[:, 1] ** 2)
         pz = ion.gamma() * ion.mass_kg() * vz
@@ -658,16 +575,13 @@ def gordon_algorithm(cr,
         pz1_init = np.array([initial_pr, np.sqrt(total_momentum ** 2 - initial_pr ** 2), 0.0])
         vz1_init = pz1_init / (ion.gamma() * ion.mass_kg())
 
-        z1, vz1 = cr_track(cr=cr,
-                           r_init=z1_init,
-                           v_init=vz1_init,
-                           symmetry="full",
-                           end_type="termination",
-                           input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=5000,
-                           dt=1e-10,
-                           omit_e=True,
-                           omit_b=False)
+        z1, vz1 = term_track(cr=cr,
+                             r_init=z1_init,
+                             v_init=vz1_init,
+                             maxsteps=5000,
+                             dt=1e-10,
+                             omit_e=True,
+                             omit_b=False)
 
         z1_mag = np.sqrt(z1[:, 0] ** 2 + z1[:, 1] ** 2)
         pz1 = ion.gamma() * ion.mass_kg() * vz1
@@ -686,16 +600,13 @@ def gordon_algorithm(cr,
                              pz_offset])
         vz2_init = pz2_init / (ion.gamma() * ion.mass_kg())
 
-        z2, vz2 = cr_track(cr=cr,
-                           r_init=z2_init,
-                           v_init=vz2_init,
-                           symmetry="full",
-                           end_type="termination",
-                           input_bfield=cr._params_analytic["bf_itp"],
-                           maxsteps=5000,
-                           dt=1e-10,
-                           omit_e=True,
-                           omit_b=False)
+        z2, vz2 = term_track(cr=cr,
+                             r_init=z2_init,
+                             v_init=vz2_init,
+                             maxsteps=5000,
+                             dt=1e-10,
+                             omit_e=True,
+                             omit_b=False)
 
         z2_mag = np.sqrt(z2[:, 0] ** 2 + z2[:, 1] ** 2)
         pz2 = ion.gamma() * ion.mass_kg() * vz2
@@ -764,16 +675,13 @@ def gordon_algorithm(cr,
         return nu_r, nu_z
 
     if retrack:
-        r, vr = cr_track(cr=cr,
-                         r_init=r_init,
-                         v_init=vr_init,
-                         symmetry="full",
-                         end_type="termination",
-                         input_bfield=cr._params_analytic["bf_itp"],
-                         maxsteps=100000,
-                         dt=5e-11,
-                         omit_e=True,
-                         omit_b=False)
+        r, vr = term_track(cr=cr,
+                           r_init=r_init,
+                           v_init=vr_init,
+                           maxsteps=100000,
+                           dt=5e-11,
+                           omit_e=True,
+                           omit_b=False)
 
         return r, vr
 
@@ -827,26 +735,6 @@ def generate_analytical_trajectory(si):
     xc, yc = calculate_orbit_center(analytic_vars["k"], analytic_vars["kp"], analytic_vars["height"])
 
     analytic_vars["orbit_center"] = (xc, yc)
-
-    # If there is a known shift, apply it now...
-    # TODO: Commented this out due to possible shifting error -PW
-    # if si._variables_track["shift"] is not None:
-    #     analytic_vars["trj_design"] += si._variables_track["shift"]
-
-    # TODO: This is a work in progress
-    # if si._variables_optimization["x_rot"] is not None and si._params_exp["y_opt"]:
-    #     xrot = np.array([[1.0, 0.0, 0.0],
-    #                     [0.0, np.cos(si._variables_optimization["x_rot"]),
-    #                      -np.sin(si._variables_optimization["x_rot"])],
-    #                     [0.0, np.sin(si._variables_optimization["x_rot"]),
-    #                      np.cos(si._variables_optimization["x_rot"])]])
-    #     for i in range(analytic_params["ns"]):
-    #         analytic_vars["trj_design"][i, :] = np.matmul(xrot, analytic_vars["trj_design"][i, :])
-
-    # if analytic_params["rotation"] != 0.0:
-    #     for i in range(analytic_params["ns"]):
-    #         analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
-    #                                                       analytic_vars["trj_design"][i, :])
 
     print("Done!")
 
@@ -976,37 +864,8 @@ def generate_numerical_trajectory(si, bf=None, nsteps=15000, dt=1e-11):
 
     r += shift  # TODO: Make sure this doesn't mess up shifts anywhere else (i.e. py_electrodes)
 
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111)
-    # ax.plot(v[:, 0], v[:, 1])
-    # ax.grid(True)
-    # ax.set_aspect(1)
-    # plt.show()
-    #
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111)
-    # ax.plot(v[:, 1], v[:, 2])
-    # ax.plot(vp[:, 1], vp[:, 2])
-    # ax.grid(True)
-    # ax.set_aspect(1)
-    # plt.show()
-
     analytic_vars["trj_design"] = r
     analytic_vars["trj_vel"] = v
-
-    # If there is a known shift, apply it now...
-    # TODO: Commented this out due to possible shifting error -PW
-    # if si._variables_track["shift"] is not None:
-    #     analytic_vars["trj_design"] += si._variables_track["shift"]
-
-    # analytic_params["ns"] = len(r[:, 0])
-
-    # if analytic_params["rotation"] != 0.0:
-    #     for i in range(analytic_params["ns"]):
-    #         analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
-    #                                                       analytic_vars["trj_design"][i, :])
-    #         analytic_vars["trj_vel"][i, :] = np.matmul(analytic_vars["rot"],
-    #                                                    analytic_vars["trj_vel"][i, :])
 
     si.analytic_parameters = analytic_params
     si.analytic_variables = analytic_vars
@@ -1021,115 +880,10 @@ def calculate_orbit_center(k, kp, height):
     return xc, yc
 
 
-def central_region_simple_track(cr, r_start=None, v_start=None, dt=1e-11):
-    ion = cr.analytic_parameters["ion"]
-    time_step = dt
-
-    # Number of time steps for an RF period
-    # nsteps = 1.5 * (1.0 / cr.rf_freq) / time_step  # 32.8 MHz w/ 0.1 ns --> ~300 turns per sector
-
-    def delta_kinetic_energy(dee_voltage, gap, radius, phase):
-        return ion.q() * echarge * dee_voltage * np.sinc(gap / (2 * radius)) * np.sin(phase)
-
-    if r_start is None and v_start is None:
-        r_start, v_start = cr._xi, cr._vi
-
-    theta_init = np.arctan2(r_start[1], r_start[0])
-    if theta_init < 0:
-        theta_init += 2 * np.pi
-
-    # gap_angle = np.deg2rad(42.5 / 2)
-    gap_angles = [np.deg2rad(90 - 42.5 / 2), np.deg2rad(90 + 42.5 / 2),
-                  np.deg2rad(180 - 42.5 / 2), np.deg2rad(180 + 42.5 / 2), np.deg2rad(270 - 42.5 / 2),
-                  np.deg2rad(270 + 42.5 / 2), np.deg2rad(360 - 42.5 / 2), np.deg2rad(42.5 / 2)]
-
-    gap_angles *= 2
-
-    colors = MyColors()
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-
-    for angle in gap_angles:
-        para = np.linspace(0, 0.5, 10)
-        ax.plot(para * np.cos(angle), para * np.sin(angle), '--', color=colors[2])
-    i = 0
-    n_turns = 0
-
-    while i < len(gap_angles):
-
-        gap_angle = gap_angles[i]
-
-        r, v = cr_track(cr=cr,
-                        r_init=rstart,
-                        v_init=vstart,
-                        end_type="steps",
-                        maxsteps=int(nsteps),
-                        input_bfield=None,
-                        dt=time_step)
-
-        theta = np.arctan2(r[:, 1], r[:, 0])
-        theta[theta < 0] += 2 * np.pi
-
-        _ft = np.sum([1 if theta[i - 1] > 3 * np.pi / 2 and theta[i] < np.pi / 2 else 0 for i in range(1, len(theta))])
-        if _ft == 1:
-            theta[theta < np.pi] += 2 * np.pi
-            if gap_angle < np.pi:
-                gap_angle += 2 * np.pi
-        rmag = np.sqrt(r[:, 0] ** 2 + r[:, 1] ** 2 + r[:, 2] ** 2)
-        vel_theta = np.arctan2(v[:, 1], v[:, 0])
-        vel_theta[vel_theta < 0] += 2 * np.pi
-
-        post_gap_angle = theta[theta >= gap_angle]
-        post_gap_r = rmag[theta >= gap_angle]
-        post_gap_z = r[:, 2][theta >= gap_angle]
-        post_gap_v_angle = vel_theta[theta >= gap_angle]
-        post_gap_vz = v[:, 2][theta >= gap_angle]
-
-        pre_gap_angle = theta[theta < gap_angle]
-        pre_gap_r = rmag[theta < gap_angle]
-        pre_gap_z = r[:, 2][theta < gap_angle]
-        pre_gap_v_angle = vel_theta[theta < gap_angle]
-        pre_gap_vz = v[:, 2][theta < gap_angle]
-
-        delta_t = len(pre_gap_r) * time_step
-        delta_phase = delta_t * cr.rf_freq
-
-        crossover_angle = 0.5 * (post_gap_angle[0] + pre_gap_angle[-1])
-        crossover_r = 0.5 * (post_gap_r[0] + pre_gap_r[-1])
-        crossover_z = 0.5 * (post_gap_z[0] + pre_gap_z[-1])
-        crossover_v_angle = 0.5 * (post_gap_v_angle[0] + pre_gap_v_angle[-1])
-
-        x, y, z = crossover_r * np.cos(crossover_angle), \
-                  crossover_r * np.sin(crossover_angle), \
-                  crossover_z
-
-        dK = delta_kinetic_energy(cr.dee_voltage, gap=cr.dee_gap, radius=crossover_r, phase=np.pi / 2)
-
-        ion.calculate_from_energy_mev(energy_mev=(ion.total_kinetic_energy_mev() + dK / (echarge * 1e6)) / ion.a())
-
-        rstart = np.array([x, y, z])
-        vstart = np.array(
-            [ion.v_m_per_s() * np.cos(crossover_v_angle), ion.v_m_per_s() * np.sin(crossover_v_angle), 0.0])
-
-        # para = np.linspace(0, 0.5, 10)
-        ax.plot(pre_gap_r * np.cos(pre_gap_angle), pre_gap_r * np.sin(pre_gap_angle))
-        # ax.plot(post_gap_r*np.cos(post_gap_angle), post_gap_r*np.sin(post_gap_angle), color=colors[1])
-        ax.scatter([x], [y], marker='X', color=colors[2])
-        # ax.plot(para*np.cos(gap_angle), para*np.sin(gap_angle), '--', color=colors[2])
-        i += 1
-
-    ax.grid(True)
-    ax.set_xlim([-0.3, 0.3])
-    ax.set_ylim([-0.3, 0.3])
-    ax.set_aspect(1)
-    plt.show()
-
-
 # not_so_simple_tracker
-def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
+def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11, nturns=1, phase=0.0):
     from .central_region import TwoDeeField, Sectors
-    ion = cr.analytic_parameters["ion"]
+
     gaps = cr._abstract_dees
     sectors = Sectors(gaps)
 
@@ -1137,61 +891,29 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     dee_field = df._efield
 
     def get_dee_field(pos):
-
-        # TODO: Old explanations below...
-        # For each gap, the coordinates are transformed into the SRT coordinates
-        # The x' distance is how off-angle the particle is from the gap edge
-        # The y' distance is how close the particle is in the 2D dee model
-        # x' is used for determining which gaps to use
-        # y' is used for the calculation of the electric field
-
-        # Idea:
-        # * Using x', choose one gap from ps and ms.
-        # * Make sure that the particle is in between those two gaps
-        # * Calculate the electric field with y'
-
         prev_seg, next_seg = sectors.get_sector(pos)  # Get the segments before and after the particle pos
-        prev_tr, next_tr = prev_seg.tr, next_seg.tr  # Get the transformations
 
-        # prev_rp, next_rp = np.matmul(prev_tr, np.array([pos[0], pos[1], 1.0])), \
-        #                    np.matmul(next_tr, np.array([pos[0], pos[1], 1.0]))  # Get transformed coordinates
-
-        # Distances in the transformed coordinates to the dee gaps, used for the position in the 2D model
-        # prev_dist = prev_rp[1]
-        # next_dist = next_rp[1]
-
+        # Get the vector between rb and ra
         dr1 = prev_seg.rb - prev_seg.ra
         dr2 = next_seg.rb - next_seg.ra
 
+        # Calculate the distance from pos to this edge
         d1 = calculate_distance_to_edge(pos - prev_seg.ra, dr1)
         d2 = calculate_distance_to_edge(pos - next_seg.ra, dr2)
 
-        # d1_vec = calculate_distance_to_edge(pos - prev_seg.ra, dr1)
-        # d2_vec = calculate_distance_to_edge(pos - next_seg.ra, dr2)
-        #
-        # d1 = np.linalg.norm(d1_vec[:2])
-        # d2 = np.linalg.norm(d2_vec[:2])
-
-        print(d1, d2)
-
         # These fields are x,y: x = direction normal to dee gap, y = z
+        # Includes the inherent phase shifts from dee-->dummy dee and vice versa
+        # ef2 will always be -distance, since it's approached from the left in those coordinates
         ef1 = prev_seg.phase_shift * dee_field(np.array([d1, pos[2], 0.0]))
         ef2 = next_seg.phase_shift * dee_field(np.array([-d2, pos[2], 0.0]))
-        # ef1 = dee_field(np.array([d1, pos[2], 0.0]))
-        # ef2 = dee_field(np.array([d2, pos[2], 0.0]))
 
-        # TODO: Field should be rotated -PW
-        # The angle of the rotation needs to bring the purely x component of this field (ef1, ef2)
-        # to the direction normal to that of the segment. I.e. arctan(dr[1]/dr[0]) + np.pi / 2.0
-        # where dr is rb - ra
-
+        # Calculate the angle that these fields need to be rotated
         rot1 = np.arctan2(dr1[1], dr1[0]) + np.pi / 2.0
         rot2 = np.arctan2(dr2[1], dr2[0]) + np.pi / 2.0
 
+        # Calculate the rotated fields
         rot_ef1 = np.array([ef1[0] * np.cos(rot1), ef1[0] * np.sin(rot1), ef1[1]])
         rot_ef2 = np.array([ef2[0] * np.cos(rot2), ef2[0] * np.sin(rot2), ef2[1]])
-
-        # ef = rot_ef1 + rot_ef2
 
         return rot_ef1, rot_ef2
 
@@ -1200,22 +922,16 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
         d = np.abs(np.dot(pos[:2], n_vec)) / np.linalg.norm(n_vec)
         return d
 
-    if r_start is None and v_start is None:
-        r_start, v_start = cr._xi, cr._vi
-
     analytic_params = cr.analytic_parameters
-    numerical_vars = cr.numerical_variables
     track_vars = cr.track_variables
 
     pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
-    efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
     bfield1 = analytic_params["bf_itp"]  # type: Field
 
     omega_rf = 2.0 * np.pi * cr.rf_freq
-    omega_orbit = omega_rf / 4.0
-    rf_phase = cr.rf_phase
-    maxsteps = int(4.0 * 2 * np.pi / (dt * omega_rf))
+    rf_phase = phase
+    maxsteps = int(4.0 * nturns * 2.0 * np.pi / (dt * omega_rf))
 
     r = np.zeros([maxsteps + 1, 3])
     v = np.zeros([maxsteps + 1, 3])
@@ -1224,7 +940,9 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     v[0, :] = v_start[:]
 
     # initialize the velocity half a step back:
-    ef = np.array([0.0, 0.0, 0.0])  # TODO?
+    ef1, ef2 = get_dee_field(r[0])
+    ef = ef1 + ef2
+    ef *= np.cos(rf_phase)
     bf = bfield1(r[0])
     _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
 
@@ -1233,10 +951,9 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
     i = 0
     while i < maxsteps:
         ef1, ef2 = get_dee_field(r[i, :])
-        _ef1.append(ef1)
-        _ef2.append(ef2)
+
         ef = ef1 + ef2
-        ef *= np.sin(omega_rf * i * dt + rf_phase)
+        ef *= np.cos(omega_rf * i * dt + rf_phase)
 
         bf = bfield1(r[i])
 
@@ -1244,80 +961,7 @@ def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11):
 
         i += 1
 
-    _ef1 = np.array(_ef1)
-    _ef2 = np.array(_ef2)
-    plt.plot(_ef1[:, 0] + _ef2[:, 0])
-    plt.plot(_ef1[:, 1] + _ef2[:, 1])
-    plt.show()
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(r[:i, 0], r[:i, 1])
-    ax.set_aspect(1)
-    ax.set_xlim([-0.15, 0.15])
-    ax.set_ylim([-0.15, 0.15])
-    ax.grid(True)
-    for gap in gaps:
-        gap.plot_segments(ax=ax, show=False)
-    plt.show()
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(np.sqrt(v[:i, 0] ** 2 + v[:i, 1] ** 2 + v[:i, 2] ** 2))
-    plt.show()
-
-    track_vars["trj_tracker"] = r[:i, :]
+    track_vars["trj_tracker"] = r
     cr.track_variables = track_vars
 
-    return 0
-
-
-def si_exit_parameter_space(si):
-    analytic_params = si.analytic_parameters
-    analytic_vars = si.analytic_variables
-
-    ion = analytic_params["ion"]
-
-    tilt = analytic_params["tilt"]  # type: float
-
-    analytic_vars["kp"] = np.tan(np.deg2rad(tilt))  # Tilt parameter
-    analytic_vars["k"] = ((analytic_vars["height"] / analytic_vars["r_cyc"]) + analytic_vars["kp"]) / 2.0
-
-    # tilt_param = np.tan(np.deg2rad(np.linspace(0, 45, 100)))
-    tilt_param = np.array([np.deg2rad(-20)])
-    # heights = np.linspace(0.05, 0.12, 8)
-    heights = [analytic_vars["height"]]
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-
-    for h in heights:
-        # K = analytic_vars["k"]
-        # h = analytic_vars["height"]
-        K = ((h / analytic_vars["r_cyc"]) + tilt_param) / 2.0
-        b = np.pi / 2.0
-
-        x = h * (1.0 - 2.0 * K * np.sin(K * np.pi)) / (1.0 - 4.0 * K ** 2)
-        y = h * (2.0 * K * np.cos(K * np.pi)) / (1.0 - 4.0 * K ** 2)
-        rmag = np.sqrt(x ** 2 + y ** 2)
-        r = np.array([x / rmag, y / rmag]).T
-
-        tx = 0.5 * (np.sin((2 * K + 1) * b) - np.sin((2 * K - 1) * b))
-        ty = 0.5 * (np.cos((2 * K + 1) * b) - np.cos((2 * K - 1) * b))
-        txy = np.array([tx, ty]).T
-        tr = np.zeros(len(K))
-
-        print(tx, ty)
-
-        for i in range(len(K)):
-            tr1 = r[i, 0] * txy[i, 0]
-            tr2 = r[i, 1] * txy[i, 1]
-            tr[i] = 1 - (tr1 + tr2)
-
-        ax.scatter(rmag, tr)
-
-    ax.set_xlim([0, 0.15])
-    ax.set_ylim([-1, 1])
-    # ax.set_aspect(1)
-    ax.grid(True)
-    plt.show()
+    return r, v
