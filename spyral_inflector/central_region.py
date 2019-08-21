@@ -435,14 +435,15 @@ class CentralRegion(PyElectrodeAssembly):
 
 
 class TwoDeeField(object):
-    def __init__(self, gap_center_angle=0.0, left_voltage=70e3, right_voltage=0.0, h_gap=0.01, v_gap=0.05):
+    def __init__(self,
+                 gap_center_angle=0.0,
+                 left_voltage=70e3,
+                 right_voltage=0.0,
+                 h_gap=0.01,
+                 v_gap=0.05,
+                 save_pvd=False):
         assert HAVE_FENICS, "This object needs fenics for the field calculations!"
-        # TODO: Assert meshio
-
-        # Calculate a two dimensional field with the dee parameters.
-        # Create a copy and multiply the field by -1 to represent DD-->D
-        # Dee field is always a perpendicular slice w.r.t dee edge
-        # --> Need a geometrical factor for off-angle trajectories
+        assert HAVE_MESHIO, "This object needs meshio for the field calculations!"
 
         self._id = uuid.uuid1()
 
@@ -509,26 +510,18 @@ dee_thk = {};
         fn.solve(a == L, u, bcs, solver_parameters={"linear_solver": "cg", "preconditioner": "ilu"})
         # print("Done!", flush=True)
 
-        potentialFile = fn.File(TEMP_DIR + '/{}_potential.pvd'.format(self._id))
-        potentialFile << u
+        if save_pvd:
+            potentialFile = fn.File(TEMP_DIR + '/{}_potential.pvd'.format(self._id))
+            potentialFile << u
 
-        meshfile = fn.File(TEMP_DIR + '/{}_mesh.pvd'.format(self._id))
-        meshfile << mesh
+            meshfile = fn.File(TEMP_DIR + '/{}_mesh.pvd'.format(self._id))
+            meshfile << mesh
 
         fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
         electric_field = FenicsField(fenics_field)
 
         self._potential = u
         self._efield = electric_field
-
-        # xr = np.linspace(-0.1, 0.1, 100)
-        # ef = []
-        # for x in xr:
-        #     ef.append(electric_field(np.array([x, 0.0, 0.0]))[0])
-        #
-        # plt.plot(xr, ef)
-        # plt.plot(xr, np.max(ef) * np.exp(-650 * xr ** 2))
-        # plt.show()
 
 
 class Sectors(object):
@@ -615,10 +608,7 @@ class Sectors(object):
                 break
         else:
             print("Something weird happened!")
-            # print(next_gap)
-            # print(prev_gap)
-            # print(ydiff)
-            # print(prev_ydiff)
+            print("The particle is probably outside the radial limits of the dee segments.")
 
         r_range = rad_idx  # TODO: Clean up these variable names... -PW
         segs_at_r = self.lookup[rad_idx]

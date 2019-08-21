@@ -919,7 +919,6 @@ def get_norm_vec_and_angles_from_geo(geo):
 
 
 def generate_vacuum_space(si):
-    # TODO: Clean up
     assert si.numerical_parameters["make_cylinder"], "You need a cylinder/boundary to create the vacuum space!"
 
     numerical_vars = si.numerical_variables

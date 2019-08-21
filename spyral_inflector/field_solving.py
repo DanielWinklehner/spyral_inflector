@@ -28,6 +28,15 @@ except ImportError as e:
     fn = None
 
 
+HAVE_MESHIO = False
+try:
+    import meshio
+    HAVE_MESHIO = True
+except ImportError as e:
+    print(e)
+    meshio = None
+
+
 class FenicsField(object):  # TODO: Implement this into the dans_pymodules Field class -PW
     def __init__(self, field):
         self._field = field
@@ -304,6 +313,7 @@ def solve_fenics(si):
         bcs.append(fn.DirichletBC(V, fn.Constant(volt), boundaries, i))
     for i in range(1000, 2000):  # Cathode
         bcs.append(fn.DirichletBC(V, fn.Constant(-volt), boundaries, i))
+
     # TODO: Assuming voltages on apertures, housing, etc. are all zero -PW
     # for i in range(2000, 3000):  # Exit Aperture/Housing
     #     bcs.append(fn.DirichletBC(V, fn.Constant(0.0), boundaries, i))

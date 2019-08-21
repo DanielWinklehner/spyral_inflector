@@ -15,7 +15,6 @@ def z_rotate(v, angle):
 
 
 def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
-    # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
     analytic_params = si.analytic_parameters
@@ -65,7 +64,6 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
 
 
 def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
-    # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
     analytic_params = si.analytic_parameters
@@ -102,7 +100,6 @@ def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=Fa
 def fast_track_with_termination(si, r_start=None, v_start=None,
                                 nsteps=10000, dt=1e-12,
                                 omit_b=False, omit_e=False):
-    # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
     analytic_params = si.analytic_parameters
@@ -260,7 +257,7 @@ def term_track(cr, r_init, v_init, starting_angle=0.0,
     return r[:i], v[:i]
 
 
-def orbit_finder(cr, energy_mev, verbose=False):
+def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3):
     """
     Use the scipy Nelder-Mead algorithm and particle tracking methods to find static equilibrium orbits.
     :param cr: CentralRegion object
@@ -273,7 +270,7 @@ def orbit_finder(cr, energy_mev, verbose=False):
 
     freq_orbit = cr.rf_freq / cr.harmonic  # Ideal frequency of an orbit
     omega_orbit = 2.0 * np.pi * freq_orbit  # Angular orbit frequency
-    ion = IonSpecies("H2_1+", energy_mev)  # TODO: Generalize -PW
+    ion = IonSpecies(cr.ion.label(), energy_mev)  # Make a new ion with the same type as the CR, with energy_mev
 
     errors = []  # Running list of the errors from the optimization
 
@@ -283,8 +280,8 @@ def orbit_finder(cr, energy_mev, verbose=False):
             print("Initial R: {:.9f}".format(x[0]))
             print("Initial v angle: {:.9f}".format(x[1]))
 
-        if x[0] > 0.3:  # TODO: This is a limit, set this dynamically
-            return 100 + 100 * x[0]
+        if x[0] > radial_limit:
+            return 100 + 100 * x[0]  # Not sure how well this check works -PW
 
         r_init = np.array([x[0], 1e-12, 0.0])  # 1e-12 to put it just above the x-axis
         v_angle = x[1]
@@ -823,7 +820,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=15000, dt=1e-11):
         if i_init == 0:
             i_init = 1
     except IndexError:
-        i_init = 1  # TODO: This doesn't seem right -PW
+        i_init = 1
 
     try:
         i_final = np.where(_b >= analytic_params["b_lim"][1])[0][0]
@@ -857,7 +854,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=15000, dt=1e-11):
                     interp1d(_b, _v[:, 1], fill_value='extrapolate'), \
                     interp1d(_b, _v[:, 2], fill_value='extrapolate')
 
-    b = np.linspace(0.0, _b_end, analytic_params["ns"])  # TODO: Should _b_end be a b_lim?
+    b = np.linspace(0.0, _b_end, analytic_params["ns"])
 
     r = np.array([_x(b), _y(b), _z(b)]).T
     v = np.array([_vx(b), _vy(b), _vz(b)]).T
