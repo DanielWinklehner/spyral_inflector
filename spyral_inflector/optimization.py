@@ -8,7 +8,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
                           units: degrees
     :param maxiter: Maximum number of iterations to find the optimum entrance and exit adjustment before giving up
     :param tol: maximum deviation tolerated for a successful solution (degrees)
-    :param res:
+    :param res: resolution for the potential calculation
     :return:
     """
 

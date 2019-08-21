@@ -415,7 +415,6 @@ class CentralRegion(PyElectrodeAssembly):
         for abs_dee in self._abstract_dees:
             abs_dee.plot_segments(show=show, ax=ax)
 
-    @NotImplemented
     def track_from_si(self, nsteps=1000, dt=1e-11):
         si = self._spiral_inflector
 
