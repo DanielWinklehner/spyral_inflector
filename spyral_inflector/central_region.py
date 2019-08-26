@@ -157,8 +157,12 @@ class CentralRegion(PyElectrodeAssembly):
                  ion=None):
         super().__init__(name="Central Region")
 
-        self._debug = False
-        self._initialized = False
+        # TODO: Clean up these variables, put them into params/variables for analytic/numerical
+
+        # State variables
+        self._DEBUG = False
+        self._INITIALIZED = False
+        self._MADE_DEES = False
 
         self._spiral_inflector = None
 
@@ -196,7 +200,7 @@ class CentralRegion(PyElectrodeAssembly):
 
     @property
     def debug(self):
-        return self._debug
+        return self._DEBUG
 
     @property
     def analytic_parameters(self):
@@ -237,22 +241,6 @@ class CentralRegion(PyElectrodeAssembly):
     @track_variables.setter
     def track_variables(self, track_variables):
         self._variables_track = track_variables
-
-    def initialize(self, xi=None, vi=None, dee_z_func=None):
-        if xi is None and vi is None:
-            trj_design = self._spiral_inflector.analytic_variables["trj_design"]
-            v_design = self._spiral_inflector.analytic_variables["trj_vel"]
-            self._xi, self._vi = trj_design[-1, :], v_design[-1, :]
-        else:
-            self._xi, self._vi = xi, vi
-
-        if dee_z_func is not None:
-            self._dee_z_func = dee_z_func
-        else:
-            def default_z_func(r):
-                return 0.0
-
-            self._dee_z_func = default_z_func
 
     def set_inflector(self, spiral_inflector):
         self._spiral_inflector = spiral_inflector
@@ -314,16 +302,8 @@ class CentralRegion(PyElectrodeAssembly):
 
             print("Successfully loaded B-Field from file")
 
-        if self._initialized:
+        if self._INITIALIZED:
             self.initialize()
-
-    def add_dee(self, dee):
-
-        dee.generate_geometry()
-        self._dees.append(dee)
-        self.add_electrode(dee)
-
-        return 0
 
     def split_dees(self):
 
@@ -382,7 +362,11 @@ class CentralRegion(PyElectrodeAssembly):
             self.add_electrode(dee)
             self._dees.append(dee)
 
+        self._MADE_DEES = True
+
     def make_dummy_dees(self, gap, thickness, **kwargs):
+
+        assert self._MADE_DEES, "You must create the dee electrodes first!"
 
         for i in range(len(self._abstract_dees) - 1):
             dummy_dee = DummyDee(self._abstract_dees[i], self._abstract_dees[i + 1],
@@ -410,6 +394,12 @@ class CentralRegion(PyElectrodeAssembly):
         self.numerical_parameters["gmres_tol"] = 0.0001
 
         solve_bempp(self)
+
+    def calculate_potential(self, **kwargs):
+        calculate_potential(self, **kwargs)
+
+    def calculate_efield(self):
+        calculate_efield_bempp(self)
 
     def plot_dees(self, ax=None, show=False):
         for abs_dee in self._abstract_dees:
@@ -524,6 +514,9 @@ dee_thk = {};
 
 
 class Sectors(object):
+    """
+    # TODO: Docstring
+    """
     def __init__(self, abstract_dees):
         self.abstract_dees = abstract_dees
         self.lookup = None
@@ -531,13 +524,19 @@ class Sectors(object):
         self.initialize()
 
     def initialize(self):
-
+        """
+        # TODO: Docstring
+        """
         first_dee = self.abstract_dees[0]
         last_dee = self.abstract_dees[-1]
 
         lookup = {}
 
         # [(0.0, 0.05): <dee1 ... deen>|segments in r_range, (0.05, 0.1): ...]
+
+        char_len = first_dee._char_len  # Characteristic length of CRSegments
+        gap = first_dee._gap
+        thickness = first_dee._thickness
 
         char_len = 0.05  # TODO: Get this dynamically -PW
         offset = 0.05
@@ -567,7 +566,9 @@ class Sectors(object):
         self.lookup = lookup
 
     def get_sector(self, pos, test=False):
-
+        """
+        # TODO: Docstring
+        """
         pos_r = np.sqrt(pos[0] ** 2 + pos[1] ** 2)  # Particle radial position
 
         rad_idx, next_gap, prev_gap = None, None, None
@@ -644,6 +645,9 @@ class Sectors(object):
 
 
 class AbstractDee(PyElectrode):
+    """
+    # TODO: Docstring
+    """
     def __init__(self,
                  r_init=0.05,
                  char_len=0.03,
@@ -905,6 +909,9 @@ class AbstractDee(PyElectrode):
 
 
 class DummyDee(PyElectrode):
+    """
+    # TODO: Docstring
+    """
     def __init__(self, parent1, parent2, gap=0.05, thickness=0.025, **kwargs):
         super().__init__(name="Dummy Dee", **kwargs)
 
@@ -924,6 +931,9 @@ class DummyDee(PyElectrode):
 
 
 class Dee(PyElectrode):
+    """
+    # TODO: Docstring
+    """
     def __init__(self, parent, gap=0.05, thickness=0.025, **kwargs):
         super().__init__(name="Dee", **kwargs)
 
@@ -942,6 +952,9 @@ class Dee(PyElectrode):
 
 
 class CRSegment(object):
+    """
+    # TODO: Docstring
+    """
     def __init__(self, ra, rb, color=0, phase_shift=1.0):
         self.ra = ra  # Inner coordinate (x,y)
         self.rb = rb  # Outer coordinate (x,y)

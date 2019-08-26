@@ -34,6 +34,12 @@ or through pip (or pip3):
 pip install .
 ```
 
+Test the installation with pytest:
+```bash
+cd tests
+pytest
+```
+
 ## Generating an analytical model
 
 Required Parameters:

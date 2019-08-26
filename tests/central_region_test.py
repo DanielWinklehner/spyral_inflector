@@ -185,48 +185,22 @@ class TestCentralRegion:
                              thickness=thickness)
         my_dee.initialize()
         my_dee.rotate(45, angle_unit="deg")
-        my_second_dee = AbstractDee(opening_angle=cr.dee_opening_angle,
-                                    r_init=0.05,
-                                    char_len=0.05,
-                                    gap=gap,
-                                    thickness=thickness)
-        my_second_dee.initialize()
-        my_second_dee.rotate(90 + 45, angle_unit="deg")
 
-        my_third_dee = AbstractDee(opening_angle=cr.dee_opening_angle,
-                                   r_init=0.05,
-                                   char_len=0.05,
-                                   gap=gap,
-                                   thickness=thickness)
-        my_third_dee.initialize(bottom_angle_offset=0, angle_unit="deg")
-        my_third_dee.rotate(180 + 45, angle_unit="deg")
-
-        my_fourth_dee = AbstractDee(opening_angle=cr.dee_opening_angle,
-                                    r_init=0.05,
-                                    char_len=0.05,
-                                    gap=gap,
-                                    thickness=thickness)
-        my_fourth_dee.initialize()
-        my_fourth_dee.rotate(270 + 45, angle_unit="deg")
-
-        dees = [my_dee, my_second_dee, my_third_dee, my_fourth_dee]
+        dees = [my_dee]
         cr._abstract_dees = dees
 
-        for dee in dees:
-            dee.make_transforms()
-            for k in range(10):
-                if k == 0 and dee is my_third_dee:
-                    dee.next_bottom_segment(angle_offset=0, angle_unit='deg')
-                else:
-                    dee.next_bottom_segment()
-                dee.next_top_segment()
+        # for dee in dees:
+        #     dee.make_transforms()
+        #     dee.next_bottom_segment()
+        #     dee.next_top_segment()
 
-        cr.make_dees(dees, n=4, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
-        cr.make_dummy_dees(gap=gap, thickness=thickness)
+        cr.make_dees(dees, n=1, voltage=cr.dee_voltage, gap=gap, thickness=thickness)
+        # cr.make_dummy_dees(gap=gap, thickness=thickness)
+        cr.show(show_screen=True)
         cr.solve_bempp()
         calculate_potential(cr,
                             limits=((-0.25, 0.25), (-0.25, 0.25), (-0.01, 0.01)),
-                            res=0.01,
+                            res=0.001,
                             domain_decomp=(4, 4, 4),
                             overlap=0)
 

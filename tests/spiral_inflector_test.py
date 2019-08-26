@@ -52,7 +52,7 @@ def test_numerical_spyral_inflector():
     si.initialize()
 
     si.set_parameter(key="h", value=0.008)  # Mesh characteristic length
-    si.set_parameter(key="make_aperture", value=False)
+    si.set_parameter(key="make_aperture", value=True)
     si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                    "radius": 50e-3,
                                                    "length": 45e-3,

@@ -2,9 +2,7 @@ from dans_pymodules import *
 from py_electrodes.py_electrodes import *
 
 # Define the directions:
-X = 0
-Y = 1
-Z = 2
+X, Y, Z = 0, 1, 2
 
 XYZ = range(3)
 

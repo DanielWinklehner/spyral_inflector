@@ -526,7 +526,8 @@ class SpiralInflector(object):
 
         return 0
 
-    # Function wrappers below
+    # --- Function wrappers below --- #
+
     def calculate_efield(self):
         if self._solver == 'bempp':
             return calculate_efield_bempp(self)
