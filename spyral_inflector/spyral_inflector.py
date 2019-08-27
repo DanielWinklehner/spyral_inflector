@@ -12,7 +12,7 @@ __doc__ = """
 This module calculates the geometry of a spiral inflector for given initial parameters:
 ion: mass, charge, energy
 spiral inflector: voltage, external b-field
-geometric parameters: thickness, gap, v-shape angle
+geometric parameters: thickness, gap, v-shape angle_deg
 
 This module is based on a MATLAB code written by Daniela Campo, which in turn is based on the
 paper: Toprek NIM A 440 (2000).
@@ -86,7 +86,7 @@ class SpiralInflector(object):
                                     "height": 0.0,  # Height of the inflector (extension in z-direction) (m)
                                     "kp": 0.0,  # Tilt parameter
                                     "k": 0.0,
-                                    "d": None,  # Inner gap size vs. deflection angle
+                                    "d": None,  # Inner gap size vs. deflection angle_deg
                                     "orbit_center": (None, None)  # x,y position of orbit center
                                     }
 

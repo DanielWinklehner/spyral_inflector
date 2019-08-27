@@ -79,7 +79,7 @@ si = SpiralInflector(ion=h2p,
                      solver="bempp",    # Can be either "bempp" or "fenics"
                      volt=12000,        # Electrode voltages
                      gap=18e-3,         # Electrode gap distance
-                     tilt=0,            # Tilt angle
+                     tilt=0,            angle_deg
                      dx=10e-3,          # Electrode thickness
                      sigma=0,           # v-shape parameter
                      ns=60,             # Number of trajectory points

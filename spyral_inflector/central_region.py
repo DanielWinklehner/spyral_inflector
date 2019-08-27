@@ -302,9 +302,6 @@ class CentralRegion(PyElectrodeAssembly):
 
             print("Successfully loaded B-Field from file")
 
-        if self._INITIALIZED:
-            self.initialize()
-
     def split_dees(self):
 
         for dee in self._dees:
@@ -343,9 +340,7 @@ class CentralRegion(PyElectrodeAssembly):
 
         return r, v
 
-    def make_dees(self, dees, n, gap, thickness, cl=0.1, **kwargs):
-
-        # cl = 0.1
+    def make_dees(self, dees, n, gap, thickness, **kwargs):
 
         self._abstract_dees = dees
 
@@ -366,7 +361,7 @@ class CentralRegion(PyElectrodeAssembly):
 
     def make_dummy_dees(self, gap, thickness, **kwargs):
 
-        assert self._MADE_DEES, "You must create the dee electrodes first!"
+        assert self._MADE_DEES, "You must create the dee electrodes first (make_dees)!"
 
         for i in range(len(self._abstract_dees) - 1):
             dummy_dee = DummyDee(self._abstract_dees[i], self._abstract_dees[i + 1],
@@ -535,12 +530,10 @@ class Sectors(object):
         # [(0.0, 0.05): <dee1 ... deen>|segments in r_range, (0.05, 0.1): ...]
 
         char_len = first_dee._char_len  # Characteristic length of CRSegments
-        gap = first_dee._gap
-        thickness = first_dee._thickness
-
-        char_len = 0.05  # TODO: Get this dynamically -PW
-        offset = 0.05
-        n_segments = 6  # TODO: Get this dynamically -PW
+        # gap = first_dee._gap
+        # thickness = first_dee._thickness
+        n_segments = len(first_dee._top_segments)
+        offset = first_dee._r_init
 
         for k in range(n_segments):
             # TODO: This tup starting point should be another CR variable (starting length?) -PW
@@ -609,6 +602,7 @@ class Sectors(object):
         else:
             print("Something weird happened!")
             print("The particle is probably outside the radial limits of the dee segments.")
+            return 1
 
         r_range = rad_idx  # TODO: Clean up these variable names... -PW
         segs_at_r = self.lookup[rad_idx]
@@ -651,7 +645,7 @@ class AbstractDee(PyElectrode):
     def __init__(self,
                  r_init=0.05,
                  char_len=0.03,
-                 angle=0.0,
+                 angle_deg=0.0,
                  opening_angle=30.0,
                  gap=0.05,
                  thickness=0.025,
@@ -660,10 +654,10 @@ class AbstractDee(PyElectrode):
 
         self._r_init = r_init
 
-        self.opening_angle = opening_angle
-        self._opening_angle = np.deg2rad(self.opening_angle)
-        self.angle = angle
-        self._angle = np.deg2rad(angle)
+        self.opening_angle_deg = opening_angle
+        self.opening_angle_rad = np.deg2rad(self.opening_angle_deg)
+        self.angle_deg = angle_deg
+        self.angle_rad = np.deg2rad(angle_deg)
 
         self._top_segments, self._bottom_segments = [], []
         self._char_len = char_len  # Characteristic length of CRSegments
@@ -681,12 +675,9 @@ class AbstractDee(PyElectrode):
         self.top_gap_vec = None
         self.bottom_gap_vec = None
 
-        self._debug = True
-        self.zfun = None
-
         # For the 2D field tracking method
-        # self.angle is the angle of the center of the dee
-        # self.opening_angle is the angular span of the dee
+        # self.angle_deg is the angle of the center of the dee
+        # self.opening_angle_deg is the angular span of the dee
         self._top_st = None
         self._bottom_st = None
 
@@ -698,11 +689,11 @@ class AbstractDee(PyElectrode):
         :return:
         """
         if angle_unit == "deg":
-            self.angle = angle
-            self._angle = np.deg2rad(angle)
+            self.angle_deg = angle
+            self.angle_rad = np.deg2rad(angle)
         elif angle_unit == "rad":
-            self.angle = np.rad2deg(angle)
-            self._angle = angle
+            self.angle_deg = np.rad2deg(angle)
+            self.angle_rad = angle
         else:
             return 1
 
@@ -711,7 +702,7 @@ class AbstractDee(PyElectrode):
 
         return 0
 
-    def initialize(self, top_angle_offset=0.0, bottom_angle_offset=0.0, length=None, angle_unit="deg"):
+    def initialize(self, top_angle_offset=0.0, bottom_angle_offset=0.0, angle_unit="deg"):
 
         # Initial top segment
 
@@ -723,20 +714,20 @@ class AbstractDee(PyElectrode):
             top_offset = top_angle_offset
             bottom_offset = bottom_angle_offset
 
-        ra = self._r_init * np.array([np.cos(self._opening_angle / 2.0),
-                                      np.sin(self._opening_angle / 2.0),
+        ra = self._r_init * np.array([np.cos(self.opening_angle_rad / 2.0),
+                                      np.sin(self.opening_angle_rad / 2.0),
                                       0.0])
-        rb = (self._r_init + self._char_len) * np.array([np.cos(self._opening_angle / 2.0 + top_offset),
-                                                         np.sin(self._opening_angle / 2.0 + top_offset),
+        rb = (self._r_init + self._char_len) * np.array([np.cos(self.opening_angle_rad / 2.0 + top_offset),
+                                                         np.sin(self.opening_angle_rad / 2.0 + top_offset),
                                                          0.0])
         top_seg = CRSegment(ra, rb, phase_shift=-1.0)
 
         # Initial bottom segment
-        ra = self._r_init * np.array([np.cos(-self._opening_angle / 2.0),
-                                      np.sin(-self._opening_angle / 2.0),
+        ra = self._r_init * np.array([np.cos(-self.opening_angle_rad / 2.0),
+                                      np.sin(-self.opening_angle_rad / 2.0),
                                       0.0])
-        rb = (self._r_init + self._char_len) * np.array([np.cos(-self._opening_angle / 2.0 + bottom_offset),
-                                                         np.sin(-self._opening_angle / 2.0 + bottom_offset),
+        rb = (self._r_init + self._char_len) * np.array([np.cos(-self.opening_angle_rad / 2.0 + bottom_offset),
+                                                         np.sin(-self.opening_angle_rad / 2.0 + bottom_offset),
                                                          0.0])
         bottom_seg = CRSegment(ra, rb, phase_shift=1.0)
 
@@ -761,7 +752,7 @@ class AbstractDee(PyElectrode):
         prev_seg = self._bottom_segments[-1]
         next_seg = CRSegment(ra, rb, color=1, phase_shift=1.0)
 
-        next_seg.rotate(self.angle - self.opening_angle / 2.0, angle_unit="deg")
+        next_seg.rotate(self.angle_deg - self.opening_angle_deg / 2.0, angle_unit="deg")
         next_seg.translate(prev_seg.rb)
 
         self._bottom_segments.append(next_seg)
@@ -784,7 +775,7 @@ class AbstractDee(PyElectrode):
         prev_seg = self._top_segments[-1]
         next_seg = CRSegment(ra, rb, color=1, phase_shift=-1.0)
 
-        next_seg.rotate(self.angle + self.opening_angle / 2.0, angle_unit="deg")
+        next_seg.rotate(self.angle_deg + self.opening_angle_deg / 2.0, angle_unit="deg")
         next_seg.translate(prev_seg.rb)
 
         self._top_segments.append(next_seg)
@@ -795,7 +786,7 @@ class AbstractDee(PyElectrode):
 
         # Split top
         for mid_seg in self._top_segments:
-            theta = self._opening_angle / 2.0 + np.pi / 2.0 + self._angle
+            theta = self.opening_angle_rad / 2.0 + np.pi / 2.0 + self.angle_rad
             gap_vec = (gap / 2.0) * np.array([np.cos(theta), np.sin(theta), 0.0])
 
             dd_seg = CRSegment(ra=mid_seg.ra + gap_vec, rb=mid_seg.rb + gap_vec, color=2)
@@ -807,7 +798,7 @@ class AbstractDee(PyElectrode):
 
         # Split bottom
         for mid_seg in self._bottom_segments:
-            theta = -self._opening_angle / 2.0 + np.pi / 2.0 + self._angle
+            theta = -self.opening_angle_rad / 2.0 + np.pi / 2.0 + self.angle_rad
             gap_vec = (gap / 2.0) * np.array([np.cos(theta), np.sin(theta), 0.0])
 
             dd_seg = CRSegment(ra=mid_seg.ra - gap_vec, rb=mid_seg.rb - gap_vec, color=2)
@@ -1012,7 +1003,7 @@ def check_intersection(q, b, p, d):
     t = np.cross(qmp, s) / rscross
     u = np.cross(qmp, r) / rscross
 
-    if np.cross(r, s) != 0 and t >= 0 and t <= 1 and u >= 0 and u <= 1:
+    if np.cross(r, s) != 0 and 0 <= t <= 1 and 0 <= u <= 1:
         return True
     else:
         return False

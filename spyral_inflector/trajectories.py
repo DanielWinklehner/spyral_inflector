@@ -257,7 +257,7 @@ def term_track(cr, r_init, v_init, starting_angle=0.0,
     return r[:i], v[:i]
 
 
-def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3):
+def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3, fatol=1e-4, xatol=1e-4):
     """
     Use the scipy Nelder-Mead algorithm and particle tracking methods to find static equilibrium orbits.
     :param cr: CentralRegion object
@@ -295,6 +295,9 @@ def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3):
                                       v_init=v_init,
                                       dt=1e-10)
 
+        plt.plot(r_final[:, 0], r_final[:, 1])
+        plt.show()
+
         theta = np.arctan2(r_final[:, 1], r_final[:, 0])  # Calculate the angle of the particle w.r.t. x-axis
         theta[theta < 0] += 2 * np.pi  # Change the angles from (-pi, pi) to (0, 2*pi)
         r_itp = scipy.interpolate.interp1d(theta,  # Interpolate the radius as a function of angle
@@ -327,7 +330,7 @@ def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3):
     sol = scipy.optimize.minimize(optimization_function,
                                   method="Nelder-Mead",
                                   x0=np.array([1.15 * ion.v_m_per_s() / omega_orbit, 0.0]),  # 1.15 is a fudge factor
-                                  options={'fatol': 1e-5, 'xatol': 1e-5})
+                                  options={'fatol': fatol, 'xatol': xatol})
 
     if verbose:
         print("Calculated orbit for {:.3f} MeV <<<".format(energy_mev))
