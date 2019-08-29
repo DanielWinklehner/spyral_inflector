@@ -15,8 +15,8 @@ class TestCentralRegion:
                            rf_phase=0.0,
                            ion=h2p)
 
-        cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
-                      vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
+        # cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
+        #               vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
 
         cr.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
@@ -78,8 +78,8 @@ class TestCentralRegion:
                            rf_phase=0.0,
                            ion=h2p)
 
-        cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
-                      vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
+        # cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
+        #               vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
 
         cr.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
@@ -100,8 +100,8 @@ class TestCentralRegion:
                            rf_phase=0.0,
                            ion=h2p)
 
-        cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
-                      vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
+        # cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
+        #               vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
 
         cr.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
@@ -169,8 +169,8 @@ class TestCentralRegion:
                            rf_phase=0.0,
                            ion=h2p)
 
-        cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
-                      vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
+        # cr.initialize(xi=np.array([0.05, 0.0, 0.0]),
+        #               vi=h2p.v_m_per_s() * np.array([0.0, 1.0, 0.0]))
 
         cr.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 

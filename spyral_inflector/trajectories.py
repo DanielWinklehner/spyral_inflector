@@ -540,14 +540,14 @@ def calculate_orbit_center(k, kp, height):
     return xc, yc
 
 
-# not_so_simple_tracker
+# not_so_simple_tracker TODO: rename
 def simple_tracker(cr, r_start=None, v_start=None, dt=1e-11, nturns=1, phase=0.0):
     from .central_region import TwoDeeField, Sectors
 
     gaps = cr._abstract_dees
     sectors = Sectors(gaps)
 
-    df = TwoDeeField(left_voltage=0.0, right_voltage=70.0e3)
+    df = TwoDeeField(left_voltage=0.0, right_voltage=70.0e3)  # TODO: Get the voltage from the cr object -PW
     dee_field = df._efield
 
     def get_dee_field(pos):

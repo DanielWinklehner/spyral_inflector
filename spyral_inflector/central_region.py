@@ -5,6 +5,7 @@ from .trajectories import *
 
 colors = MyColors()
 
+# TODO: Move these into the geometry file -PW
 gmsh_macros = """
 
 Macro MakeDeeSurface
@@ -128,6 +129,30 @@ Macro MakeArcPost
     Translate { 0.0, 0.0, -height/2 } { Volume { post_vol }; }
     dee_vol = newv;
     BooleanUnion(dee_vol) = { Volume { dee_top_vol, dee_bottom_vol }; Delete; } { Volume { post_vol }; Delete; };
+
+Return
+
+Macro MakeAnotherArcPost
+    // Point tags are p1, p2, p3, p4
+    // This is only a separate macro because the first macro combines the top and bottoms into one volume
+    // This macro only adds an additional post
+
+    first_line_idx = newl; Line(first_line_idx) = {p1, p2};
+    Circle (newl) = {p2, X, p3}; // Note, this requires X to be defined as the center point (origin typically)
+    Line (newl) = {p3, p4};
+    last_line_idx = newl; Circle(last_line_idx) = {p4, X, p1};
+
+    wire_idx = newll; Wire (wire_idx) = { first_line_idx:last_line_idx };
+    surface_idx = news; Surface (surface_idx) = { wire_idx };
+
+    height = gap + 2*thickness;
+    post_extrude[] = Extrude { 0.0, 0.0, height } { Surface { surface_idx }; };
+    post_vol = post_extrude[1];
+
+    Translate { 0.0, 0.0, -height/2 } { Volume { post_vol }; }
+    old_dee_vol = dee_vol;
+    dee_vol = newv;
+    BooleanUnion(dee_vol) = { Volume { old_dee_vol }; Delete; } { Volume { post_vol }; Delete; };
 
 Return
 
@@ -1069,7 +1094,7 @@ def check_intersection(q, b, p, d):
 
 
 def generate_dee_geometry(top_segments, bottom_segments, h=0.015,
-                          gap=0.05, thickness=0.025,
+                          gap=0.05, thickness=0.025, post_width=0.15,
                           starting_indices=(0, 0, 0, 0, 1)):
     # TODO: Move this into the geometry file -PW
     # indices[0] = Points
@@ -1109,21 +1134,49 @@ def generate_dee_geometry(top_segments, bottom_segments, h=0.015,
 
     geo_str += "\nend_idx = {};\n".format(indices[0] - 1)
 
-    geo_str += "Call MakeDeeSurface;\n"
-    # geo_str += "Call MakeArcDeeSurface;\n"
+    # geo_str += "Call MakeDeeSurface;\n"
+    geo_str += "Call MakeArcDeeSurface;\n"
     geo_str += "Call MakeDeeVolume;\n"
 
-    # Initial center post TODO: This should not use the midpoint, but something in between ra and mid...
+    tra = top_segments[0].ra
+    trb = top_segments[0].rb
+    bra = bottom_segments[0].ra
+    brb = bottom_segments[0].rb
+
+    tc = post_width * (trb - tra) + tra
+    bc = post_width * (brb - bra) + bra
+
+    # Initial center post
     geo_str += "p1 = newp; Point(p1) = {{ {}, {}, 0.0 }};\n".format(top_segments[0].ra[0],
                                                                     top_segments[0].ra[1])
-    geo_str += "p2 = newp; Point(p2) = {{ {}, {}, 0.0 }};\n".format(top_segments[0].mid[0],
-                                                                    top_segments[0].mid[1])
-    geo_str += "p3 = newp; Point(p3) = {{ {}, {}, 0.0 }};\n".format(bottom_segments[0].mid[0],
-                                                                    bottom_segments[0].mid[1])
+    geo_str += "p2 = newp; Point(p2) = {{ {}, {}, 0.0 }};\n".format(tc[0],
+                                                                    tc[1])
+    geo_str += "p3 = newp; Point(p3) = {{ {}, {}, 0.0 }};\n".format(bc[0],
+                                                                    bc[1])
     geo_str += "p4 = newp; Point(p4) = {{ {}, {}, 0.0 }};\n".format(bottom_segments[0].ra[0],
                                                                     bottom_segments[0].ra[1])
-    geo_str += "Call MakePost;\n"
-    # geo_str += "Call MakeArcPost;\n"
+    # geo_str += "Call MakePost;\n"
+    geo_str += "Call MakeArcPost;\n"  # First post is a special case
+
+    for k in range(1, len(bottom_segments)):
+
+        tra = top_segments[k].ra
+        trb = top_segments[k].rb
+        bra = bottom_segments[k].ra
+        brb = bottom_segments[k].rb
+
+        tc = post_width*(trb - tra) + tra
+        bc = post_width*(brb - bra) + bra
+
+        geo_str += "p1 = newp; Point(p1) = {{ {}, {}, 0.0 }};\n".format(top_segments[k].ra[0],
+                                                                        top_segments[k].ra[1])
+        geo_str += "p2 = newp; Point(p2) = {{ {}, {}, 0.0 }};\n".format(tc[0],
+                                                                        tc[1])
+        geo_str += "p3 = newp; Point(p3) = {{ {}, {}, 0.0 }};\n".format(bc[0],
+                                                                        bc[1])
+        geo_str += "p4 = newp; Point(p4) = {{ {}, {}, 0.0 }};\n".format(bottom_segments[k].ra[0],
+                                                                        bottom_segments[k].ra[1])
+        geo_str += "Call MakeAnotherArcPost;\n"
 
     # Last turn post
     # geo_str += "p1 = newp; Point(p1) = {{ {}, {}, 0.0 }};\n".format(top_segments[-1].rb[0],

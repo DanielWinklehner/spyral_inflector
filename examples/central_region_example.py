@@ -20,7 +20,7 @@ my_dee = AbstractDee(opening_angle=cr.dee_opening_angle,  # Opening angle of the
                      char_len=cl,  # Characteristic length of dee segments
                      gap=gap,  # Gap between dee and dummy dee
                      thickness=thickness)  # Thickness of the dee electrodes
-my_dee.initialize()
+my_dee.initialize()  # Must be initialized before rotating
 my_dee.rotate(45, angle_unit="deg")
 
 my_second_dee = AbstractDee(opening_angle=cr.dee_opening_angle,
@@ -96,15 +96,15 @@ trj = res[0]
 ax.plot(trj[:, 0], trj[:, 1], color=colors[0])
 
 # Track with the 2D approximations
-# res2 = simple_tracker(cr,
-#                       r_start=r_init,
-#                       v_start=v_init,
-#                       nturns=1,
-#                       dt=1e-11,
-#                       phase=np.deg2rad(180 - 35.0 / 2.0 - 60))
-#
-# trj = res2[0]
-# ax.plot(trj[:, 0], trj[:, 1], '--', color=colors[1])
+res2 = simple_tracker(cr,
+                      r_start=r_init,
+                      v_start=v_init,
+                      nturns=1,
+                      dt=1e-11,
+                      phase=np.deg2rad(180 - 35.0 / 2.0 - 60))
+
+trj = res2[0]
+ax.plot(trj[:, 0], trj[:, 1], '--', color=colors[1])
 
 for dee in dees:
     dee.plot_segments(show=False, ax=ax)

@@ -205,3 +205,4 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
 def central_region_optimization(cr):
     # TODO: WIP
     pass
+
