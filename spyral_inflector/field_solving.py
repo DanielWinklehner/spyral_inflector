@@ -44,7 +44,7 @@ class FenicsField(object):  # TODO: Implement this into the dans_pymodules Field
         return self._field(position[0], position[1], position[2])
 
 
-def calculate_efield_bempp(si):
+def calculate_efield_bempp(si):  # TODO: Change 'si' to a more generic name (works for cr too) -PW
 
     numerical_vars = si.numerical_variables
     phi = numerical_vars["ef_phi"]
@@ -95,15 +95,16 @@ def calculate_efield_fenics(si):
     numerical_vars["ef_itp"] = electric_field
     si.numerical_variables = numerical_vars
 
-    fieldfile = fn.File(TEMP_DIR + '/e_field.pvd')
-    fieldfile << fenics_field
+    if si.debug:
+        fieldfile = fn.File(TEMP_DIR + '/e_field.pvd')
+        fieldfile << fenics_field
 
     print("Done!", flush=True)
 
     return 0
 
 
-def calculate_potential(si,
+def calculate_potential(si,  # TODO: Change 'si' to a more generic name (works for cr too) -PW
                         limits=((None, None), (None, None), (None, None)),
                         res=0.002,
                         domain_decomp=(4, 4, 4),
@@ -342,10 +343,11 @@ def solve_fenics(si):
 
     si.numerical_variables = numerical_vars
 
-    potentialFile = fn.File(TEMP_DIR + '/potential.pvd')
-    potentialFile << u
+    if si.debug:
+        potentialFile = fn.File(TEMP_DIR + '/potential.pvd')
+        potentialFile << u
 
-    meshfile = fn.File(TEMP_DIR + '/mesh.pvd')
-    meshfile << mesh
+        meshfile = fn.File(TEMP_DIR + '/mesh.pvd')
+        meshfile << mesh
 
     return 0

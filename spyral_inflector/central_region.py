@@ -74,6 +74,63 @@ Macro MakeSomething
 
 Return
 
+Macro MakeArcDeeSurface
+
+    // Make the n'th dee
+    // Assume there's a variable start_idx, which defines the first point
+    // and another variable end_idx, which defines the last
+
+    // There are end_idx - start_idx points
+    // So the one half of the dee is from start_idx to start_idx + N / 2
+    
+    first_line_idx = newl; Line(first_line_idx) = {start_idx, start_idx + 1};
+    
+    // For k In {1:end_idx-start_idx-1}
+    //     Line (newl) = {start_idx + k, start_idx + k + 1};
+    // EndFor
+
+    Na = (end_idx - start_idx - 1) / 2;
+
+    For k In {1:Na-1}
+        Line (newl) = {start_idx + k, start_idx + k + 1};
+    EndFor
+
+    X = newp; Point(X) = { 0.0, 0.0, 0.0 };
+
+    Circle (newl) = { Na, X, Na+1};
+
+    For k In {Na+1:end_idx-start_idx-1}
+        Line (newl) = {start_idx + k, start_idx + k + 1};
+    EndFor
+    
+    // Make the last line, close the loop with a wire, and create a surface
+    last_line_idx = newl; Circle (last_line_idx) = {start_idx, X, end_idx};
+    wire_idx = newll; Wire (wire_idx) = { first_line_idx:last_line_idx };
+    surface_idx = news; Surface (surface_idx) = { wire_idx };
+
+Return
+
+Macro MakeArcPost
+    // Point tags are p1, p2, p3, p4
+    
+    first_line_idx = newl; Line(first_line_idx) = {p1, p2};
+    Circle (newl) = {p2, X, p3}; // Note, this requires X to be defined as the center point (origin typically)
+    Line (newl) = {p3, p4};
+    last_line_idx = newl; Circle(last_line_idx) = {p4, X, p1};
+
+    wire_idx = newll; Wire (wire_idx) = { first_line_idx:last_line_idx };
+    surface_idx = news; Surface (surface_idx) = { wire_idx };
+
+    height = gap + 2*thickness;
+    post_extrude[] = Extrude { 0.0, 0.0, height } { Surface { surface_idx }; };
+    post_vol = post_extrude[1];
+
+    Translate { 0.0, 0.0, -height/2 } { Volume { post_vol }; }
+    dee_vol = newv;
+    BooleanUnion(dee_vol) = { Volume { dee_top_vol, dee_bottom_vol }; Delete; } { Volume { post_vol }; Delete; };
+
+Return
+
 """
 
 two_dim_dee_gmsh_str = """
@@ -310,6 +367,7 @@ class CentralRegion(PyElectrodeAssembly):
         return 0
 
     def plot_bfield(self, nx=100, ny=100, xlims=(-0.3, 0.3), ylims=(-0.3, 0.3), z=0.0, fig=None, ax=None):
+        # TODO: Move this into the plotting file. -PW
         from matplotlib import cm
 
         x, y = np.linspace(xlims[0], xlims[1], nx), \
@@ -445,14 +503,14 @@ h_gap = {};
 v_gap = {};
 dee_thk = {};
 
-""".format(0.15, self._h_gap, self._v_gap, 0.02)
+""".format(0.15, self._h_gap, self._v_gap, 0.02)  # TODO: needs some dynamic inputs for dee_len and dee_thk?
 
         self._gmsh_str = gmsh_str_prelude + two_dim_dee_gmsh_str
 
         with open(TEMP_DIR + '/{}.geo'.format(self._id), 'w') as f:
             f.write(self._gmsh_str)
 
-        os.system(
+        os.system(  # TODO: Does this work for all systems? -PW
             'gmsh -2 ' + TEMP_DIR + '/{}.geo -format msh2 -v 0 -o '.format(self._id) + TEMP_DIR + '/{}.msh'.format(
                 self._id))
         msh = meshio.read(TEMP_DIR + "/{}.msh".format(self._id))
@@ -502,7 +560,7 @@ dee_thk = {};
             meshfile << mesh
 
         fenics_field = fn.project(-fn.grad(u), solver_type='cg', preconditioner_type='ilu')
-        electric_field = FenicsField(fenics_field)
+        electric_field = FenicsField(fenics_field)  # A wrapper that works with our tracking methods
 
         self._potential = u
         self._efield = electric_field
@@ -562,6 +620,7 @@ class Sectors(object):
         """
         # TODO: Docstring
         """
+        # TODO: This method may only work for a particle traveling counter-clockwise!
         pos_r = np.sqrt(pos[0] ** 2 + pos[1] ** 2)  # Particle radial position
 
         rad_idx, next_gap, prev_gap = None, None, None
@@ -942,7 +1001,7 @@ class Dee(PyElectrode):
         self.generate_from_geo_str(geo_str)
 
 
-class CRSegment(object):
+class CRSegment(object):  # TODO: "DeeSegment" may be a better name -PW
     """
     # TODO: Docstring
     """
@@ -952,7 +1011,7 @@ class CRSegment(object):
         self.mid = 0.5 * (ra + rb)
 
         # Phase shift is either 1.0 or -1.0, coming from the difference betwee dee-->dummy dee and dummy dee-->dee
-        self.phase_shift = phase_shift  # TODO: Maybe 'flip' is a better name? -PW
+        self.phase_shift = phase_shift  # TODO: Maybe 'flip' is a better name? -PW, is this still used?
         self.tr = None  # Transformation matrix for central region tracking
 
         self.color = color
@@ -1012,6 +1071,7 @@ def check_intersection(q, b, p, d):
 def generate_dee_geometry(top_segments, bottom_segments, h=0.015,
                           gap=0.05, thickness=0.025,
                           starting_indices=(0, 0, 0, 0, 1)):
+    # TODO: Move this into the geometry file -PW
     # indices[0] = Points
     # indices[1] = Lines
     # indices[2] = Line Loops
@@ -1039,20 +1099,6 @@ def generate_dee_geometry(top_segments, bottom_segments, h=0.015,
         geo_str += "Point ({}) = {{ {}, {}, {} }};\n".format(indices[0], seg.rb[0], seg.rb[1], seg.rb[2])
         indices[0] += 1
 
-    # Outer arc center point
-    # r1, r2 = self.top_dee_segs[-1].rb, self.bottom_dee_segs[-1].rb
-    # rc = 0.5*(r2 - r1)
-    # ro = r1 + rc
-    # R = 1.0  # TODO
-    # a = np.linalg.norm(rc)
-    # dr = np.array([rc[1], -rc[0]]) * np.sqrt((R/a)**2 - 1)
-    # rp = ro + dr
-    # geo_str += "Point ({}) = {{ {}, {}, 0.0 }};\n".format(indices[0], rp[0], rp[1])
-    # outer_arc_center_idx = indices[0]
-    # indices[0] += 1
-    #
-    # dtheta = np.arccos(np.dot(r1, r2) / (np.linalg.norm(r1) * np.linalg.norm(r2)))
-
     for i, seg in enumerate(bottom_segments[::-1]):
         geo_str += "Point ({}) = {{ {}, {}, {} }};\n".format(indices[0], seg.rb[0], seg.rb[1], seg.rb[2])
         indices[0] += 1
@@ -1064,8 +1110,10 @@ def generate_dee_geometry(top_segments, bottom_segments, h=0.015,
     geo_str += "\nend_idx = {};\n".format(indices[0] - 1)
 
     geo_str += "Call MakeDeeSurface;\n"
+    # geo_str += "Call MakeArcDeeSurface;\n"
     geo_str += "Call MakeDeeVolume;\n"
 
+    # Initial center post TODO: This should not use the midpoint, but something in between ra and mid...
     geo_str += "p1 = newp; Point(p1) = {{ {}, {}, 0.0 }};\n".format(top_segments[0].ra[0],
                                                                     top_segments[0].ra[1])
     geo_str += "p2 = newp; Point(p2) = {{ {}, {}, 0.0 }};\n".format(top_segments[0].mid[0],
@@ -1075,6 +1123,18 @@ def generate_dee_geometry(top_segments, bottom_segments, h=0.015,
     geo_str += "p4 = newp; Point(p4) = {{ {}, {}, 0.0 }};\n".format(bottom_segments[0].ra[0],
                                                                     bottom_segments[0].ra[1])
     geo_str += "Call MakePost;\n"
+    # geo_str += "Call MakeArcPost;\n"
+
+    # Last turn post
+    # geo_str += "p1 = newp; Point(p1) = {{ {}, {}, 0.0 }};\n".format(top_segments[-1].rb[0],
+    #                                                                 top_segments[-1].rb[1])
+    # geo_str += "p2 = newp; Point(p2) = {{ {}, {}, 0.0 }};\n".format(top_segments[-1].mid[0],
+    #                                                                 top_segments[-1].mid[1])
+    # geo_str += "p3 = newp; Point(p3) = {{ {}, {}, 0.0 }};\n".format(bottom_segments[-1].mid[0],
+    #                                                                 bottom_segments[-1].mid[1])
+    # geo_str += "p4 = newp; Point(p4) = {{ {}, {}, 0.0 }};\n".format(bottom_segments[-1].rb[0],
+    #                                                                 bottom_segments[-1].rb[1])
+    # geo_str += "Call MakeArcPost;\n"
 
     with open('_dee.geo', 'w') as f:
         f.write(geo_str)

@@ -257,7 +257,7 @@ def term_track(cr, r_init, v_init, starting_angle=0.0,
     return r[:i], v[:i]
 
 
-def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3, fatol=1e-4, xatol=1e-4):
+def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3, fatol=1e-2, xatol=1e-2):
     """
     Use the scipy Nelder-Mead algorithm and particle tracking methods to find static equilibrium orbits.
     :param cr: CentralRegion object
@@ -270,8 +270,9 @@ def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3, fatol=1e-4, xa
 
     freq_orbit = cr.rf_freq / cr.harmonic  # Ideal frequency of an orbit
     omega_orbit = 2.0 * np.pi * freq_orbit  # Angular orbit frequency
-    ion = IonSpecies(cr.analytic_parameters["ion"].name(), energy_mev)  # Make a new ion with the same type as the CR, with energy_mev
 
+    # Make a new ion with the same type as the CR, with energy_mev
+    ion = IonSpecies(cr.analytic_parameters["ion"].name(), energy_mev)
     errors = []  # Running list of the errors from the optimization
 
     def optimization_function(x):
@@ -281,7 +282,7 @@ def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3, fatol=1e-4, xa
             print("Initial v angle: {:.9f}".format(x[1]))
 
         if x[0] > radial_limit:
-            return 100 + 100 * x[0]  # Not sure how well this check works -PW
+            return 100 + 100 * x[0]  # TODO: Not sure how well this check works -PW
 
         r_init = np.array([x[0], 1e-12, 0.0])  # 1e-12 to put it just above the x-axis
         v_angle = x[1]
@@ -295,33 +296,41 @@ def orbit_finder(cr, energy_mev, verbose=False, radial_limit=0.3, fatol=1e-4, xa
                                       v_init=v_init,
                                       dt=1e-10)
 
-        plt.plot(r_final[:, 0], r_final[:, 1])
-        plt.show()
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111)
+        # ax.plot(r_final[:, 0], r_final[:, 1])
+        # ax.set_xlim([-0.3, 0.3])
+        # ax.set_ylim([-0.3, 0.3])
+        # plt.show()
+        #
+        # theta = np.arctan2(r_final[:, 1], r_final[:, 0])  # Calculate the angle of the particle w.r.t. x-axis
+        # theta[theta < 0] += 2 * np.pi  # Change the angles from (-pi, pi) to (0, 2*pi)
+        # r_itp = scipy.interpolate.interp1d(theta,  # Interpolate the radius as a function of angle
+        #                                    np.sqrt(r_final[:, 0] ** 2 + r_final[:, 1] ** 2),
+        #                                    fill_value="extrapolate")
+        #
+        # # Interpolate the three components of velocity as a function of angle
+        # vx_itp = scipy.interpolate.interp1d(theta,
+        #                                     v_final[:, 0],
+        #                                     fill_value="extrapolate")
+        # vy_itp = scipy.interpolate.interp1d(theta,
+        #                                     v_final[:, 1],
+        #                                     fill_value="extrapolate")
+        # vz_itp = scipy.interpolate.interp1d(theta,
+        #                                     v_final[:, 2],
+        #                                     fill_value="extrapolate")
+        #
+        # # Velocity at the end of tracking
+        # v_end = np.array([vx_itp(2 * np.pi), vy_itp(2 * np.pi), vz_itp(2 * np.pi)])
+        #
+        # # Calculate the angular difference between start and end velocities
+        # v_diff = np.arccos(np.dot(v_init[:2], v_end[:2]) / (np.linalg.norm(v_init[:2]) * np.linalg.norm(v_end[:2])))
+        # error = (1e2 * r_itp(2.0 * np.pi) - 1e2 * x[0]) ** 2 + v_diff ** 2  # Calculate error
 
-        theta = np.arctan2(r_final[:, 1], r_final[:, 0])  # Calculate the angle of the particle w.r.t. x-axis
-        theta[theta < 0] += 2 * np.pi  # Change the angles from (-pi, pi) to (0, 2*pi)
-        r_itp = scipy.interpolate.interp1d(theta,  # Interpolate the radius as a function of angle
-                                           np.sqrt(r_final[:, 0] ** 2 + r_final[:, 1] ** 2),
-                                           fill_value="extrapolate")
-
-        # Interpolate the three components of velocity as a function of angle
-        vx_itp = scipy.interpolate.interp1d(theta,
-                                            v_final[:, 0],
-                                            fill_value="extrapolate")
-        vy_itp = scipy.interpolate.interp1d(theta,
-                                            v_final[:, 1],
-                                            fill_value="extrapolate")
-        vz_itp = scipy.interpolate.interp1d(theta,
-                                            v_final[:, 2],
-                                            fill_value="extrapolate")
-
-        # Velocity at the end of tracking
-        v_end = np.array([vx_itp(2 * np.pi), vy_itp(2 * np.pi), vz_itp(2 * np.pi)])
-
-        # Calculate the angular difference between start and end velocities
-        v_diff = np.arccos(np.dot(v_init[:2], v_end[:2]) / (np.linalg.norm(v_init[:2]) * np.linalg.norm(v_end[:2])))
-        error = (1e2 * r_itp(2.0 * np.pi) - 1e2 * x[0]) ** 2 + v_diff ** 2  # Calculate error
-
+        v_diff = np.arccos((v_init[0]*v_final[-1, 0] + v_init[1]*v_final[-1, 1]) / (np.linalg.norm(v_init[:2])*np.linalg.norm(v_final[-1, :2])))
+        error = (np.linalg.norm(r_final[-1, :2] - r_init[:2]) / np.linalg.norm(r_init[:2]))**2 + \
+                (v_diff)**2
+        print("Error: {:.5f}".format(error))
         # TODO: Look into how the interpolation affects the results, rather than just getting v[-1]
         errors.append(error)
 
