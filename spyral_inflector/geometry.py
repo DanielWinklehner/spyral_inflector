@@ -1,5 +1,5 @@
 from dans_pymodules import *
-from py_electrodes.py_electrodes import *
+from py_electrodes.py_electrodes import *  # From py_electrodes we also get HAVE_GMSH and GMSH_EXE
 
 X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)
@@ -1291,12 +1291,13 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
         assert HAVE_FENICS, "Fenics not found. Aborting!"
         assert HAVE_MESHIO, "Meshio not found. Aborting!"
+        assert HAVE_GMSH, "Gmsh was not properly installed with py_electrodes. Aborting!"
 
         si.generate_vacuum_space()
 
         import os
 
-        os.system('gmsh -3 '+TEMP_DIR+'/master_geometry.geo -format msh2 -v 0 -o '+TEMP_DIR+'/master_geometry.msh')
+        os.system(GMSH_EXE+' -3 '+TEMP_DIR+'/master_geometry.geo -format msh2 -v 0 -o '+TEMP_DIR+'/master_geometry.msh')
         # os.system('dolfin-convert master_geometry.msh master_geometry.xml')
         msh = meshio.read(TEMP_DIR + "/master_geometry.msh")
         meshio.write(TEMP_DIR + "/master_geometry.xdmf", msh)
