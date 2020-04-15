@@ -1,6 +1,9 @@
-from dans_pymodules import *
+# from .global_variables import *
+from PyPATools.field import Field
+from PyPATools.pusher import ParticlePusher
+import numpy as np
 # import multiprocessing as mp
-import time
+# import time
 
 
 def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
@@ -168,16 +171,16 @@ def generate_analytical_trajectory(si):
     analytic_vars["kp"] = np.tan(np.deg2rad(tilt))  # Tilt parameter
     analytic_vars["k"] = ((h / analytic_vars["r_cyc"]) + analytic_vars["kp"]) / 2.0
 
-    cp = analytic_vars["c+"] = (2.0 * analytic_vars["k"] + 1.0)
-    cm = analytic_vars["c-"] = -(2.0 * analytic_vars["k"] - 1.0)
+    cplus = analytic_vars["c+"] = (2.0 * analytic_vars["k"] + 1.0)
+    cminus = analytic_vars["c-"] = -(2.0 * analytic_vars["k"] - 1.0)
 
     # --- Trajectory coordinates --- #
     _x = +0.5 * h * ((2.0 / (1.0 - (4.0 * (analytic_vars["k"] ** 2.0)))) -
-                     (np.cos(cp * analytic_vars["b"]) / cp) - np.cos(
-                -cm * analytic_vars["b"]) / cm)
+                     (np.cos(cplus * analytic_vars["b"]) / cplus) - np.cos(
+                -cminus * analytic_vars["b"]) / cminus)
 
-    _y = -0.5 * h * (np.sin(cp * analytic_vars["b"]) / cp +
-                     np.sin(-cm * analytic_vars["b"]) / cm)
+    _y = -0.5 * h * (np.sin(cplus * analytic_vars["b"]) / cplus +
+                     np.sin(-cminus * analytic_vars["b"]) / cminus)
 
     _z = - h * (1.0 - np.sin(analytic_vars["b"]))
 
@@ -306,12 +309,12 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         _b[i + 1] = i * dt * vo / analytic_vars["height"]
 
         # Toprek theory with surgery
-        Eh = field_val * analytic_vars["kp"] * np.sin(_b[i + 1])
-        Ehx = -Eh * vy / (np.sqrt(vo ** 2.0 - vz ** 2.0))
-        Ehy = Eh * vx / (np.sqrt(vo ** 2.0 - vz ** 2.0))
+        eh = field_val * analytic_vars["kp"] * np.sin(_b[i + 1])
+        ehx = -eh * vy / (np.sqrt(vo ** 2.0 - vz ** 2.0))
+        ehy = eh * vx / (np.sqrt(vo ** 2.0 - vz ** 2.0))
 
-        ex = field_val * vx * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + Ehx
-        ey = field_val * vy * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + Ehy
+        ex = field_val * vx * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + ehx
+        ey = field_val * vy * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + ehy
         ez = -field_val * (vo ** 2.0 - vz ** 2.0) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0))
         efield1 = Field(dim=0, field={"x": ex, "y": ey, "z": ez})
         if vz < 0:  # Stop when the z-component of the velocity is zero

@@ -1,9 +1,12 @@
-from dans_pymodules import *
+# from .global_variables import *
+from .vector import Vector
+import numpy as np
 
 
 def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.002):
     """
     This function optimizes the length of the spiral inflector to adjust for fringe fields.
+    :param si: the spiral inflector object
     :param initial_guess: tuple, list or ndarray containing angle adjustment for entrance and exit
                           units: degrees
     :param maxiter: Maximum number of iterations to find the optimum entrance and exit adjustment before giving up
@@ -23,7 +26,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     # Start with an initial guess for bmin, bmax. If None, use 0.0
     # TODO: Update to use current internal adjustment, if present -DW
     _db_init = np.array(initial_guess)
-    _db_init[np.where(_db_init == None)] = 0.0
+    _db_init[np.where(_db_init is None)] = 0.0
     _db = _db_init[:]
 
     # Half the length of the cube for electric field calculation
@@ -47,7 +50,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     while abs(deviation_x) > tol:
 
         # Apply the angle correction (first time use initial guess)
-        si._set_blim(b_min=0.0 + _db[0])
+        si.set_blim(b_min=0.0 + _db[0])
         # (Re-)calculate the new geometry and BEM++ solution
         si.generate_meshed_model()
         si.solve()
@@ -122,7 +125,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     while abs(deviation) > tol:
 
         # Apply the angle correction (first time use initial guess)
-        si._set_blim(b_max=90.0 + _db[1])
+        si.set_blim(b_max=90.0 + _db[1])
         # (Re-)calculate the new geometry and BEM++ solution
         si.generate_meshed_model()
         si.solve()

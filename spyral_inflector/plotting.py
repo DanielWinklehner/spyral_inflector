@@ -1,8 +1,11 @@
-from dans_pymodules import *
+from .global_variables import *
 from mpl_toolkits.mplot3d import proj3d
 from .geometry import SITrajectory
-
-colors = MyColors()
+from .tk_filedialog import FileDialog
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+from mpl_toolkits.mplot3d import Axes3D
 
 
 def orthogonal_proj(zfront, zback):
@@ -32,7 +35,8 @@ def draw_geometry(si, freq=10, show=False, filename=None, aux_trajectories=None)
     # for _, elec in numerical_vars["objects"].electrodes.items():
     #     print(elec.name, elec.occ_obj)
 
-    numerical_vars["objects"].set_translation(shift, absolute=True)  # TODO: This should be applied as part of calculation
+    # TODO: This should be applied as part of calculation
+    numerical_vars["objects"].set_translation(shift, absolute=True)
     display, start_display = numerical_vars["objects"].show()
 
     # Trajectories
@@ -151,7 +155,7 @@ def plot_bfield(si, lims=(-0.2, 0.2), num=5000):
     for i in range(num):
         zpt = zpts[i]
         b[i] = si._params_analytic["bf_itp"](np.array([0.0, 0.0, zpt]))[2]
-    ax.plot(np.array(zpts), -np.array(b), colors[0], linewidth=3.0)
+    ax.plot(np.array(zpts), -np.array(b), COLORS[0], linewidth=3.0)
     plt.xlim([-0.2, 0.2])
     plt.xlabel('z (m)')
     plt.ylabel('B (T)')

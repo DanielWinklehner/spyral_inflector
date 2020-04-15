@@ -1,7 +1,7 @@
 from spyral_inflector import *
 
-h2p = IonSpecies("H2_1+", 0.035)
-h2p.calculate_from_energy_mev(0.07 / h2p.a())
+h2p = ParticleDistribution(species=IonSpecies("H2_1+"))
+h2p.set_mean_energy_z_mev(0.07)
 
 si = SpiralInflector(ion=h2p,
                      method="numerical",
@@ -73,7 +73,7 @@ print("Calculating field took {:.4f} s".format(time.time() - ts))
 ts = time.time()
 
 si.track(r_start=np.array([0.0, 0.0, -0.13]),
-         v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+         v_start=np.array([0.0, 0.0, h2p.v_mean_m_per_s]),
          nsteps=15000,
          dt=1e-11)
 

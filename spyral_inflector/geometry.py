@@ -1,5 +1,6 @@
-from dans_pymodules import *
 from py_electrodes.py_electrodes import *  # From py_electrodes we also get HAVE_GMSH and GMSH_EXE
+import matplotlib.pyplot as plt
+from .vector import Vector
 
 X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)
@@ -1586,7 +1587,7 @@ End Sub
 
 def save_geo_files(si, filename=None):
     import os
-    from dans_pymodules import FileDialog
+    from .tk_filedialog import FileDialog
     if filename is None:
         fd = FileDialog()
         folder, _ = fd.get_filename("folder")

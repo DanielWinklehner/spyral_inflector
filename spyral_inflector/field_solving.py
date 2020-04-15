@@ -1,5 +1,5 @@
-from dans_pymodules import *
 from py_electrodes.py_electrodes import *
+from PyPATools.field import Field, RegularGridInterpolator
 
 # Define the directions:
 X = 0
@@ -329,8 +329,8 @@ def solve_fenics(si):
 
     si.numerical_variables = numerical_vars
 
-    potentialFile = fn.File(TEMP_DIR + '/potential.pvd')
-    potentialFile << u
+    pot_file = fn.File(TEMP_DIR + '/potential.pvd')
+    pot_file << u
 
     meshfile = fn.File(TEMP_DIR + '/mesh.pvd')
     meshfile << mesh

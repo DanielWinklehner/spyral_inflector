@@ -1,10 +1,11 @@
+# from .global_variables import *
 from .field_solving import *
 from .geometry import *
 from .optimization import *
 from .plotting import *
 from .trajectories import *
-
-from dans_pymodules import *
+from PyPATools.species import IonSpecies
+from PyPATools.particles import ParticleDistribution
 import numpy as np
 
 __author__ = "Daniela Campo, Philip Weigel, Daniel Winklehner"
@@ -17,12 +18,6 @@ geometric parameters: thickness, gap, v-shape angle
 This module is based on a MATLAB code written by Daniela Campo, which in turn is based on the
 paper: Toprek NIM A 440 (2000).
 """
-
-# Initialize some global constants
-amu = const.value("atomic mass constant energy equivalent in MeV")
-echarge = const.value("elementary charge")
-clight = const.value("speed of light in vacuum")
-colors = MyColors()
 
 
 def orthogonal_proj(zfront, zback):
@@ -58,7 +53,7 @@ class SpiralInflector(object):
 
         # --- Semi-fixed Spiral Inflector Parameters ----------------------------------------------------------------- #
         # Note: After changing one of these parameters, the spiral inflector has to be recalculated from scratch
-        self._params_analytic = {"ion": None,  # ion species to design the spiral inflector for (from dans_pymodules)
+        self._params_analytic = {"ion": None,  # ion species to design the spiral inflector for (from pyPATools)
                                  "bf_itp": None,  # type: Field
                                  "volt": None,  # The voltage applied to the electrodes (V)
                                  # Geometry:
@@ -307,7 +302,7 @@ class SpiralInflector(object):
 
         print("Initialization...", end="")
 
-        _ion = self._params_analytic["ion"]  # type: IonSpecies
+        _ion = self._params_analytic["ion"]  # type: ParticleDistribution
         volt = self._params_analytic["volt"]  # type: float
         gap = self._params_analytic["gap"]  # type: float
 
@@ -316,9 +311,10 @@ class SpiralInflector(object):
         self._variables_analytic["b"] = np.linspace(self._params_analytic["b_lim"][0],
                                                     self._params_analytic["b_lim"][1],
                                                     self._params_analytic["ns"])
-        self._variables_analytic["r_cyc"] = abs(_ion.b_rho() / self._variables_analytic["bf_design"])  # (m)
+        self._variables_analytic["r_cyc"] = abs(_ion.mean_b_rho / self._variables_analytic["bf_design"])  # (m)
         self._variables_analytic["ef_design"] = 2.0 * volt / gap  # (V/m)
-        self._variables_analytic["height"] = abs(2.0 * _ion.total_kinetic_energy_ev() / (_ion.q() * 2.0 * volt / gap))
+        self._variables_analytic["height"] = abs(2.0 * _ion.mean_energy_mev * MV /
+                                                 (_ion.species.q * 2.0 * volt / gap))
 
         # Reset the design trajectory to None
         self._variables_analytic["trj_design"] = None  # type: np.ndarray
@@ -394,7 +390,7 @@ class SpiralInflector(object):
         if self._initialized:
             self.initialize()
 
-    def _set_blim(self, b_min=None, b_max=None):
+    def set_blim(self, b_min=None, b_max=None):
 
         reinit = False
 
@@ -439,10 +435,9 @@ class SpiralInflector(object):
     def save(self, fname):
         import pickle
 
-        saved_numerical_vars = {}
-        saved_numerical_vars["full mesh"] = self._variables_numerical["full mesh"]
-        saved_numerical_vars["n_fun_coeff"] = self._variables_numerical["n_fun_coeff"]
-        saved_numerical_vars["limits"] = self._variables_numerical["limits"]
+        saved_numerical_vars = {"full mesh": self._variables_numerical["full mesh"],
+                                "n_fun_coeff": self._variables_numerical["n_fun_coeff"],
+                                "limits": self._variables_numerical["limits"]}
 
         save_obj = {"method": self._method,
                     "solver": self._solver,
@@ -454,8 +449,8 @@ class SpiralInflector(object):
                     "variables_track": self._variables_track,
                     "variables_optimization": self._variables_optimization}
 
-        with open(fname, 'wb') as outfile:
-            pickle.dump(save_obj, outfile)
+        with open(fname, 'wb') as of:
+            pickle.dump(save_obj, of)
 
         return 0
 
@@ -592,8 +587,8 @@ class SpiralInflector(object):
 
 
 if __name__ == "__main__":
-    h2p = IonSpecies("H2_1+", 0.035)
-    h2p.calculate_from_energy_mev(0.07 / h2p.a())
+    h2p = ParticleDistribution(species=IonSpecies("H2_1+"))
+    h2p.set_mean_energy_z_mev(0.07)
 
     si = SpiralInflector(ion=h2p,
                          method="numerical",
@@ -648,7 +643,7 @@ if __name__ == "__main__":
     ts = time.time()
 
     si.track(r_start=np.array([0.0, 0.0, -0.15]),
-             v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+             v_start=np.array([0.0, 0.0, h2p.v_mean_m_per_s()]),
              nsteps=15000,
              dt=1e-11)
 

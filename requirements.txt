@@ -1,6 +1,5 @@
 numpy
 scipy
-dans_pymodules
 py_electrodes
 matplotlib
 bempp
