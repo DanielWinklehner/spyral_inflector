@@ -1,6 +1,7 @@
 from py_electrodes.py_electrodes import *  # From py_electrodes we also get HAVE_GMSH and GMSH_EXE
 import matplotlib.pyplot as plt
 from .vector import Vector
+from PyPATools.particles import ParticleDistribution
 
 X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)
@@ -625,7 +626,7 @@ def generate_analytical_geometry(si):
     print("Generating analytical geometry... ", end="")
 
     geos = []
-    _ion = analytic_params["ion"]  # type: IonSpecies
+    _ion = analytic_params["ion"]  # type: ParticleDistribution
     ns = analytic_params["ns"]  # type: int
     gap = analytic_params["gap"]  # type: float
     sigma = analytic_params["sigma"]  # type: float
@@ -648,19 +649,19 @@ def generate_analytical_geometry(si):
             analytic_vars["d"] = d
 
         # x-component of the velocity vector
-        vx = np.array(0.5 * _ion.v_m_per_s() * (np.sin(cp * b) + np.sin(cm * b)))
+        vx = np.array(0.5 * _ion.v_mean_m_per_s * (np.sin(cp * b) + np.sin(cm * b)))
 
         # y-component of the velocity vector
-        vy = np.array(-0.5 * _ion.v_m_per_s() * (np.cos(cp * b) - np.cos(cm * b)))
+        vy = np.array(-0.5 * _ion.v_mean_m_per_s * (np.cos(cp * b) - np.cos(cm * b)))
 
         # Rotation/flip
-        if not ((analytic_vars["bf_design"] > 0.0) ^ (_ion.q() > 0.0)):
+        if not ((analytic_vars["bf_design"] > 0.0) ^ (_ion.species.q > 0.0)):
             if si.debug:
                 print("Flipping direction of cyclotron motion...", end="")
             vy = -vy
 
         v2 = np.sqrt((vx ** 2.0) + (vy ** 2.0))  # xy-magnitude of the velocity
-        vz = np.sqrt((_ion.v_m_per_s() ** 2.0) - (v2 ** 2.0) + 0.0j)  # z-component of the velocity
+        vz = np.sqrt((_ion.v_mean_m_per_s ** 2.0) - (v2 ** 2.0) + 0.0j)  # z-component of the velocity
 
         # Checks for imaginary components of the z-component
         for i in range(ns):
@@ -775,7 +776,7 @@ def generate_numerical_geometry(si):
     print("Generating numerical geometry... ", end="")
 
     geos = []
-    _ion = analytic_params["ion"]  # type: IonSpecies
+    _ion = analytic_params["ion"]  # type: ParticleDistribution
     ns = analytic_params["ns"]  # type: int
     gap = analytic_params["gap"]  # type: float
     sigma = analytic_params["sigma"]  # type: float

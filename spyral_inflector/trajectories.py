@@ -18,7 +18,7 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
         print("No E-Field has been generated. Cannot track!")
         return 1
 
-    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
@@ -67,7 +67,7 @@ def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=Fa
         print("No E-Field has been generated. Cannot track!")
         return 1
 
-    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
@@ -104,7 +104,7 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
         print("No E-Field has been generated. Cannot track!")
         return 1
 
-    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     if omit_e:
         efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
@@ -187,7 +187,7 @@ def generate_analytical_trajectory(si):
     analytic_vars["trj_design"] = np.array([_x, _y, _z]).T
 
     # Rotation/flip
-    if not ((analytic_vars["bf_design"] < 0.0) ^ (analytic_params["ion"].q() < 0.0)):
+    if not ((analytic_vars["bf_design"] < 0.0) ^ (analytic_params["ion"].species.q < 0.0)):
         if si.debug:
             print("Flipping direction of cyclotron motion...", end="")
         analytic_vars["trj_design"][:, 1] = -analytic_vars["trj_design"][:, 1]
@@ -242,7 +242,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     if "dt" in track_params:
         dt = track_params["dt"]
 
-    pusher = ParticlePusher(analytic_params["ion"], "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     tilt = analytic_params["tilt"]  # type: float
 
@@ -250,7 +250,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     analytic_vars["k"] = ((analytic_vars["height"] / analytic_vars["r_cyc"]) + analytic_vars["kp"]) / 2.0
 
     r_start = np.array([0.0, 0.0, -analytic_vars["height"]])
-    v_start = np.array([0.0, 0.0, analytic_params["ion"].v_m_per_s()])
+    v_start = np.array([0.0, 0.0, analytic_params["ion"].v_mean_m_per_s])
 
     _r = np.zeros([nsteps + 1, 3])
     _v = np.zeros([nsteps + 1, 3])
@@ -259,7 +259,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     _v[0, :] = v_start[:]
 
     # Create a new electric field, which will be repeatedly re-defined
-    field_val = analytic_vars["ef_design"] * np.sign(analytic_params["ion"].q())
+    field_val = analytic_vars["ef_design"] * np.sign(analytic_params["ion"].species.q)
     efield1 = Field(dim=0, field={"x": field_val, "y": 0.0, "z": 0.0})
 
     if bf is not None:
@@ -299,10 +299,20 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
 
     i = 0
     while i < nsteps:
+
         ef = efield1(_r[i])
         bf = bfield1(_r[i])
 
+        if si.debug and i == 0:
+            print("v0 =", _v[i])
+            print("r0 =", _r[i])
+            print("Fields", ef, bf)
+
         _r[i + 1], _v[i + 1] = pusher.push(_r[i], _v[i], ef, bf, dt)
+
+        if si.debug and i == 0:
+            print("v1 =", _v[i + 1])
+            print("r1 =", _r[i + 1])
 
         vx, vy, vz = _v[i + 1]
         vo = np.sqrt(vx ** 2.0 + vy ** 2.0 + vz ** 2.0)
@@ -317,11 +327,16 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         ey = field_val * vy * np.abs(vz) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0)) + ehy
         ez = -field_val * (vo ** 2.0 - vz ** 2.0) / (vo * np.sqrt(vo ** 2.0 - vz ** 2.0))
         efield1 = Field(dim=0, field={"x": ex, "y": ey, "z": ez})
+
         if vz < 0:  # Stop when the z-component of the velocity is zero
+
             if si.debug:
                 print(_r[i + 1, :])  # Print the final position
+
             break
+
         i += 1
+
     ns = i
 
     try:
@@ -337,7 +352,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         i_final = i
 
     if si.debug:
-        print("Design Trajectory: Initial index: %i, Final index: %i.".format(i_init, i_final))
+        print("Design Trajectory: Initial index: {}, Final index: {}.".format(i_init, i_final))
 
     # The arrays cannot be as large as they're made initially.
     # This would cause the BEMPP routines to perform the computations

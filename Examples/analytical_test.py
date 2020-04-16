@@ -1,8 +1,8 @@
 from spyral_inflector import *
 
-# Define the ion species with energy 35 keV/n
-h2p = IonSpecies("H2_1+", 0.035)
-h2p.calculate_from_energy_mev(0.07 / h2p.a())
+# Define the ion species with energy 70 keV
+h2p = ParticleDistribution(species=IonSpecies("H2_1+"))
+h2p.set_mean_energy_z_mev(0.07)
 
 # Create spiral inflector object with the follow parameters
 si = SpiralInflector(ion=h2p,
