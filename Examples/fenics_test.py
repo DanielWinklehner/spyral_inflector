@@ -1,7 +1,7 @@
 from spyral_inflector import *
 
-h2p = IonSpecies("H2_1+", 0.035)
-h2p.calculate_from_energy_mev(0.07 / h2p.a())
+h2p = ParticleDistribution(species=IonSpecies("H2_1+"))
+h2p.set_mean_energy_z_mev(0.07)
 
 si = SpiralInflector(ion=h2p,
                      method="numerical",
