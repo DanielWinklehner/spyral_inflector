@@ -13,7 +13,7 @@ si = SpiralInflector(ion=h2p,
                      dx=10e-3,
                      sigma=1.5E-3,
                      ns=60,
-                     debug=True)
+                     debug=False)
 
 si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
@@ -23,7 +23,7 @@ si.initialize()
 # draw_geometry(si, freq=10, show=True)
 
 si.set_parameter(key="h", value=0.005)  # Mesh characteristic length
-si.set_parameter(key="make_aperture", value=False)
+si.set_parameter(key="make_aperture", value=True)
 si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
                                                "radius": 50e-3,
                                                "length": 45e-3,
@@ -40,7 +40,7 @@ si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                "voltage": 0.0})
 
 si.set_parameter(key="make_housing",
-                 value=False)
+                 value=True)
 si.set_parameter(key="housing_params",
                  value={"zmin": -0.12,
                         "zmax": 0.03,
@@ -79,4 +79,4 @@ si.track(r_start=np.array([0.0, 0.0, -0.13]),
 
 print("Tracking took {:.4f} s".format(time.time() - ts))
 
-si.draw_geometry(show=True)
+si.draw_geometry(freq=50, show=True)

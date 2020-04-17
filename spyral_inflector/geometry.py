@@ -11,10 +11,12 @@ HAVE_BEMPP = False
 try:
     import bempp.api
     from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+    from bempp.api.grid import Grid as BemppGrid
 
     HAVE_BEMPP = True
 except ImportError:
     bempp = None
+    BemppGrid = None
 
 HAVE_FENICS = False
 try:
@@ -1279,15 +1281,26 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
 
         leaf_view = assy.get_bempp_mesh()
 
+        # print("len verts:", len(leaf_view["verts"]),
+        #       "len elems:", len(leaf_view["elems"]),
+        #       "len domns:", len(leaf_view["domns"]))
+        # print()
+        # print(leaf_view["verts"])
+        # print(leaf_view["elems"])
+        # print(leaf_view["domns"])
+
         numerical_vars["full mesh"] = {"verts": leaf_view["verts"],
                                        "elems": leaf_view["elems"],
                                        "domns": leaf_view["domns"]}
 
         if si.debug:
-            _full_mesh = bempp.api.grid_from_element_data(leaf_view["verts"],
-                                                          leaf_view["elems"],
-                                                          leaf_view["domns"])
-            _full_mesh.plot()
+            _full_mesh = BemppGrid(leaf_view["verts"],
+                                   leaf_view["elems"],
+                                   leaf_view["domns"])
+
+            # bempp.api.PLOT_BACKEND = "gmsh"
+            #
+            # _full_mesh.plot()
 
     elif si.solver == "fenics":
 

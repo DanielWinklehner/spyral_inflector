@@ -13,9 +13,11 @@ HAVE_BEMPP = False
 try:
     import bempp.api
     from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+    from bempp.api.grid import Grid as BemppGrid
     HAVE_BEMPP = True
 except ImportError:
     bempp = None
+    BemppGrid = None
 
 
 HAVE_FENICS = False
@@ -122,9 +124,9 @@ def calculate_potential(si,
     _mesh_data = numerical_vars["full mesh"]
     _n_fun_coeff = numerical_vars["n_fun_coeff"]
 
-    _mesh = bempp.api.grid.grid_from_element_data(_mesh_data["verts"],
-                                                  _mesh_data["elems"],
-                                                  _mesh_data["domns"])
+    _mesh = BemppGrid(_mesh_data["verts"],
+                      _mesh_data["elems"],
+                      _mesh_data["domns"])
 
     dp0_space = bempp.api.function_space(_mesh, "DP", 0)
 
@@ -233,23 +235,24 @@ def solve_bempp(si):
 
     _mesh_data = numerical_vars["full mesh"]
 
-    _mesh = bempp.api.grid.grid_from_element_data(_mesh_data["verts"],
-                                                  _mesh_data["elems"],
-                                                  _mesh_data["domns"])
+    _mesh = BemppGrid(_mesh_data["verts"],
+                      _mesh_data["elems"],
+                      _mesh_data["domns"])
 
     dp0_space = bempp.api.function_space(_mesh, "DP", 0)
 
     slp = bempp.api.operators.boundary.laplace.single_layer(dp0_space, dp0_space, dp0_space)
 
-    domain_mapping = {}
+    # With the new bempp-cl using numba, domain_mapping has to be a numpy array instead
+    # of a dictionary, bempp_domain is integer, so this should work -DW 2020
+    domain_mapping = np.zeros(max([electrode.bempp_domain for _, electrode in electrodes.items()]) + 1)
+
+    # domain_mapping = {}
     for name, electrode in electrodes.items():
         domain_mapping[electrode.bempp_domain] = electrode.voltage
 
-    def f(*args):
-
-        domain_index = args[2]
-        result = args[3]
-
+    @bempp.api.real_callable
+    def f(x, n, domain_index, result):
         result[0] = domain_mapping[domain_index]
 
     dirichlet_fun = bempp.api.GridFunction(dp0_space, fun=f)
@@ -257,6 +260,7 @@ def solve_bempp(si):
     numerical_vars["d_fun_coeff"] = dirichlet_fun.coefficients
 
     if si.debug:
+        bempp.api.PLOT_BACKEND = "gmsh"
         dirichlet_fun.plot()
 
     sol, info, res = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
