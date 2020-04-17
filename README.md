@@ -11,15 +11,32 @@ This modules has several required prerequisite modules to be installed. Some of 
 
 In addition to those, you will need to have:
 
-- [dans_pymodules](https://github.com/DanielWinklehner/dans_pymodules)
+- [PyPATools](https://github.com/DanielWinklehner/PyPATools)
 - [py_electrodes](https://github.com/DanielWinklehner/py_electrodes)
 
 As of May 2019, two solvers can be used to calculate fields. You only need one installed to be able to utilize the features in the spyral_inflector modules.
-- [BEMPP](https://bempp.com/)
+- [bempp-cl](https://github.com/bempp/bempp-cl)
 - [FEniCS](https://fenicsproject.org/)
 
+_Note: At present, the FEniCS solver does not fully work. Fixing this is high on
+our priority list!_
 
-**Installing the module**
+### Installation using [Anaconda3](https://www.anaconda.com/)
+[PyPATools](https://github.com/DanielWinklehner/PyPATools) comes with an 
+_environment.yml_ file that can be used to directly create a conda environment
+in both Windows and Ubuntu 18 (other Linux distributions may well work, but
+haven't been tested yet). 
+
+The PyPATools conda environment is meant to include everything needed to run
+programs in the 
+[Python Particle Accelerator Tools](https://github.com/users/DanielWinklehner/projects/1) 
+project and includes installation of py_electrodes and bempp-cl through pip+git.
+
+_Note: Unfortunately, bempp-cl requires OpenCL drivers 
+installed and the Windows Subsystem for Linux (WSL) does not support that kind
+of hardware access (yet)._
+
+### Installing the module
 ```bash
 git clone https://github.com/DanielWinklehner/spyral_inflector.git
 cd spyral_inflector
@@ -33,6 +50,20 @@ or through pip (or pip3):
 ```bash
 pip install .
 ```
+
+or directly from git:
+
+```bash
+pip install git+https://github.com/DanielWinklehner/spyral_inflector.git
+```
+
+The git installation works without cloning the repository first. Examples can be
+directly downloaded from the
+[examples](https://github.com/DanielWinklehner/spyral_inflector/tree/master/Examples) 
+folder.
+
+_Note: If you are not using a separate environment (conda or env), we recommend using
+the ``--user`` option with pip to install modules locally._
 
 ## Generating an analytical model
 
