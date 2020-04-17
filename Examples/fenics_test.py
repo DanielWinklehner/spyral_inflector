@@ -64,7 +64,7 @@ print("Optimizing took {:.4f} s".format(time.time() - ts))
 ts = time.time()
 
 si.track(r_start=np.array([0.0, 0.0, -0.13]),
-         v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
+         v_start=np.array([0.0, 0.0, h2p.v_mean_m_per_s]),
          nsteps=15000,
          dt=1e-11)
 
