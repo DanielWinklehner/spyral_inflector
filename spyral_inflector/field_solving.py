@@ -151,12 +151,7 @@ def calculate_potential(si,
     _d = (limits[:, 1] - limits[:, 0]) / (_n - 1)
 
     # Generate a full spatial mesh to be indexed later
-    print(limits)
-    print(_n)
-    temp_list = [np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ]
-    for _l in temp_list:
-        print(_l.shape)
-    _r = np.array([np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ])
+    _r = [np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ]
     mesh = np.meshgrid(_r[X], _r[Y], _r[Z], indexing='ij')  # type: np.ndarray
 
     # Initialize potential array
