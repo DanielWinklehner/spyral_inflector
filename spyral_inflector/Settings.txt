@@ -1,4 +1,4 @@
-DEBUG::False
+DEBUG::True
 DECIMALS::12
 TEMP_DIR::temp
 RELATIVISTIC::True

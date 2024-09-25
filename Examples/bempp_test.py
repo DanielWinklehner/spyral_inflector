@@ -13,8 +13,9 @@ si = SpiralInflector(ion=h2p,
                      dx=10e-3,
                      sigma=1.5E-3,
                      ns=60,
-                     debug=False)
+                     debug=True)
 
+# si.load_bfield()
 si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
 
 si.initialize()
@@ -57,7 +58,7 @@ si.solve()
 
 ts = time.time()
 
-si.optimize_fringe(maxiter=3, tol=0.02, res=0.005)
+si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
 print("Optimizing took {:.4f} s".format(time.time() - ts))
 
 ts = time.time()
@@ -80,3 +81,6 @@ si.track(r_start=np.array([0.0, 0.0, -0.13]),
 print("Tracking took {:.4f} s".format(time.time() - ts))
 
 si.draw_geometry(freq=50, show=True)
+
+print(si.electrode_geometry_macro())
+print(si.aperture_geometry_macro())

@@ -23,7 +23,7 @@ try:
     import fenics as fn
 
     HAVE_FENICS = True
-except:
+except ImportError:
     fn = None
 
 HAVE_MESHIO = False

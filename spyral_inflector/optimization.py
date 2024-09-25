@@ -19,7 +19,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     analytic_vars = si.analytic_variables
     track_vars = si.track_variables
 
-    assert si.method is not "analytical", "You can't optimize using an analytical model!"
+    assert si.method != "analytical", "You can't optimize using an analytical model!"
 
     print("Starting the optimization process...")
 

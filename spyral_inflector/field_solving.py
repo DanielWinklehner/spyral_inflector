@@ -16,6 +16,7 @@ try:
     from bempp.api.grid import Grid as BemppGrid
     HAVE_BEMPP = True
 except ImportError:
+    print("sPyral inflector: Couldn't import BEMPP")
     bempp = None
     BemppGrid = None
 
@@ -52,7 +53,7 @@ def calculate_efield_bempp(si):
 
     limits = numerical_vars["limits"]
 
-    _r = np.array([np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ])
+    _r = [np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ]
 
     ex, ey, ez = np.gradient(phi, _d[X], _d[Y], _d[Z])
 
@@ -151,7 +152,7 @@ def calculate_potential(si,
     _d = (limits[:, 1] - limits[:, 0]) / (_n - 1)
 
     # Generate a full spatial mesh to be indexed later
-    _r = np.array([np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ])
+    _r = [np.linspace(limits[i, 0], limits[i, 1], _n[i]) for i in XYZ]
     mesh = np.meshgrid(_r[X], _r[Y], _r[Z], indexing='ij')  # type: np.ndarray
 
     # Initialize potential array
@@ -231,7 +232,7 @@ def solve_bempp(si):
         print("Please generate a mesh before solving with BEM++!")
         return 1
 
-    print("Generating necessary BEM++ operators, function spaces. Solving... ", end="", flush=True)
+    print("Generating necessary BEM++ operators, function spaces. Solving...", flush=True)
 
     _mesh_data = numerical_vars["full mesh"]
 
@@ -263,6 +264,7 @@ def solve_bempp(si):
         bempp.api.PLOT_BACKEND = "gmsh"
         dirichlet_fun.plot()
 
+    print("...running GMRES...", flush=True)
     sol, info, res = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
     print("Done!", flush=True)
 
