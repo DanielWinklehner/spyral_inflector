@@ -65,7 +65,8 @@ class SpiralInflector(object):
                                  "ns": None,  # Resolution of the analytical solution (steps along beam trajectory s)
                                  "b_lim": np.deg2rad(np.array([0.0, 90.0])),  # Limits of the curvature
                                  "rotation": 0.0,  # Clockwise rotation of the spiral inflector, assuming that at
-                                 # 0.0 deg the entrance E-field points in the x-dir
+                                 "gammaAng": -1.0,
+                                 "anglingAng": -1.0
                                  }
 
         for key in self._params_analytic.keys():
@@ -111,9 +112,18 @@ class SpiralInflector(object):
                                                      "gap": None,
                                                      "thickness": None,
                                                      "voltage": 0.0,
-                                                     "experimental": None}
+                                                     "experimental": None},
+                                  "make_quadrupoles": False, #Add focusing quadrupoles to assembly
+                                  "quadrupole_params": {"radius": 0.05,
+                                                        "a": 0.017,
+                                                        "b": 0.02,
+                                                        "z_starts": [-0.22],
+                                                        "lengths": [3.0],
+                                                        "voltages": [1000],
+                                                        "aper_rad": [0.04]}
                                   }
 
+        
         for key in self._params_numerical.keys():
             if key in kwargs.keys():
                 self._params_numerical[key] = kwargs[key]
@@ -307,7 +317,6 @@ class SpiralInflector(object):
         gap = self._params_analytic["gap"]  # type: float
 
         self._calculate_bf_max()
-
         self._variables_analytic["b"] = np.linspace(self._params_analytic["b_lim"][0],
                                                     self._params_analytic["b_lim"][1],
                                                     self._params_analytic["ns"])
@@ -395,14 +404,18 @@ class SpiralInflector(object):
         reinit = False
 
         if b_min is not None:
-            assert b_min >= 0.0, "b_min has to be >= 0, found {}".format(b_min)
-            self._params_analytic["b_lim"][0] = np.deg2rad(b_min)
-            reinit = True
+            try:
+                assert b_min >= 0.0, "b_min has to be >= 0, found {}".format(b_min)
+                self._params_analytic["b_lim"][0] = np.deg2rad(b_min)
+            except:
+                reinit = True
 
         if b_max is not None:
-            assert b_max <= 90.0, "b_max has to be <= 90, found {}".format(b_max)
-            self._params_analytic["b_lim"][1] = np.deg2rad(b_max)
-            reinit = True
+            try:
+                assert b_max <= 90.0, "b_max has to be <= 90, found {}".format(b_max)
+                self._params_analytic["b_lim"][1] = np.deg2rad(b_max)
+            except:
+                reinit = True
 
         if reinit:
             self.initialize()
@@ -621,8 +634,10 @@ if __name__ == "__main__":
     si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
                                                    "zmin": -150e-3,
                                                    "zmax": 80e-3,
-                                                   "voltage": 0.0})
+                                                   "voltage": 0.0,
+                                                   "hyperParams":[0,0,0]})
 
+    
     generate_meshed_model(si)
 
     ts = time.time()

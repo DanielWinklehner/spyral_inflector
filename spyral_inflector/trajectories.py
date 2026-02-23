@@ -6,7 +6,7 @@ import numpy as np
 # import time
 
 
-def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False):
+def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, omit_e=False,set_bds=False):
     # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
@@ -40,6 +40,10 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
     bf = bfield1(r[0])
     _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
 
+    if set_bds:
+        pusher.set_bds(si.bempp_variables["objects"])  # 'objects' is now a PyElectrodeAssembly
+
+    
     # Track for n steps
     for i in range(nsteps):
         # print(r[i])
@@ -47,6 +51,7 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
         ef = efield1(r[i])
         bf = bfield1(r[i])
 
+        
         r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
 
     track_vars["trj_tracker"] = r
@@ -338,7 +343,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         i += 1
 
     ns = i
-
+    
     try:
         i_init = np.where(_b >= analytic_params["b_lim"][0])[0][0]
         if i_init == 0:
@@ -357,6 +362,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     # The arrays cannot be as large as they're made initially.
     # This would cause the BEMPP routines to perform the computations
     # with incredibly high resolution and would never finish. -PW
+    #step = int(np.floor((ns / 100)))
     step = int(np.floor((ns / 50)))
     interval = [j for j in range(i_init, i_final, step)]
     interval.append(i_final)
@@ -375,6 +381,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
 
     analytic_params["ns"] = len(r[:, 0])
 
+    
     if analytic_params["rotation"] != 0.0:
         for i in range(analytic_params["ns"]):
             analytic_vars["trj_design"][i, :] = np.matmul(analytic_vars["rot"],
