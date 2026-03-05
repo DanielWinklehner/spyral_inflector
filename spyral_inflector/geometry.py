@@ -917,7 +917,8 @@ def get_norm_vec_and_angles_from_geo(geo):
 
     # face angle is the angle of mid_vec_b projected into x/y plane with x/z plane
     temp_vec = Vector([mid_vec_b[0], mid_vec_b[1], 0.0])
-    face_angle = 0.5 * np.pi - temp_vec.angle_with(Vector(Y_AXIS))
+    # face_angle = 0.5 * np.pi - temp_vec.angle_with(Vector(Y_AXIS))
+    face_angle = np.arctan2(mid_vec_b[1], mid_vec_b[0])
 
     return tilt_angle, face_angle
 
