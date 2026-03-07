@@ -4,17 +4,15 @@ from .vector import Vector
 from PyPATools.particles import ParticleDistribution
 import numpy as np
 
-
 X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)
 Z_AXIS = np.array([0, 0, 1], float)
 
 HAVE_BEMPP = False
 try:
-    import bempp.api
-    from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
-    from bempp.api.grid import Grid as BemppGrid
-
+    import bempp_cl.api
+    from bempp_cl.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+    from bempp_cl.api.grid import Grid as BemppGrid
     HAVE_BEMPP = True
 except ImportError:
     bempp = None
@@ -23,7 +21,6 @@ except ImportError:
 HAVE_FENICS = False
 try:
     import fenics as fn
-
     HAVE_FENICS = True
 except ImportError:
     fn = None
@@ -31,7 +28,6 @@ except ImportError:
 HAVE_MESHIO = False
 try:
     import meshio
-
     HAVE_MESHIO = True
 except ImportError:
     meshio = None
@@ -310,7 +306,9 @@ class SIElectrode(PyElectrode):
         return rotated_point
 
             
-    def create_geo_str(self, raw_geo, elec_type, h=0.005, load=True, header=True,gammaAng = -1.0,gamma_plane=[],angling = -1):
+    def create_geo_str(self, raw_geo, elec_type, h=0.005,
+                       load=True, header=True, gammaAng = -1.0,
+                       gamma_plane=[], angling = -1):
 
         f = self._offset
 
@@ -388,6 +386,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             p1        = gamma_plane[1]
             d_A2      = gamma_plane[2]
 
+        if gammaAng <= 0.0:
+            A2_normal = None
+            p1        = None
+            d_A2      = None
             
         for j in range(num_sections):
 
@@ -630,7 +632,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         if elec_type == "cathode":
             return geo_str
         else:
-            return geo_str,[A2_normal,p1,d_A2]
+            return geo_str, [A2_normal, p1, d_A2]
 
 
 # Geometrically, trajectories have much in common with electrodes...
@@ -684,6 +686,8 @@ Geometry.NumSubEdges = 100; // nicer display of curve
 
         geo_str += "// Center Spline:\n"
         for _x, _y, _z in points:
+            if np.isnan(_x):
+                break
             geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt + offset, _x, _y, _z)
             new_pt += 1
 

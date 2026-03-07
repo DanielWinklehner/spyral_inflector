@@ -200,10 +200,10 @@ class SpiralInflector(object):
         _x = np.zeros(10000)
         _y = np.zeros(10000)
         _z = np.linspace(-1.0, 1.0, 10000)
-        _points = np.vstack([_x, _y, _z]).T
+        _points = np.column_stack([_x, _y, _z])
 
         _bf = self._params_analytic["bf_itp"]  # type: Field
-        _, _, _bz = _bf(_points)
+        _bz = _bf(_points)[:, 2]
 
         self._variables_analytic["bf_design"] = np.round(np.sign(np.mean(_bz)) * np.max(abs(_bz)), 2)
 
@@ -586,8 +586,8 @@ class SpiralInflector(object):
     def fast_track(self, **kwargs):
         return fast_track(self, **kwargs)
 
-    def fast_track_with_termination(self, **kwargs):
-        return fast_track_with_termination(self, **kwargs)
+    def fast_track_batch_with_termination(self, **kwargs):
+        return fast_track_batch_with_termination(self, **kwargs)
 
     def calculate_orbit_center(self, k=None, kp=None, height=None):
         if k is None:

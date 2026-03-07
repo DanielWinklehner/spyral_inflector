@@ -1,6 +1,6 @@
 # from .global_variables import *
 from PyPATools.field import Field
-from PyPATools.pusher import ParticlePusher
+from PyPATools.pusher import Pusher
 import numpy as np
 # import multiprocessing as mp
 # import time
@@ -18,15 +18,15 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
         print("No E-Field has been generated. Cannot track!")
         return 1
 
-    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = Pusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     if omit_e:
-        efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+        efield1 = Field.zero()
     else:
         efield1 = numerical_vars["ef_itp"]  # type: Field
 
     if omit_b:
-        bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+        bfield1 = Field.zero()
     else:
         bfield1 = analytic_params["bf_itp"]  # type: Field
 
@@ -36,23 +36,21 @@ def track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=False, 
     v[0, :] = v_start[:]
 
     # initialize the velocity half a step back:
-    ef = efield1(r[0])
-    bf = bfield1(r[0])
-    _, v[0] = pusher.push(r[0], v[0], ef, bf, -0.5 * dt)
+    # ef = efield1(r[0])
+    # bf = bfield1(r[0])
+    _, v[0] = pusher.push(r[0], v[0], efield1, bfield1, -0.5 * dt)
 
-    if set_bds:
-        pusher.set_bds(si.bempp_variables["objects"])  # 'objects' is now a PyElectrodeAssembly
+    # if set_bds:
+    #     pusher.set_bds(si.bempp_variables["objects"])  # 'objects' is now a PyElectrodeAssembly
 
-    
     # Track for n steps
     for i in range(nsteps):
         # print(r[i])
 
-        ef = efield1(r[i])
-        bf = bfield1(r[i])
+        # ef = efield1(r[i])
+        # bf = bfield1(r[i])
 
-        
-        r[i + 1], v[i + 1] = pusher.push(r[i], v[i], ef, bf, dt)
+        r[i + 1], v[i + 1] = pusher.push(r[i], v[i], efield1, bfield1, dt)
 
     track_vars["trj_tracker"] = r
     si.track_variables = track_vars
@@ -72,22 +70,22 @@ def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=Fa
         print("No E-Field has been generated. Cannot track!")
         return 1
 
-    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = Pusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     if omit_e:
-        efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+        efield1 = Field.zero()
     else:
         efield1 = numerical_vars["ef_itp"]  # type: Field
 
     if omit_b:
-        bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+        bfield1 = Field.zero()
     else:
         bfield1 = analytic_params["bf_itp"]  # type: Field
 
-    pusher.set_efield(efield1)
-    pusher.set_bfield(bfield1)
+    # pusher.set_efield(efield1)
+    # pusher.set_bfield(bfield1)
 
-    r, v = pusher.track(r_start, v_start, nsteps, dt)
+    r, v = pusher.track(r_start, v_start, efield1, bfield1, nsteps, dt)
 
     track_vars["trj_tracker"] = r
     si.track_variables = track_vars
@@ -95,9 +93,9 @@ def fast_track(si, r_start=None, v_start=None, nsteps=10000, dt=1e-12, omit_b=Fa
     return r, v
 
 
-def fast_track_with_termination(si, r_start=None, v_start=None,
-                                nsteps=10000, dt=1e-12,
-                                omit_b=False, omit_e=False):
+def fast_track_batch_with_termination(si, r_start=None, v_start=None,
+                                      nsteps=10000, dt=1e-12,
+                                      omit_b=False, omit_e=False):
     # TODO: For now break if r_start or v_start are not given, later get from class properties?
     assert (r_start is not None and v_start is not None), "Have to specify r_start and v_start for now!"
 
@@ -109,28 +107,29 @@ def fast_track_with_termination(si, r_start=None, v_start=None,
         print("No E-Field has been generated. Cannot track!")
         return 1
 
-    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = Pusher(analytic_params["ion"].species, "rk4",
+                    electrode_assembly=si.bempp_variables["objects"])  # Note: leapfrog is inaccurate above dt = 1e-12
 
     if omit_e:
-        efield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+        efield1 = Field.zero()
     else:
         efield1 = numerical_vars["ef_itp"]  # type: Field
 
     if omit_b:
-        bfield1 = Field(dim=0, field={"x": 0.0, "y": 0.0, "z": 0.0})
+        bfield1 = Field.zero()
     else:
         bfield1 = analytic_params["bf_itp"]  # type: Field
 
-    pusher.set_efield(efield1)
-    pusher.set_bfield(bfield1)
-    pusher.set_bds(si.bempp_variables["objects"])  # 'objects' is now a PyElectrodeAssembly
+    # pusher.set_efield(efield1)
+    # pusher.set_bfield(bfield1)
+    # pusher.set_bds(si.bempp_variables["objects"])  # 'objects' is now a PyElectrodeAssembly
 
-    r, v = pusher.track(r_start, v_start, nsteps, dt)
+    r, v, active = pusher.track_batch(r_start, v_start, efield1, bfield1, nsteps, dt)
 
-    track_vars["trj_tracker"] = r
-    si.track_variables = track_vars
+    # track_vars["trj_tracker"] = r
+    # si.track_variables = track_vars
 
-    return r, v
+    return r, v, active
 
 
 # def deflection_job(si, particle, j):
@@ -247,7 +246,7 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     if "dt" in track_params:
         dt = track_params["dt"]
 
-    pusher = ParticlePusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
+    pusher = Pusher(analytic_params["ion"].species, "boris")  # Note: leapfrog is inaccurate above dt = 1e-12
 
     tilt = analytic_params["tilt"]  # type: float
 
@@ -273,9 +272,9 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         bfield1 = analytic_params["bf_itp"]
 
     # initialize the velocity half a step back:
-    ef = efield1(_r[0])
-    bf = bfield1(_r[0])
-    _, _v[0] = pusher.push(_r[0], _v[0], ef, bf, -0.5 * dt)
+    # ef = efield1(_r[0])
+    # bf = bfield1(_r[0])
+    _, _v[0] = pusher.push(_r[0], _v[0], efield1, bfield1, -0.5 * dt)
 
     # Track for n steps
     # for i in range(nsteps):
@@ -305,15 +304,15 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
     i = 0
     while i < nsteps:
 
-        ef = efield1(_r[i])
-        bf = bfield1(_r[i])
+        # ef = efield1(_r[i])
+        # bf = bfield1(_r[i])
 
         if si.debug and i == 0:
             print("v0 =", _v[i])
             print("r0 =", _r[i])
-            print("Fields", ef, bf)
+            # print("Fields", ef, bf)
 
-        _r[i + 1], _v[i + 1] = pusher.push(_r[i], _v[i], ef, bf, dt)
+        _r[i + 1], _v[i + 1] = pusher.push(_r[i], _v[i], efield1, bfield1, dt)
 
         if si.debug and i == 0:
             print("v1 =", _v[i + 1])

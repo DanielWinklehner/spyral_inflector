@@ -11,15 +11,15 @@ XYZ = range(3)
 
 HAVE_BEMPP = False
 try:
-    import bempp.api
-    from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
-    from bempp.api.grid import Grid as BemppGrid
+    import bempp_cl.api
+    from bempp_cl.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+    from bempp_cl.api.grid import Grid as BemppGrid
     HAVE_BEMPP = True
+
 except ImportError:
     print("sPyral inflector: Couldn't import BEMPP")
     bempp = None
     BemppGrid = None
-
 
 HAVE_FENICS = False
 try:
@@ -28,7 +28,6 @@ try:
     HAVE_FENICS = True
 except ImportError:
     fn = None
-
 
 class FenicsField(object):
     def __init__(self, field):
@@ -129,10 +128,10 @@ def calculate_potential(si,
                       _mesh_data["elems"],
                       _mesh_data["domns"])
 
-    dp0_space = bempp.api.function_space(_mesh, "DP", 0)
+    dp0_space = bempp_cl.api.function_space(_mesh, "DP", 0)
 
     if numerical_vars["solution"] is None:
-        n_fun = bempp.api.GridFunction(dp0_space, coefficients=_n_fun_coeff)
+        n_fun = bempp_cl.api.GridFunction(dp0_space, coefficients=_n_fun_coeff)
     else:
         n_fun = numerical_vars["solution"]
 
@@ -143,7 +142,7 @@ def calculate_potential(si,
     limits_elec = np.array([[np.min(all_vert[i, :]), np.max(all_vert[i, :])] for i in XYZ])
 
     # replace None limits with electrode limits
-    limits[np.where(limits is None)] = limits_elec[np.where(limits is None)]
+    limits[limits is None] = limits_elec[limits is None]
 
     res = np.array([res]).ravel()
     _n = np.array(np.round((limits[:, 1] - limits[:, 0]) / res, 10), int) + 1
@@ -182,7 +181,7 @@ def calculate_potential(si,
                 grid_pts_len = grid_pts.shape[1]  # save shape for later
 
                 # temp_pot = bempp.api.operators.potential.laplace.single_layer(dp0_space, grid_pts) * n_fun
-                slp_pot = bempp.api.operators.potential.laplace.single_layer(dp0_space, grid_pts)
+                slp_pot = bempp_cl.api.operators.potential.laplace.single_layer(dp0_space, grid_pts)
                 temp_pot = slp_pot * n_fun
 
                 # Create array of original shape and fill with result at right place,
@@ -240,9 +239,9 @@ def solve_bempp(si):
                       _mesh_data["elems"],
                       _mesh_data["domns"])
 
-    dp0_space = bempp.api.function_space(_mesh, "DP", 0)
+    dp0_space = bempp_cl.api.function_space(_mesh, "DP", 0)
 
-    slp = bempp.api.operators.boundary.laplace.single_layer(dp0_space, dp0_space, dp0_space)
+    slp = bempp_cl.api.operators.boundary.laplace.single_layer(dp0_space, dp0_space, dp0_space)
 
     # With the new bempp-cl using numba, domain_mapping has to be a numpy array instead
     # of a dictionary, bempp_domain is integer, so this should work -DW 2020
@@ -252,20 +251,20 @@ def solve_bempp(si):
     for name, electrode in electrodes.items():
         domain_mapping[electrode.bempp_domain] = electrode.voltage
 
-    @bempp.api.real_callable
+    @bempp_cl.api.real_callable
     def f(x, n, domain_index, result):
         result[0] = domain_mapping[domain_index]
 
-    dirichlet_fun = bempp.api.GridFunction(dp0_space, fun=f)
+    dirichlet_fun = bempp_cl.api.GridFunction(dp0_space, fun=f)
     numerical_vars["grid_fun"] = dirichlet_fun
     numerical_vars["d_fun_coeff"] = dirichlet_fun.coefficients
 
     if si.debug:
-        bempp.api.PLOT_BACKEND = "gmsh"
+        bempp_cl.api.PLOT_BACKEND = "gmsh"
         dirichlet_fun.plot()
 
     print("...running GMRES...", flush=True)
-    sol, info, res = bempp.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
+    sol, info, res = bempp_cl.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
     print("Done!", flush=True)
 
     # Save results

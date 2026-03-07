@@ -13,7 +13,7 @@ si = SpiralInflector(ion=h2p,
                      dx=10e-3,
                      sigma=1.5E-3,
                      ns=60,
-                     debug=True)
+                     debug=False)
 
 # si.load_bfield()
 si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
@@ -54,33 +54,53 @@ si.set_parameter(key="housing_params",
 si.generate_geometry()
 si.generate_meshed_model()
 
+ts = time.time()
 si.solve()
+print("Solving took {:.4f} s".format(time.time() - ts))
+
+# ts = time.time()
+# si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
+# print("Optimizing took {:.4f} s".format(time.time() - ts))
 
 ts = time.time()
-
-si.optimize_fringe(maxiter=2, tol=0.02, res=0.005)
-print("Optimizing took {:.4f} s".format(time.time() - ts))
-
-ts = time.time()
-
-print("Calculating electric field...")
+print("Calculating electric potential/field...")
 si.calculate_potential(res=0.005,
                        limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
                        domain_decomp=(3, 3, 3))
-
 si.calculate_efield()
 print("Calculating field took {:.4f} s".format(time.time() - ts))
 
 ts = time.time()
+bunch = ParticleDistribution.generate_distribution(IonSpecies("H2_1+"),
+                                                   type=['gaussian', 'gaussian', 'gaussian'],
+                                                   s_direction='z',
+                                                   n_particles=200,
+                                                   correlation_matrix=np.eye(6),
+                                                   sigma_x=2e-3,
+                                                   sigma_px=1e-20,
+                                                   sigma_y=2e-3,
+                                                   sigma_py=1e-20,
+                                                   sigma_z=4e-3,
+                                                   sigma_pz=1e-20,
+                                                   cutoff_x=3,
+                                                   cutoff_px=3,
+                                                   cutoff_y=3,
+                                                   cutoff_py=3,
+                                                   cutoff_z=3,
+                                                   cutoff_pz=3
+                                                   )
 
-si.track(r_start=np.array([0.0, 0.0, -0.13]),
-         v_start=np.array([0.0, 0.0, h2p.v_mean_m_per_s]),
-         nsteps=15000,
-         dt=1e-11)
+bunch.set_centroid(0.0, 0.0, -0.13)
+bunch.set_mean_energy_z_mev(0.07)
 
+r, v, active = si.fast_track_batch_with_termination(r_start=bunch.x_vec,
+                                                    v_start=bunch.v_vec,
+                                                    nsteps=1500,
+                                                    dt=1e-10)
 print("Tracking took {:.4f} s".format(time.time() - ts))
 
-si.draw_geometry(freq=50, show=True)
+r = np.swapaxes(r, 0, 1)
+si.draw_geometry(freq=50, show=True, aux_trajectories=r)
 
-print(si.electrode_geometry_macro())
-print(si.aperture_geometry_macro())
+# print(si.electrode_geometry_macro())
+# print(si.aperture_geometry_macro())

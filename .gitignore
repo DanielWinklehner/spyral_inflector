@@ -109,3 +109,5 @@ timing.txt
 
 # PyCharm
 .idea/
+/Examples/example-laplace_interior_dirichlet.png
+/Examples/bempp_debug.py
