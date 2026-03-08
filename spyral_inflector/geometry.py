@@ -1701,7 +1701,6 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
                                    leaf_view["domns"])
 
             # bempp.api.PLOT_BACKEND = "gmsh"
-            #
             # _full_mesh.plot()
 
     elif si.solver == "fenics":

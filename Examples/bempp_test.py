@@ -1,5 +1,9 @@
 from spyral_inflector import *
 
+import os
+os.environ["PYOPENCL_COMILER_OUTPUT"] = "1"
+os.environ["PYOPENCL_CT"] = "1:0"
+
 h2p = ParticleDistribution(species=IonSpecies("H2_1+"))
 h2p.set_mean_energy_z_mev(0.07)
 
@@ -55,7 +59,7 @@ si.generate_geometry()
 si.generate_meshed_model()
 
 ts = time.time()
-si.solve()
+si.solve(use_gpu=True)
 print("Solving took {:.4f} s".format(time.time() - ts))
 
 # ts = time.time()

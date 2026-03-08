@@ -1,5 +1,6 @@
 from py_electrodes.py_electrodes import *
 from PyPATools.field import Field, RegularGridInterpolator
+from .bempp_gmres_wrapper import gmres
 
 # Define the directions:
 X = 0
@@ -11,6 +12,8 @@ XYZ = range(3)
 
 HAVE_BEMPP = False
 try:
+    import os
+    os.environ['BEMPP_DEVICE_INTERFACE'] = 'opencl'
     import bempp_cl.api
     from bempp_cl.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
     from bempp_cl.api.grid import Grid as BemppGrid
@@ -217,7 +220,7 @@ def calculate_potential(si,
     return 0
 
 
-def solve_bempp(si):
+def solve_bempp(si, use_gpu=True):
 
     assert HAVE_BEMPP, "BEMPP not found. Aborting!"
 
@@ -264,7 +267,8 @@ def solve_bempp(si):
         dirichlet_fun.plot()
 
     print("...running GMRES...", flush=True)
-    sol, info, res = bempp_cl.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
+    # sol, info, res = bempp_cl.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
+    sol, info, res = gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True, use_gpu=use_gpu)
     print("Done!", flush=True)
 
     # Save results
