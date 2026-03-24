@@ -1,5 +1,7 @@
-from spyral_inflector import *
+# Version of bempp_test incorporating geometry modifications to the electrodes
+# explored initially by Barnard et al. (2021)
 
+from spyral_inflector import *
 import os
 os.environ["PYOPENCL_COMILER_OUTPUT"] = "1"
 os.environ["PYOPENCL_CT"] = "1:0"
