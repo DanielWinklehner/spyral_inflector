@@ -393,11 +393,17 @@ class SpiralInflector(object):
                 exit(0)
 
         if bf_load_from_file:
-            self._params_analytic["bf_itp"] = Field(label="Cyclotron B-Field",
-                                                    scaling=bf_scale,
-                                                    units=spatial_unit)
+            # PyPATools replaced Field.load_field_from_file() with the from_file()
+            # classmethod, which dispatches on the extension.
+            _bf = Field.from_file(bfield,
+                                  label="Cyclotron B-Field",
+                                  units=spatial_unit)
 
-            self._params_analytic["bf_itp"].load_field_from_file(filename=bfield)
+            # A .pickle restores the scaling that was saved with it, so bf_scale
+            # has to be applied after loading rather than passed to the ctor.
+            _bf.scaling = bf_scale
+
+            self._params_analytic["bf_itp"] = _bf
 
             print("Successfully loaded B-Field from file")
 
@@ -405,24 +411,50 @@ class SpiralInflector(object):
             self.initialize()
 
     def set_blim(self, b_min=None, b_max=None):
+        """Set the angular limits of the design trajectory, in degrees.
 
-        reinit = False
+        The limits feed initialize(), which rebuilds
+        b = linspace(b_lim[0], b_lim[1], ns) and clears the design trajectory and
+        geometry so they are regenerated from the new range. A changed limit
+        therefore has no effect until initialize() runs again.
+
+        This used to call initialize() only from the except branch, i.e. only when
+        the range check failed, so a *valid* call silently did nothing: b_lim moved
+        but the b array, the design trajectory and the geometry did not.
+        optimize_fringe consequently re-solved identical geometry on every
+        iteration, always reported the same deviation and never converged.
+
+        Out-of-range values are clamped rather than raised: optimize_fringe drives
+        b_max past 90 whenever it overshoots, and aborting there would kill the
+        whole run.
+        """
+        changed = False
 
         if b_min is not None:
-            try:
-                assert b_min >= 0.0, "b_min has to be >= 0, found {}".format(b_min)
-                self._params_analytic["b_lim"][0] = np.deg2rad(b_min)
-            except:
-                reinit = True
+            if b_min < 0.0:
+                print("Warning: b_min has to be >= 0, found {}. Clamping to 0.".format(b_min))
+                b_min = 0.0
+
+            b_min_rad = np.deg2rad(b_min)
+
+            if b_min_rad != self._params_analytic["b_lim"][0]:
+                self._params_analytic["b_lim"][0] = b_min_rad
+                changed = True
 
         if b_max is not None:
-            try:
-                assert b_max <= 90.0, "b_max has to be <= 90, found {}".format(b_max)
-                self._params_analytic["b_lim"][1] = np.deg2rad(b_max)
-            except:
-                reinit = True
+            if b_max > 90.0:
+                print("Warning: b_max has to be <= 90, found {}. Clamping to 90.".format(b_max))
+                b_max = 90.0
 
-        if reinit:
+            b_max_rad = np.deg2rad(b_max)
+
+            if b_max_rad != self._params_analytic["b_lim"][1]:
+                self._params_analytic["b_lim"][1] = b_max_rad
+                changed = True
+
+        if changed:
+            # Rebuilds b, and clears trj_design and geo so that the next
+            # generate_meshed_model() regenerates them from the new range.
             self.initialize()
 
         return 0
