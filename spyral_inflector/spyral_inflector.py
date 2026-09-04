@@ -66,7 +66,8 @@ class SpiralInflector(object):
                                  "b_lim": np.deg2rad(np.array([0.0, 90.0])),  # Limits of the curvature
                                  "rotation": 0.0,  # Clockwise rotation of the spiral inflector, assuming that at
                                  "gammaAng": -1.0,
-                                 "anglingAng": -1.0
+                                 "anglingAng": -1.0,
+                                 "vee_shape": "linear"
                                  }
 
         for key in self._params_analytic.keys():
