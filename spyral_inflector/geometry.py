@@ -355,10 +355,13 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         geo_str += "Wire(3) = {1, 2};\n"
         geo_str += "Plane Surface(4) = {3};\n"
 
-        # Extrude along +z.
+        # Extrude along +z. The layer count has to follow dz/h: Layers{1} puts a
+        # single element across the whole electrode length however fine h is,
+        # which left the quadrupole dipoles at a few dozen triangles.
+        n_layers = int(max(1, np.ceil(abs(dz) / h)))
         geo_str += (
             f"Ex[] = Extrude {{0, 0, {dz:.16g}}} "
-            "{Surface{4}; Layers{1};};\n"
+            f"{{Surface{{4}}; Layers{{{n_layers}}};}};\n"
         )
 
         # Rotate around the electrode's translated z-axis.
