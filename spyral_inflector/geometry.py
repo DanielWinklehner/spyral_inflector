@@ -8,6 +8,128 @@ X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)
 Z_AXIS = np.array([0, 0, 1], float)
 
+
+def _longitudinal_profile(specification, num_sections, *, scalar_mode, name):
+    """Evaluate a geometry modifier on the normalized inflector length.
+
+    The normalized coordinate ``xi`` runs from -1 at array index zero to +1
+    at the final section. Supported specifications are:
+
+    * scalar: retains the legacy behavior selected by ``scalar_mode``;
+    * sequence: polynomial coefficients in ascending order, i.e.
+      ``[c0, c1, c2]`` evaluates ``c0 + c1*xi + c2*xi**2``;
+    * callable: called once as ``specification(xi)``;
+    * dictionary with ``kind='polynomial'`` and ``coefficients=[...]``;
+    * dictionary with ``kind='samples'``, ``values=[...]`` and optional
+      ``positions=[...]``. Samples are linearly interpolated.
+
+    ``positions`` use the same [-1, +1] normalized coordinate. A callable
+    may return either a scalar or one value per section.
+    """
+
+    if num_sections < 1:
+        raise ValueError(f"{name} requires at least one geometry section")
+
+    xi = np.linspace(-1.0, 1.0, num_sections)
+
+    if callable(specification):
+        profile = specification(xi)
+
+    elif isinstance(specification, dict):
+        kind = str(specification.get("kind", "polynomial")).lower()
+
+        if kind in ("polynomial", "poly"):
+            coefficients = specification.get(
+                "coefficients", specification.get("coeffs")
+            )
+            if coefficients is None:
+                raise ValueError(
+                    f"{name} polynomial specification requires "
+                    "'coefficients'"
+                )
+            coefficients = np.asarray(coefficients, dtype=float)
+            if coefficients.ndim != 1 or coefficients.size == 0:
+                raise ValueError(
+                    f"{name} polynomial coefficients must be a nonempty "
+                    "one-dimensional sequence"
+                )
+            profile = np.polynomial.polynomial.polyval(xi, coefficients)
+
+        elif kind in ("samples", "sampled", "control_points"):
+            values = np.asarray(specification.get("values"), dtype=float)
+            if values.ndim != 1 or values.size == 0:
+                raise ValueError(
+                    f"{name} sampled specification requires a nonempty "
+                    "one-dimensional 'values' sequence"
+                )
+
+            positions = specification.get("positions")
+            if positions is None:
+                positions = np.linspace(-1.0, 1.0, values.size)
+            else:
+                positions = np.asarray(positions, dtype=float)
+
+            if positions.shape != values.shape:
+                raise ValueError(
+                    f"{name} sampled 'positions' and 'values' must have "
+                    "the same shape"
+                )
+            if np.any(np.diff(positions) <= 0.0):
+                raise ValueError(
+                    f"{name} sampled 'positions' must be strictly increasing"
+                )
+            if positions[0] > -1.0 or positions[-1] < 1.0:
+                raise ValueError(
+                    f"{name} sampled 'positions' must span [-1, +1]"
+                )
+
+            profile = np.interp(xi, positions, values)
+
+        else:
+            raise ValueError(
+                f"Unsupported {name} profile kind {kind!r}; expected "
+                "'polynomial' or 'samples'"
+            )
+
+    else:
+        values = np.asarray(specification, dtype=float)
+
+        if values.ndim == 0:
+            value = float(values)
+            if scalar_mode == "legacy_angling":
+                # Preserve the old sentinel/disable behavior for zero and
+                # negative scalar values, including the historical -1.
+                if value <= 0.0:
+                    profile = np.zeros(num_sections, dtype=float)
+                else:
+                    profile = np.linspace(value, -value, num_sections)
+            elif scalar_mode == "constant":
+                profile = np.full(num_sections, value, dtype=float)
+            else:
+                raise ValueError(f"Unknown scalar mode {scalar_mode!r}")
+
+        elif values.ndim == 1 and values.size > 0:
+            # A bare sequence is concise polynomial notation.
+            profile = np.polynomial.polynomial.polyval(xi, values)
+        else:
+            raise ValueError(
+                f"{name} must be a scalar, callable, dictionary, or "
+                "nonempty one-dimensional polynomial coefficient sequence"
+            )
+
+    profile = np.asarray(profile, dtype=float)
+    if profile.ndim == 0:
+        profile = np.full(num_sections, float(profile), dtype=float)
+    if profile.shape != (num_sections,):
+        raise ValueError(
+            f"{name} profile returned shape {profile.shape}; expected "
+            f"({num_sections},)"
+        )
+    if not np.all(np.isfinite(profile)):
+        raise ValueError(f"{name} profile contains non-finite values")
+
+    return profile
+
 HAVE_BEMPP = False
 try:
     import bempp_cl.api
@@ -41,7 +163,7 @@ class SIHyperbolicDipole(PyElectrode):
         self._offset = offset    
 
 
-    def create_geo_str(self, r, dz, a, b, translation=None, rotation=None, h=0.005, load=True,header=True):
+    def create_geo_str_old(self, r, dz, a, b, translation=None, rotation=None, h=0.005, load=True,header=True):
 
         offset = self._offset
 
@@ -108,6 +230,150 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         return geo_str
 
+    def create_geo_str(
+            self,
+            r,
+            dz,
+            a,
+            b,
+            translation=None,
+            rotation=None,
+            h=0.005,
+            load=True,
+            header=True
+    ):
+        """
+        Create a hyperbolic quadrupole electrode cross-section and extrude it.
+
+        Parameters
+        ----------
+        r : float
+            Outer radius of the electrode cross-section.
+        dz : float
+            Extrusion length along +z.
+        a : float
+            Hyperbola vertex radius. For a symmetric ideal quadrupole,
+            this is the clear-aperture radius.
+        b : float
+            Hyperbola transverse scale. Use b == a for ideal quadrupole symmetry.
+        translation : array-like, optional
+            Electrode center position [x, y, z].
+        rotation : array-like, optional
+            Rotation angles [rx, ry, rz] in radians. Only rz is used here.
+        h : float
+            Maximum mesh characteristic length.
+        load : bool
+            Load the generated geometry into the PyElectrode object.
+        header : bool
+            Include the Gmsh OpenCASCADE header.
+        """
+
+        if translation is None:
+            translation = np.array([0.0, 0.0, 0.0], dtype=float)
+        else:
+            translation = np.asarray(translation, dtype=float)
+
+        if rotation is None:
+            rotation = np.array([0.0, 0.0, 0.0], dtype=float)
+        else:
+            rotation = np.asarray(rotation, dtype=float)
+
+        if translation.shape != (3,):
+            raise ValueError("translation must contain exactly three values")
+
+        if rotation.shape != (3,):
+            raise ValueError("rotation must contain exactly three values")
+
+        if a <= 0.0:
+            raise ValueError("a must be positive")
+
+        if b <= 0.0:
+            raise ValueError("b must be positive")
+
+        if r <= a:
+            raise ValueError(
+                f"Outer radius r must be greater than the hyperbola "
+                f"vertex radius a; received r={r}, a={a}"
+            )
+
+        if dz == 0.0:
+            raise ValueError("dz must be nonzero")
+
+        # For:
+        #
+        #     x_local = a * sqrt(1 + u^2)
+        #     y_local = b * u
+        #
+        # require x_local^2 + y_local^2 = r^2 at the endpoints.
+        u_max = np.sqrt(
+            (r**2 - a**2) / (a**2 + b**2)
+        )
+
+        tx, ty, tz = translation
+
+        if header:
+            geo_str = (
+                'SetFactory("OpenCASCADE");\n'
+                'Geometry.NumSubEdges = 100;\n'
+                f'Mesh.CharacteristicLengthMax = {h:.16g};\n'
+            )
+        else:
+            geo_str = ""
+
+        # Center used by the circular rear boundary.
+        geo_str += (
+            f"Point(1000) = "
+            f"{{{tx:.16g}, {ty:.16g}, {tz:.16g}, {h:.16g}}};\n"
+        )
+
+        # Hyperbolic face:
+        #
+        #     (x - tx)^2/a^2 - (y - ty)^2/b^2 = 1
+        #
+        geo_str += "N = 100;\n"
+        geo_str += f"umin = {-u_max:.16g};\n"
+        geo_str += f"umax = {u_max:.16g};\n"
+
+        geo_str += "For i In {0:N-1}\n"
+        geo_str += "    u = umin + (umax - umin) / (N - 1) * i;\n"
+        geo_str += f"    x = {tx:.16g} + {a:.16g} * Sqrt(1 + u^2);\n"
+        geo_str += f"    y = {ty:.16g} + {b:.16g} * u;\n"
+        geo_str += (
+            f"    Point(1 + i) = "
+            f"{{x, y, {tz:.16g}, {h:.16g}}};\n"
+        )
+        geo_str += "EndFor\n"
+
+        # Hyperbolic front face.
+        geo_str += "Spline(1) = {1:N};\n"
+
+        # Circular rear face centered at the translated quadrupole axis.
+        # Point 1 and Point N are both exactly radius r from Point 1000.
+        geo_str += "Circle(2) = {N, 1000, 1};\n"
+
+        # Closed cross-sectional boundary and surface.
+        geo_str += "Wire(3) = {1, 2};\n"
+        geo_str += "Plane Surface(4) = {3};\n"
+
+        # Extrude along +z.
+        geo_str += (
+            f"Ex[] = Extrude {{0, 0, {dz:.16g}}} "
+            "{Surface{4}; Layers{1};};\n"
+        )
+
+        # Rotate around the electrode's translated z-axis.
+        if abs(rotation[2]) > 0.0:
+            geo_str += (
+                f"Rotate {{{{0, 0, 1}}, "
+                f"{{{tx:.16g}, {ty:.16g}, {tz:.16g}}}, "
+                f"{rotation[2]:.16g}}} "
+                "{Volume{Ex[1]};}\n"
+            )
+
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
 
         
 class SIAperture(PyElectrode):
@@ -276,6 +542,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
 
 class SIElectrode(PyElectrode):
+    # Match the intent of the old "last 10 of 100 slices" guard without
+    # making the physical cut depth depend on the geometry resolution.
+    _GAMMA_TERMINAL_FRACTION = 0.10
+
     def __init__(self, parent=None, name="New Spiral Electrode", voltage=10000, offset=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
@@ -311,10 +581,251 @@ class SIElectrode(PyElectrode):
 
         return rotated_point
 
+    def _transformed_section_points(self, section_points, angle_degrees):
+        """Apply the existing plate-angle rotation to one five-point slice."""
+        points = np.asarray(section_points, dtype=float).copy()
+        W1, W2, W3, W4 = points[:4]
+        segment_center = 0.25 * (W1 + W2 + W3 + W4)
+        section_normal = np.cross(W2 - W1, W3 - W1)
+        normal_size = np.linalg.norm(section_normal)
+        if normal_size <= 1.0e-14:
+            raise ValueError("Cannot rotate a degenerate electrode section")
+        section_normal /= normal_size
+
+        if abs(angle_degrees) > 1.0e-14:
+            points = np.array([
+                self.rotate_point_around_axis(
+                    point,
+                    section_normal,
+                    angle_degrees,
+                    axis_point=segment_center,
+                )
+                for point in points
+            ])
+
+        return points
+
+    def _gamma_exit_frame(self, raw_geo, angle_at_segment):
+        """Return an orthonormal frame anchored to the upper exit edge."""
+        upper_end = self._transformed_section_points(
+            raw_geo[0:5, -1, :], angle_at_segment[-1]
+        )
+        lower_end = self._transformed_section_points(
+            raw_geo[5:10, -1, :], angle_at_segment[-1]
+        )
+
+        outer_edge_1 = upper_end[2]
+        outer_edge_2 = upper_end[3]
+        plane_point = 0.5 * (outer_edge_1 + outer_edge_2)
+
+        width_axis = outer_edge_2 - outer_edge_1
+        width_size = np.linalg.norm(width_axis)
+        if width_size <= 1.0e-14:
+            raise ValueError(
+                "Cannot construct gamma plane from a zero-width upper "
+                "electrode exit edge"
+            )
+        width_axis /= width_size
+
+        zero_normal = np.cross(width_axis, upper_end[4] - plane_point)
+        zero_size = np.linalg.norm(zero_normal)
+        if zero_size <= 1.0e-14:
+            raise ValueError("Cannot determine the upper-electrode exit plane")
+        zero_normal /= zero_size
+
+        body_index = -2 if raw_geo.shape[1] > 1 else -1
+        upper_body_section = self._transformed_section_points(
+            raw_geo[0:5, body_index, :], angle_at_segment[body_index]
+        )
+        upper_body_center = np.mean(upper_body_section[:4], axis=0)
+        if np.dot(zero_normal, upper_body_center - plane_point) < 0.0:
+            zero_normal *= -1.0
+
+        upper_center = np.mean(upper_end[:4], axis=0)
+        lower_center = np.mean(lower_end[:4], axis=0)
+        upper_direction = upper_center - lower_center
+
+        ninety_normal = (
+            upper_direction
+            - np.dot(upper_direction, width_axis) * width_axis
+            - np.dot(upper_direction, zero_normal) * zero_normal
+        )
+        ninety_size = np.linalg.norm(ninety_normal)
+        if ninety_size <= 1.0e-14:
+            ninety_normal = np.cross(zero_normal, width_axis)
+            ninety_size = np.linalg.norm(ninety_normal)
+        ninety_normal /= ninety_size
+        if np.dot(ninety_normal, upper_direction) < 0.0:
+            ninety_normal *= -1.0
+
+        # Choose the width sign so (width, vertical, backward) is a
+        # right-handed frame. Flipping this axis does not alter the cut plane.
+        if np.dot(np.cross(width_axis, ninety_normal), zero_normal) < 0.0:
+            width_axis *= -1.0
+
+        return width_axis, ninety_normal, zero_normal, plane_point
+
+    def _make_gamma_plane(self, raw_geo, angle_at_segment, gamma_angle):
+        """Define the shared exit cut plane from the final angled geometry.
+
+        The zero-degree normal points back into the electrode body, ensuring
+        that the negative half-space contains no electrode at gamma=0. The
+        90-degree normal points from the lower electrode toward the upper one.
+        The Boolean cutter is separately bounded to the terminal region.
+        """
+        _, ninety_normal, zero_normal, plane_point = self._gamma_exit_frame(
+            raw_geo,
+            angle_at_segment,
+        )
+
+        gamma_radians = np.radians(gamma_angle)
+        gamma_normal = (
+            np.cos(gamma_radians) * zero_normal
+            + np.sin(gamma_radians) * ninety_normal
+        )
+        gamma_normal /= np.linalg.norm(gamma_normal)
+
+        return [
+            gamma_normal,
+            plane_point,
+            np.dot(gamma_normal, plane_point),
+        ]
+
+    def _gamma_boolean_geo_str(
+            self, electrode_volume, cutter_volume, raw_geo,
+            angle_at_segment, gamma_normal, plane_point):
+        """Return a planar gamma cut confined to the electrode terminus."""
+        bounds = np.ptp(np.asarray(raw_geo).reshape(-1, 3), axis=0)
+        cut_size = max(1.0, 10.0 * np.linalg.norm(bounds))
+
+        geo_str = "\n// True planar gamma cut\n"
+        geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n".format(
+            cutter_volume,
+            -cut_size,
+            -cut_size,
+            -cut_size,
+            2.0 * cut_size,
+            2.0 * cut_size,
+            cut_size,
+        )
+
+        z_axis = np.array([0.0, 0.0, 1.0])
+        rotation_axis = np.cross(z_axis, gamma_normal)
+        rotation_size = np.linalg.norm(rotation_axis)
+        z_alignment = np.clip(np.dot(z_axis, gamma_normal), -1.0, 1.0)
+
+        if rotation_size > 1.0e-14:
+            rotation_axis /= rotation_size
+            rotation_angle = np.arccos(z_alignment)
+            geo_str += (
+                "Rotate {{ {{ {}, {}, {} }}, {{ 0, 0, 0 }}, {} }} "
+                "{{ Volume{{ {} }}; }}\n".format(
+                    rotation_axis[0],
+                    rotation_axis[1],
+                    rotation_axis[2],
+                    rotation_angle,
+                    cutter_volume,
+                )
+            )
+        elif z_alignment < 0.0:
+            geo_str += (
+                "Rotate { { 1, 0, 0 }, { 0, 0, 0 }, Pi } "
+                "{ Volume{ " + str(cutter_volume) + " }; }\n"
+            )
+
+        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            plane_point[0],
+            plane_point[1],
+            plane_point[2],
+            cutter_volume,
+        )
+
+        # Bound the half-space in all three spatial directions around the
+        # physical terminus. A slab bounded only along the exit normal is not
+        # sufficient for a curved inflector: the distant entrance can curl
+        # back into that same slab.
+        upper_centers = np.mean(raw_geo[0:4, :, :], axis=0)
+        segment_lengths = np.linalg.norm(
+            np.diff(upper_centers, axis=0),
+            axis=1,
+        )
+        path_length = np.sum(segment_lengths)
+        if path_length <= 1.0e-14:
+            raise ValueError(
+                "Cannot bound the gamma cut on a zero-length electrode"
+            )
+
+        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length
+        tail_start = raw_geo.shape[1] - 1
+        accumulated_length = 0.0
+        while tail_start > 0 and accumulated_length < target_tail_length:
+            tail_start -= 1
+            accumulated_length += segment_lengths[tail_start]
+
+        terminal_sections = []
+        for section_index in range(tail_start, raw_geo.shape[1]):
+            terminal_sections.append(self._transformed_section_points(
+                raw_geo[0:5, section_index, :],
+                angle_at_segment[section_index],
+            ))
+            terminal_sections.append(self._transformed_section_points(
+                raw_geo[5:10, section_index, :],
+                angle_at_segment[section_index],
+            ))
+        terminal_points = np.concatenate(terminal_sections, axis=0)
+
+        terminal_min = np.min(terminal_points, axis=0)
+        terminal_max = np.max(terminal_points, axis=0)
+        terminal_span = terminal_max - terminal_min
+        terminal_padding = max(
+            1.0e-6,
+            0.05 * np.linalg.norm(terminal_span),
+            segment_lengths[-1] if segment_lengths.size else 0.0,
+        )
+        terminal_min -= terminal_padding
+        terminal_max += terminal_padding
+        terminal_volume = cutter_volume + 100_000
+
+        geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n".format(
+            terminal_volume,
+            terminal_min[0],
+            terminal_min[1],
+            terminal_min[2],
+            terminal_max[0] - terminal_min[0],
+            terminal_max[1] - terminal_min[1],
+            terminal_max[2] - terminal_min[2],
+        )
+
+        geo_str += (
+            "gamma_cutter_{}() = BooleanIntersection "
+            "{{ Volume{{ {} }}; Delete; }}"
+            "{{ Volume{{ {} }}; Delete; }};\n".format(
+                electrode_volume,
+                cutter_volume,
+                terminal_volume,
+            )
+        )
+
+        # Do not explicitly assign the result back to electrode_volume: OCC
+        # creates the Boolean result before deleting its inputs, so reusing
+        # that live tag raises "OpenCASCADE entity ... already exists". Let
+        # Gmsh return the result tags and preserve the original tag when it can.
+        geo_str += (
+            "gamma_result_{}() = BooleanDifference "
+            "{{ Volume{{ {} }}; Delete; }}"
+            "{{ Volume{{ gamma_cutter_{}() }}; Delete; }};\n".format(
+                electrode_volume,
+                electrode_volume,
+                electrode_volume,
+            )
+        )
+        return geo_str
+
             
     def create_geo_str(self, raw_geo, elec_type, h=0.005,
                        load=True, header=True, gammaAng = -1.0,
-                       gamma_plane=[], angling = -1):
+                       gamma_plane=None, angling = -1,
+                       vee_shape="linear"):
 
         f = self._offset
 
@@ -343,290 +854,179 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
 
         num_sections    = len(raw_geo[0, :, 0])
 
-        max_trim_segments = 10 #Angles consistent with our optimization and other literature suggests a gamma angle around 20 or less, so unless you
-                               #really crank up the resolution a realistic angle won't need to trim more than 2 or 3 segments, so a cutoff at 10 just
-                               #helps with speed a bit
-
+        vee_shape = str(vee_shape).strip().lower()
+        if vee_shape in ("v", "vee", "legacy"):
+            vee_shape = "linear"
+        if vee_shape not in ("linear", "parabolic"):
+            raise ValueError(
+                f"Unsupported vee_shape {vee_shape!r}; expected "
+                "'linear' or 'parabolic'"
+            )
 
         #### ------- Set up the angling per slice ------ #####
-        if angling > 0:
-            # This isn't flipped for anode vs cathode because with the way the points are defined
-            # the cross products defining the normal vector for each slice of the electrode are antiparallel
-            angle_at_segment = np.linspace(angling,-1.0*angling,num_sections)
+        # A positive scalar retains the historical +angle -> -angle ramp.
+        # Polynomial, sampled, and callable specifications may contain any
+        # signed profile. This isn't flipped for anode vs cathode because the
+        # cross products defining each slice normal are antiparallel.
+        angle_at_segment = _longitudinal_profile(
+            angling,
+            num_sections,
+            scalar_mode="legacy_angling",
+            name="angling",
+        )
+        apply_angling = np.any(np.abs(angle_at_segment) > 1.0e-14)
 
-        #### -------- The next two if's define the gamma wedge. Either by computing it if the anode or loading it if the cathode ------- ####        
-        if gammaAng > 0 and elec_type == "anode":
-            #Define three points at the very end of the electrode by which to anchor the gamma cut plane
-            p1 = np.array([raw_geo[2+k,num_sections-1,0],raw_geo[2+k,num_sections-1,1],raw_geo[2+k,num_sections-1,2]])
-            p2 = np.array([raw_geo[3+k,num_sections-1,0],raw_geo[3+k,num_sections-1,1],raw_geo[3+k,num_sections-1,2]])
-            p3 = np.array([raw_geo[4+k,num_sections-1,0],raw_geo[4+k,num_sections-1,1],raw_geo[4+k,num_sections-1,2]])
+        # Apply gamma as a Boolean half-space cut to the completed solid. This
+        # makes the cut a genuine plane and avoids special-casing only the last
+        # few loft sections.
+        requested_gamma_angle = float(gammaAng)
+        if requested_gamma_angle > 90.0:
+            raise ValueError(
+                "gammaAng must not exceed 90 degrees; received "
+                f"{requested_gamma_angle}"
+            )
+        apply_boolean_gamma = requested_gamma_angle > 0.0
 
-            b0 = np.array([raw_geo[0+k,num_sections-1,0],raw_geo[0+k,num_sections-1,1],raw_geo[0+k,num_sections-1,2]])
-            b1 = np.array([raw_geo[1+k,num_sections-1,0],raw_geo[1+k,num_sections-1,1],raw_geo[1+k,num_sections-1,2]])
-            v20 = b0 - p1
-            v31 = b1 - p2
-            p1  = p1 + 0.01*v20
-            p2  = p2 + 0.01*v31
-            
-            v1 = p2 - p1
-            v2 = p3 - p1
+        if apply_boolean_gamma and elec_type == "anode":
+            boolean_gamma_plane = self._make_gamma_plane(
+                raw_geo,
+                angle_at_segment,
+                requested_gamma_angle,
+            )
+        elif apply_boolean_gamma:
+            if gamma_plane is None or len(gamma_plane) != 3:
+                raise ValueError(
+                    "The anode must be processed first to define the shared "
+                    "gamma cut plane"
+                )
+            boolean_gamma_plane = gamma_plane
+        else:
+            boolean_gamma_plane = [None, None, None]
 
-            A1_normal = np.cross(v1, v2)                    # Normal vector of plane A1
-            A1_normal = A1_normal / np.linalg.norm(A1_normal)
-            d_A1      = np.dot(A1_normal, p1)               # Compute d for plane equation
-            L1_dir    = (p2 - p1) / np.linalg.norm(p2 - p1) # Normalize direction vector
-            kv        = L1_dir / np.linalg.norm(L1_dir)     # Ensure kv is a unit vector
-            gamma_rad = np.radians(gammaAng)                # Convert to radians
-            A2_normal = A1_normal * np.cos(gamma_rad) + np.cross(kv, A1_normal) * np.sin(gamma_rad) + kv * np.dot(kv, A1_normal) * (1 - np.cos(gamma_rad))
-            A2_normal = A2_normal / np.linalg.norm(A2_normal)
-            d_A2      = np.dot(A2_normal,p1)
-
-        if gammaAng > 0 and elec_type == "cathode":
-            
-            if len(gamma_plane) == 0:
-                print("ERROR: The anode must have been processed first to determine the geometry of the gamma plane")
-                print("        if you wish to include a gamma wedge cut")
-
-
-            A2_normal = gamma_plane[0]
-            p1        = gamma_plane[1]
-            d_A2      = gamma_plane[2]
-
-        if gammaAng <= 0.0:
-            A2_normal = None
-            p1        = None
-            d_A2      = None
-            
         for j in range(num_sections):
+            section_points = self._transformed_section_points(
+                raw_geo[k:k + 5, j, :],
+                angle_at_segment[j],
+            )
+            W1, W2, W3, W4, W5 = section_points
 
-            W1 = np.array([raw_geo[0 + k, j, 0],raw_geo[0 + k, j, 1],raw_geo[0 + k, j, 2]])
-            W2 = np.array([raw_geo[1 + k, j, 0],raw_geo[1 + k, j, 1],raw_geo[1 + k, j, 2]])
-            W3 = np.array([raw_geo[2 + k, j, 0],raw_geo[2 + k, j, 1],raw_geo[2 + k, j, 2]])
-            W4 = np.array([raw_geo[3 + k, j, 0],raw_geo[3 + k, j, 1],raw_geo[3 + k, j, 2]])
-            W5 = np.array([raw_geo[4 + k, j, 0],raw_geo[4 + k, j, 1],raw_geo[4 + k, j, 2]])
+            for point in section_points:
+                geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(
+                    new_pt + f,
+                    point[0],
+                    point[1],
+                    point[2],
+                    h,
+                )
+                new_pt += 1
 
-            seg_cent = (W1+W2+W3+W4)/4.0
+            # The legacy inner face consists of the two straight segments
+            # W1--W5 and W5--W2.  For the parabolic option, sample the unique
+            # parabola through those same edge and center points and ask Gmsh
+            # to construct a smooth spline through the samples.  This changes
+            # only the facing surface: sigma retains exactly the same meaning
+            # as the edge-to-center sag, including a varying sigma(s).
+            smooth_face_point_tags = None
+            if vee_shape == "parabolic":
+                face_edge_1, face_edge_2, face_center = W1, W2, W5
+                edge_midpoint = 0.5 * (face_edge_1 + face_edge_2)
+                half_span = 0.5 * (face_edge_2 - face_edge_1)
+                sag_vector = edge_midpoint - face_center
 
-            proj_points = {0:W1,1:W2,2:W3,3:W4,4:W5}
-            
-            # Compute normal of the plane W1, W2, W3
-            w1, w2      = W2 - W1, W3 - W1
-            W_norm_cent = np.cross(w1,w2)
-            W_norm_cent = W_norm_cent / np.linalg.norm(W_norm_cent)
-            
-            
-            cut_segment = False
-            if gammaAng > 0 and j >= num_sections-max_trim_segments and elec_type == "cathode":
+                # W1, W5 and W2 keep their normal point tags. Additional
+                # spline points use a distant, electrode-specific tag range
+                # so the established five-point-per-section numbering and all
+                # downstream offsets remain untouched.
+                interior_eta = (-0.75, -0.5, -0.25, 0.25, 0.5, 0.75)
+                extra_tag_base = (
+                    10_000_000
+                    + (0 if elec_type == "anode" else 1_000_000)
+                    + j * len(interior_eta)
+                )
+                extra_tags = []
+                for local_index, eta in enumerate(interior_eta):
+                    point = (
+                        face_center
+                        + eta * half_span
+                        + (eta ** 2.0) * sag_vector
+                    )
+                    point_tag = extra_tag_base + local_index
+                    extra_tags.append(point_tag)
+                    geo_str += (
+                        "Point({}) = {{ {}, {}, {}, {} }};\n".format(
+                            point_tag,
+                            point[0],
+                            point[1],
+                            point[2],
+                            h,
+                        )
+                    )
 
-                # Define the five points corresponding to a slice of the cathode, we need to check
-                # if the gamma plane cuts all of them, just part, or doesn't intersect
-                W1 = np.array([raw_geo[0 + k, j, 0],raw_geo[0 + k, j, 1],raw_geo[0 + k, j, 2]])
-                W2 = np.array([raw_geo[1 + k, j, 0],raw_geo[1 + k, j, 1],raw_geo[1 + k, j, 2]])
-                W3 = np.array([raw_geo[2 + k, j, 0],raw_geo[2 + k, j, 1],raw_geo[2 + k, j, 2]])
-                W4 = np.array([raw_geo[3 + k, j, 0],raw_geo[3 + k, j, 1],raw_geo[3 + k, j, 2]])
-                W5 = np.array([raw_geo[4 + k, j, 0],raw_geo[4 + k, j, 1],raw_geo[4 + k, j, 2]])
-
-                # Compute normal of the plane W1, W2, W3
-                w1, w2     = W2 - W1, W3 - W1
-                W_normal   = np.cross(w1, w2)
-                W_normal   = W_normal / np.linalg.norm(W_normal)
-                
-                # Check which of the five points are below the plane
-                W1_below = np.dot(A2_normal,W1)-d_A2 < 0
-                W2_below = np.dot(A2_normal,W2)-d_A2 < 0
-                W3_below = np.dot(A2_normal,W3)-d_A2 < 0
-                W4_below = np.dot(A2_normal,W4)-d_A2 < 0
-                W5_below = np.dot(A2_normal,W5)-d_A2 < 0
-
-                # If all of them are below the gamma plane then the whole segment needs cut
-                cut_segment = W1_below and W2_below and W3_below and W4_below                
-
-                if W3_below and not(W1_below):
-                    lv    = W1 - W3
-                    lvd   = np.dot(A2_normal,lv)
-                    t     = np.dot(A2_normal,(p1-W3))/lvd
-                    Wnew3 = W3 + t*lv 
-                else:
-                    Wnew3 = W3
-
-                if W4_below and not(W2_below):
-                    lv    = W2 - W4
-                    lvd   = np.dot(A2_normal,lv)
-                    t     = np.dot(A2_normal,(p1-W4))/lvd
-                    Wnew4 = W4 + t*lv 
-                else:
-                    Wnew4 = W4
-                    
-                proj_points[2] = Wnew3
-                proj_points[3] = Wnew4
-                
-            if cut_segment: continue
-
-                
-            if gammaAng > 0 and j >= num_sections-max_trim_segments and elec_type == "anode":
-                
-                # Define the three points corresponding to the inner facing three points 
-                W1 = np.array([raw_geo[0 + k, j, 0],raw_geo[0 + k, j, 1],raw_geo[0 + k, j, 2]])
-                W2 = np.array([raw_geo[1 + k, j, 0],raw_geo[1 + k, j, 1],raw_geo[1 + k, j, 2]])
-                W3 = np.array([raw_geo[4 + k, j, 0],raw_geo[4 + k, j, 1],raw_geo[4 + k, j, 2]])
-
-                # Compute normal of the plane W1, W2, W3
-                w1, w2     = W2 - W1, W3 - W1
-                W_normal   = np.cross(w1, w2)
-                W_normal   = W_normal / np.linalg.norm(W_normal)
-                
-                # Compute the direction of the intersection
-                line_dir  = np.cross(W_normal, A2_normal)
-                line_dir /= np.linalg.norm(line_dir)
-
-                # Find a point on the intersection line by solving for the midpoint projection
-                A_matrix = np.array([W_normal, A2_normal, line_dir])
-                b_vector = np.array([np.dot(W_normal, W1), np.dot(A2_normal, p1), 0])
-                intersection_point = np.linalg.solve(A_matrix, b_vector)
-
-                # Find three points along the intersection line
-                Wn1 = intersection_point + line_dir * np.dot(W1 - intersection_point, line_dir)
-                Wn2 = intersection_point + line_dir * np.dot(W2 - intersection_point, line_dir)
-                Wn3 = intersection_point + line_dir * np.dot(W3 - intersection_point, line_dir)
-
-                if np.dot(A2_normal,W1)-d_A2 >= 0: 
-                    Wnew1 = W1
-                else:
-                    Wnew1 = Wn1
-                    
-                if np.dot(A2_normal,W2)-d_A2 >= 0: 
-                    Wnew2 = W2
-                else:
-                    Wnew2 = Wn2
-                    
-                if np.dot(A2_normal,W3)-d_A2 >= 0: 
-                    Wnew3 = W3
-                else:
-                    Wnew3 = Wn3
-                    
-                proj_points[0] = Wnew1
-                proj_points[1] = Wnew2
-                proj_points[4] = Wnew3
-            
-         
-            if elec_type == "anode":
-                
-                if j >= num_sections-max_trim_segments:
-                    for i in range(5):
-                        if i in [2,3]:
-                            if angling > 0:
-                                rotated_pts = self.rotate_point_around_axis([raw_geo[i + k, j, 0],
-                                                                             raw_geo[i + k, j, 1],
-                                                                             raw_geo[i + k, j, 2]],
-                                                                            W_norm_cent,
-                                                                            angle_at_segment[j],
-                                                                            axis_point = seg_cent)
-
-                                                                
-                            else:
-                                rotated_pts = [raw_geo[i + k, j, 0],
-                                               raw_geo[i + k, j, 1],
-                                               raw_geo[i + k, j, 2]]
-                                              
-                                
-                            geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(new_pt + f,
-                                                                                    rotated_pts[0],
-                                                                                    rotated_pts[1],
-                                                                                    rotated_pts[2],
-                                                                                    h)
-                            new_pt +=1
-
-                        if i in [0,1,4]:
-                            if angling > 0:
-                                rotated_pts = self.rotate_point_around_axis([proj_points[i][0],
-                                                                             proj_points[i][1],
-                                                                             proj_points[i][2]],
-                                                                            W_norm_cent,
-                                                                            angle_at_segment[j],
-                                                                            axis_point = seg_cent)
-
-                            else:
-                                rotated_pts = [proj_points[i][0],
-                                               proj_points[i][1],
-                                               proj_points[i][2]]
-
-                            geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(new_pt + f,
-                                                                                    rotated_pts[0],
-                                                                                    rotated_pts[1],
-                                                                                    rotated_pts[2],
-                                                                                    h)
-                            new_pt +=1
-
-                        
-                else:
-                    for i in range(5):
-                        if angling > 0:
-                            rotated_pts = self.rotate_point_around_axis([raw_geo[i + k, j, 0],
-                                                                         raw_geo[i + k, j, 1],
-                                                                         raw_geo[i + k, j, 2]],
-                                                                        W_norm_cent,
-                                                                        angle_at_segment[j],
-                                                                        axis_point = seg_cent)
-                            
-                        else:
-                            rotated_pts = [raw_geo[i + k, j, 0],
-                                           raw_geo[i + k, j, 1],
-                                           raw_geo[i + k, j, 2]]
-                                              
-
-                                
-                        geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(new_pt + f,
-                                                                                rotated_pts[0],
-                                                                                rotated_pts[1],
-                                                                                rotated_pts[2],
-                                                                                h)
-
-                        new_pt +=1
-
-
-            if elec_type == "cathode":
-                for i in range(5):
-                    if angling > 0:
-                        rotated_pts = self.rotate_point_around_axis([raw_geo[i + k, j, 0],
-                                                                     raw_geo[i + k, j, 1],
-                                                                     raw_geo[i + k, j, 2]],
-                                                                    W_norm_cent,
-                                                                    angle_at_segment[j],
-                                                                    axis_point = seg_cent)
-                    else:
-                        rotated_pts = [raw_geo[i + k, j, 0],
-                                       raw_geo[i + k, j, 1],
-                                       raw_geo[i + k, j, 2]]
-                                              
-
-                        
-                    geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(new_pt + f,
-                                                                            rotated_pts[0],
-                                                                            rotated_pts[1],
-                                                                            rotated_pts[2],
-                                                                            h)
-                    new_pt +=1
+                base_point = j * 5
+                smooth_face_point_tags = [
+                    base_point + 1 + f,
+                    extra_tags[0],
+                    extra_tags[1],
+                    extra_tags[2],
+                    base_point + 5 + f,
+                    extra_tags[3],
+                    extra_tags[4],
+                    extra_tags[5],
+                    base_point + 2 + f,
+                ]
                     
                     
             # For each section, add the lines
             geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 0 + f, (j * 5) + 4 + f, (j * 5) + 2 + f)
             geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 1 + f, (j * 5) + 3 + f, (j * 5) + 1 + f)
             geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 2 + f, (j * 5) + 3 + f, (j * 5) + 4 + f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3 + f, (j * 5) + 5 + f, (j * 5) + 2 + f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4 + f, (j * 5) + 1 + f, (j * 5) + 5 + f)
+
+            if vee_shape == "linear":
+                geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3 + f, (j * 5) + 5 + f, (j * 5) + 2 + f)
+                geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4 + f, (j * 5) + 1 + f, (j * 5) + 5 + f)
+            else:
+                geo_str += "Spline({}) = {{ {} }};\n".format(
+                    new_ln + 3 + f,
+                    ", ".join(str(tag) for tag in smooth_face_point_tags),
+                )
 
             new_ln += 5
 
-            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop + f,
+            if vee_shape == "linear":
+                geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop + f,
+                                                                             (j * 5) + 3 + f,
+                                                                             (j * 5) + 2 + f,
+                                                                             (j * 5) + 5 + f,
+                                                                             (j * 5) + 4 + f,
+                                                                             (j * 5) + 1 + f)
+            else:
+                geo_str += "Wire({}) = {{ {}, {}, {}, {} }};\n\n".format(new_loop + f,
                                                                          (j * 5) + 3 + f,
                                                                          (j * 5) + 2 + f,
-                                                                         (j * 5) + 5 + f,
                                                                          (j * 5) + 4 + f,
                                                                          (j * 5) + 1 + f)
 
             new_loop += 1
 
-        geo_str += "Ruled ThruSections({}) = {{ {}:{} }};".format(new_vol + f, 1 + f, new_loop - 1 + f)
+        electrode_volume = new_vol + f
+        geo_str += "Ruled ThruSections({}) = {{ {}:{} }};\n".format(
+            electrode_volume,
+            1 + f,
+            new_loop - 1 + f,
+        )
+
+        if apply_boolean_gamma:
+            gamma_normal = np.asarray(boolean_gamma_plane[0], dtype=float)
+            plane_point = np.asarray(boolean_gamma_plane[1], dtype=float)
+            cutter_volume = 9_000_000 + f
+            geo_str += self._gamma_boolean_geo_str(
+                electrode_volume,
+                cutter_volume,
+                raw_geo,
+                angle_at_segment,
+                gamma_normal,
+                plane_point,
+            )
 
         
         new_vol += 1
@@ -638,7 +1038,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         if elec_type == "cathode":
             return geo_str
         else:
-            return geo_str, [A2_normal, p1, d_A2]
+            return geo_str, boolean_gamma_plane
 
 
 # Geometrically, trajectories have much in common with electrodes...
@@ -1095,18 +1495,26 @@ def generate_analytical_geometry(si):
     for i in range(ns):
         diff_hat[i, :] = diff[i, :] / diff_norm[i]  # Calculate each normalized vector
 
+    sigma_at_segment = _longitudinal_profile(
+        sigma,
+        ns,
+        scalar_mode="constant",
+        name="sigma",
+    )
+    sigma_displacement = diff_hat * sigma_at_segment[:, np.newaxis]
+
     geo = np.zeros([10, ns, 3])  # Initialize geo array
 
     # Upper Electrode
-    geo[0, :, :] = geos[0][0, :, :] + diff_hat * sigma
-    geo[1, :, :] = geos[0][1, :, :] + diff_hat * sigma
-    geo[2, :, :] = geos[1][0, :, :] + diff_hat * sigma  # Should reduce the thickness
-    geo[3, :, :] = geos[1][1, :, :] + diff_hat * sigma  # Should reduce the thickness
+    geo[0, :, :] = geos[0][0, :, :] + sigma_displacement
+    geo[1, :, :] = geos[0][1, :, :] + sigma_displacement
+    geo[2, :, :] = geos[1][0, :, :] + sigma_displacement  # Should reduce the thickness
+    geo[3, :, :] = geos[1][1, :, :] + sigma_displacement  # Should reduce the thickness
     geo[4, :, :] = 0.5 * (geos[0][0, :, :] + geos[0][1, :, :])
 
     # Lower Electrode
-    geo[5, :, :] = geos[0][2, :, :] + diff_hat * sigma
-    geo[6, :, :] = geos[0][3, :, :] + diff_hat * sigma
+    geo[5, :, :] = geos[0][2, :, :] + sigma_displacement
+    geo[6, :, :] = geos[0][3, :, :] + sigma_displacement
     geo[7, :, :] = geos[1][2, :, :]
     geo[8, :, :] = geos[1][3, :, :]
     geo[9, :, :] = 0.5 * (geos[0][2, :, :] + geos[0][3, :, :])
@@ -1237,18 +1645,26 @@ def generate_numerical_geometry(si):
     for i in range(ns):
         diff_hat[i, :] = diff[i, :] / diff_norm[i]  # Calculate each normalized vector
 
+    sigma_at_segment = _longitudinal_profile(
+        sigma,
+        ns,
+        scalar_mode="constant",
+        name="sigma",
+    )
+    sigma_displacement = diff_hat * sigma_at_segment[:, np.newaxis]
+
     geo = np.zeros([10, ns, 3])  # Initialize geo array
 
     # Upper Electrode
-    geo[0, :, :] = geos[0][0, :, :] + diff_hat * sigma
-    geo[1, :, :] = geos[0][1, :, :] + diff_hat * sigma
-    geo[2, :, :] = geos[1][0, :, :] + diff_hat * sigma  # Should reduce the thickness
-    geo[3, :, :] = geos[1][1, :, :] + diff_hat * sigma  # Should reduce the thickness
+    geo[0, :, :] = geos[0][0, :, :] + sigma_displacement
+    geo[1, :, :] = geos[0][1, :, :] + sigma_displacement
+    geo[2, :, :] = geos[1][0, :, :] + sigma_displacement  # Should reduce the thickness
+    geo[3, :, :] = geos[1][1, :, :] + sigma_displacement  # Should reduce the thickness
     geo[4, :, :] = 0.5 * (geos[0][0, :, :] + geos[0][1, :, :])
 
     # Lower Electrode
-    geo[5, :, :] = geos[0][2, :, :] + diff_hat * sigma
-    geo[6, :, :] = geos[0][3, :, :] + diff_hat * sigma
+    geo[5, :, :] = geos[0][2, :, :] + sigma_displacement
+    geo[6, :, :] = geos[0][3, :, :] + sigma_displacement
     geo[7, :, :] = geos[1][2, :, :]
     geo[8, :, :] = geos[1][3, :, :]
     geo[9, :, :] = 0.5 * (geos[0][2, :, :] + geos[0][3, :, :])
@@ -1447,6 +1863,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     h          = numerical_pars["h"]
     gamma      = analytic_pars["gammaAng"] 
     anglingAng = analytic_pars["anglingAng"]
+    vee_shape  = analytic_pars.get("vee_shape", "linear")
     
     # Variables for fenics solving, won't affect anything BEMPP related (ideally) -PW
     anode_offset = 0
@@ -1457,11 +1874,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     housing_offset = 5000
 
     anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
-    _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng)
+    _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng, vee_shape=vee_shape)
     anode.color = "RED"
 
     cathode = SIElectrode(name="SI Cathode", voltage=-voltage, offset=cathode_offset)
-    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=True, gammaAng = gamma, gamma_plane = anode_gamma_plane, angling = anglingAng)
+    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=True, gammaAng = gamma, gamma_plane = anode_gamma_plane, angling = anglingAng, vee_shape=vee_shape)
     anode.color = "BLUE"
 
     # Create an assembly holding all the electrodes
