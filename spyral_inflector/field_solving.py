@@ -1,5 +1,5 @@
 from py_electrodes.py_electrodes import *
-from PyPATools.field import Field, RegularGridInterpolator
+from PyPATools.field import Field
 from .bempp_gmres_wrapper import gmres
 
 # Define the directions:
@@ -59,15 +59,10 @@ def calculate_efield_bempp(si):
 
     ex, ey, ez = np.gradient(phi, _d[X], _d[Y], _d[Z])
 
-    _field = Field("Spiral Inflector E-Field",
-                   dim=3,
-                   field={"x": RegularGridInterpolator(points=_r, values=-ex,
-                                                       bounds_error=False, fill_value=0.0),
-                          "y": RegularGridInterpolator(points=_r, values=-ey,
-                                                       bounds_error=False, fill_value=0.0),
-                          "z": RegularGridInterpolator(points=_r, values=-ez,
-                                                       bounds_error=False, fill_value=0.0)
-                          })
+    _field = Field.from_arrays(grid={"x": _r[X], "y": _r[Y], "z": _r[Z]},
+                               values={"x": -ex, "y": -ey, "z": -ez},
+                               label="Spiral Inflector E-Field",
+                               dim=3)
 
     numerical_vars["ef_itp"] = _field
     si.numerical_variables = numerical_vars
