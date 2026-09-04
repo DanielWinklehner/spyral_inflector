@@ -224,6 +224,9 @@ def solve_bempp(si, use_gpu=True):
 
     electrodes = numerical_vars["objects"].electrodes
     gmres_tol = bempp_params["gmres_tol"]
+    # .get() so SpiralInflector instances saved before these keys existed still load
+    gmres_restart = bempp_params.get("gmres_restart", 200)
+    gmres_precon = bempp_params.get("gmres_precon", "auto")
 
     if numerical_vars["full mesh"] is None:
         print("Please generate a mesh before solving with BEM++!")
@@ -263,7 +266,8 @@ def solve_bempp(si, use_gpu=True):
 
     print("...running GMRES...", flush=True)
     # sol, info, res = bempp_cl.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
-    sol, info, res = gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True, use_gpu=use_gpu)
+    sol, info, res = gmres(slp, dirichlet_fun, tol=gmres_tol, restart=gmres_restart,
+                           preconditioner=gmres_precon, return_residuals=True, use_gpu=use_gpu)
     print("Done!", flush=True)
 
     # Save results

@@ -92,6 +92,11 @@ class SpiralInflector(object):
         self._params_numerical = {"h": None,  # the desired mesh spacing for BEM++ mesh generation
                                   "make_aperture": False,  # Make apertures at the exit and entrance
                                   "gmres_tol": 1E-5,  # Tolerance used to calculate the BEMPP solution
+                                  "gmres_restart": 200,  # GMRES restart depth. The backend default of
+                                  # 20 is far slower: 7.6 s vs 2.1 s on a 15.5k element mesh (GPU).
+                                  "gmres_precon": "auto",  # "auto" (jacobi), "jacobi" or "none".
+                                  # Jacobi is ~3-4x faster on both CPU and GPU: the single-layer
+                                  # matrix diagonal spans several orders of magnitude.
                                   "aperture_params": {"thickness": None,
                                                       "radius": None,
                                                       "length": None,
