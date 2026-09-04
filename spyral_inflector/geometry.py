@@ -2031,6 +2031,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         assy.add_electrode(outer_cylinder)
 
 
+    # The quadrupoles and their grounded apertures are fixed in the lab frame, so
+    # the entrance-centering shift must not move them. Everything created before
+    # this point belongs to the inflector itself.
+    _inflector_ids = set(assy.electrodes.keys())
+
     if numerical_pars["make_quadrupoles"]:
         a          = numerical_pars["quadrupole_params"]["a"]
         b          = numerical_pars["quadrupole_params"]["b"]
@@ -2089,6 +2094,18 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         assy.show(show_screen=True)
 
         
+    # Centering shift from optimize_fringe(apply_shift=True). Applied here so it
+    # survives assembly regeneration; get_bempp_mesh() then bakes it into the BEM
+    # mesh, and the STEP export picks it up too.
+    _shift = si.track_variables.get("shift_applied")
+
+    if _shift is not None:
+        _shift = np.asarray(_shift, dtype=float)
+
+        for _eid, _elec in assy.electrodes.items():
+            if _eid in _inflector_ids:
+                _elec.set_translation(_shift, absolute=True)
+
     numerical_vars["objects"] = assy
 
     si.analytic_parameters = analytic_pars

@@ -3,7 +3,8 @@ from .vector import Vector
 import numpy as np
 
 
-def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.002):
+def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.002,
+                    apply_shift=False, robust_exit=False):
     """
     This function optimizes the length of the spiral inflector to adjust for fringe fields.
     :param si: the spiral inflector object
@@ -89,8 +90,11 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
               "deviation from z-axis in x-dir: {:.4f} degrees, "
               "deviation from z-axis in y-dir: {:.4f} degrees".format(_db[0], deviation_x, deviation_y))
 
-        track_vars["shift"][0] -= _r[-1][0]
-        track_vars["shift"][1] -= _r[-1][1]
+        # Assignment, not "-=": this is the lateral offset of the back-tracked
+        # particle for the CURRENT geometry. Accumulating it summed one measurement
+        # per iteration, so with maxiter=12 the stored shift was ~12x too large.
+        track_vars["shift"][0] = -_r[-1][0]
+        track_vars["shift"][1] = -_r[-1][1]
 
         entrance_opt.append([it, _db[0], deviation_x, deviation_y])
 
@@ -124,6 +128,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
     it = 0
 
     exit_opt = []  # Store the information from the optimization
+    _hist = []  # (b_max adjustment, deviation) samples, for the robust_exit solver
 
     while abs(deviation) > tol:
 
@@ -170,7 +175,8 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         print("Current exit adjustment: {:.4f}, "
               "deviation from xy-plane: {:.4f} degrees".format(_db[1], deviation))
 
-        track_vars["shift"][2] -= _r[-1, 2]
+        # See the entrance loop: assignment rather than accumulation.
+        track_vars["shift"][2] = -_r[-1, 2]
 
         exit_opt.append([it, _db[1], deviation])
 
@@ -180,7 +186,30 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
             print("Exit Fringe: Maximum number of iterations has been reached. Breaking.")
             break
 
-        if it == 1:
+        if robust_exit:
+            # Secant on deviation(b_max), with bisection once zero is bracketed.
+            # The damped fixed-point step below overshoots badly: the response is
+            # strongly nonlinear, and a -2.15 deg step was measured to take the
+            # deviation from -3.31 to +0.33 deg.
+            _hist.append((_db[1], deviation))
+
+            _bracket = [(x, f) for x, f in _hist if f > 0.0], [(x, f) for x, f in _hist if f < 0.0]
+
+            if _bracket[0] and _bracket[1]:
+                # Bracketed: bisect between the closest straddling pair.
+                _pos = min(_bracket[0], key=lambda p: abs(p[1]))
+                _neg = min(_bracket[1], key=lambda p: abs(p[1]))
+                _db[1] = 0.5 * (_pos[0] + _neg[0])
+
+            elif len(_hist) >= 2 and _hist[-1][1] != _hist[-2][1]:
+                # Secant step through the last two samples.
+                (_x0, _f0), (_x1, _f1) = _hist[-2], _hist[-1]
+                _db[1] = _x1 - _f1 * (_x1 - _x0) / (_f1 - _f0)
+
+            else:
+                _db[1] += deviation
+
+        elif it == 1:
             _db[1] += deviation
         else:
             _db[1] += 0.65 * deviation  # Dampen the oscillations a bit
@@ -195,6 +224,26 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         print(entrance_opt)
         print("Exit Optimization:")
         print(exit_opt)
+
+    if apply_shift:
+        # The entrance loop measured the lateral offset of a back-tracked particle
+        # and the exit loop the vertical one. Store it where generate_solid_assembly
+        # picks it up, so the electrodes are translated to centre the incoming beam
+        # on the machine axis; doing it here rather than on the assembly directly
+        # means it survives the re-meshing below and reaches the exported geometry.
+        # Lateral only. The request is a centred ENTRANCE trajectory and a LEVEL exit;
+        # levelness is the b_max angle handled above, and translating the inflector
+        # vertically would just move it out of the median plane. shift[2] is still
+        # measured and returned, it is simply not applied here.
+        _applied = np.array(track_vars["shift"], dtype=float)
+        _applied[2] = 0.0
+
+        si.track_variables["shift_applied"] = _applied
+
+        print("Applying centering shift dx={:.4f} mm, dy={:.4f} mm "
+              "(dz={:.4f} mm measured, not applied)".format(
+                  1000.0 * _applied[0], 1000.0 * _applied[1],
+                  1000.0 * track_vars["shift"][2]))
 
     # Recalculate the new geometry and BEM++ solution one last time
     si.initialize()
