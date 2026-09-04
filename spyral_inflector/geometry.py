@@ -90,8 +90,14 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         #Generate a surface defined by the closed wire created above
         geo_str+="Plane Surface(4) = {3};\n"
         
-        #Extrude the plane surface we just made along the z-axis by an amound dz
-        geo_str+="Ex[] = Extrude {0,0,%f} {Surface{4}; Layers{1}; Recombine;};\n"%(dz)
+        # Extrude the plane surface we just made along the z-axis by an amount dz.
+        # Layers has to follow dz/h: it used to be Layers{1}, i.e. a single element
+        # spanning the whole electrode length however fine h was. Recombine is left
+        # off so the extruded walls come out as triangles -- BEM++ needs triangles,
+        # and a mixed triangle/quadrangle mesh breaks the element assembly in
+        # py_electrodes.PyElectrode.generate_mesh().
+        n_layers = int(max(1, np.ceil(abs(dz) / h)))
+        geo_str+="Ex[] = Extrude {0,0,%f} {Surface{4}; Layers{%d};};\n"%(dz, n_layers)
 
         #Rotate if needed
         geo_str+="Rotate {{0,0,1},{0,0,0},%f}{Volume{Ex[1]};}\n"%(rotation[2])
@@ -1614,42 +1620,47 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         quad_volts = numerical_pars["quadrupole_params"]["voltages"]
         aper_rad   = numerical_pars["quadrupole_params"]["aper_rad"]
 
-        pi     = 3.14159265358 
+        pi     = 3.14159265358
         aper_t = 0.005
         gap    = 0.001
+
+        # Mesh size for the quadrupole electrodes. These used to be hardcoded
+        # (0.005 for the apertures, 0.01 for the dipoles) and so ignored the "h"
+        # parameter set on the SpiralInflector.
+        quad_h = numerical_pars["h"]
         
         nquads = len(quad_volts)
 
         for pole in range(nquads):
 
             A1 = SIAperture(name="ent%i"%(4*pole),voltage=0.0)
-            A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=0.005, load=True,header=True)
+            A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
             A1.color="BLACK"
             assy.add_electrode(A1)
             
             A2 = SIAperture(name="ext%i"%(4*pole),voltage=0.0)
-            A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=0.005, load=True,header=True)
+            A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=quad_h, load=True,header=True)
             A2.color="BLACK"
             assy.add_electrode(A2)
 
             
             D1 = SIHyperbolicDipole(name="D%i"%(4*pole), voltage=quad_volts[pole])
-            D1.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,0.0],load=True,header=True)
+            D1.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,0.0],load=True,header=True)
             D1.color="BLUE"            
             assy.add_electrode(D1)
             
             D2 = SIHyperbolicDipole(name="D%i"%(4*pole+1), voltage=quad_volts[pole])
-            D2.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi],load=True,header=True)
+            D2.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi],load=True,header=True)
             D2.color="BLUE"
             assy.add_electrode(D2)
          
             D3 = SIHyperbolicDipole(name="D%i"%(4*pole+2), voltage=-1.0*quad_volts[pole])
-            D3.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi/2],load=True,header=True)
+            D3.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi/2],load=True,header=True)
             D3.color="RED"
             assy.add_electrode(D3)
             
             D4 = SIHyperbolicDipole(name="D%i"%(4*pole+3), voltage=-1.0*quad_volts[pole])
-            D4.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,3*pi/2],load=True,header=True)
+            D4.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,3*pi/2],load=True,header=True)
             D4.color="RED"
             assy.add_electrode(D4)
         
