@@ -245,6 +245,11 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
                   1000.0 * _applied[0], 1000.0 * _applied[1],
                   1000.0 * track_vars["shift"][2]))
 
+    # Both loops pick their best-scoring adjustment above, but nothing ever put it
+    # back: the limits still in effect were whatever the final iteration happened
+    # to set, which is not the same thing once a loop overshoots and comes back.
+    si.set_blim(b_min=0.0 + _db[0], b_max=90.0 + _db[1])
+
     # Recalculate the new geometry and BEM++ solution one last time
     si.initialize()
     si.generate_meshed_model()
