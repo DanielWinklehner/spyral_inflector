@@ -342,6 +342,20 @@ def generate_numerical_trajectory(si, bf=None, nsteps=100000, dt=1e-12):
         i += 1
 
     ns = i
+
+    # Full-resolution orbit, before any truncation. The truncated and decimated
+    # arrays below are what the geometry sweep needs and what b_lim selects from;
+    # optimize_trajectory needs the untruncated orbit instead: its end is the b_max
+    # this field actually reaches (the exit truncation is referenced to it), and its
+    # centreline does not move when b_lim moves. Stored separately rather than
+    # changing the decimation, which the electrode construction depends on.
+    _rot_full = analytic_vars["rot"] if analytic_params["rotation"] != 0.0 else None
+    analytic_vars["trj_design_full"] = (np.array(_r[:i + 1]) if _rot_full is None
+                                        else np.matmul(_rot_full, _r[:i + 1].T).T)
+    analytic_vars["v_design_full"] = (np.array(_v[:i + 1]) if _rot_full is None
+                                      else np.matmul(_rot_full, _v[:i + 1].T).T)
+    analytic_vars["b_full"] = np.array(_b[:i + 1])
+    analytic_vars["b_max_achieved"] = float(_b[i])  # rad; the orbit stops when vz < 0
     
     try:
         i_init = np.where(_b >= analytic_params["b_lim"][0])[0][0]

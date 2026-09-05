@@ -442,4 +442,15 @@ def _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals, M=None):
     transfer_time_from = time.time() - start_time
     bempp_cl.api.log(f"Transferred solution to CPU in {transfer_time_from:.4f}s")
 
+    # Hand the device memory back. CuPy's pool would otherwise keep the N x N block
+    # (5 GB at 26k elements) cached, and bempp's OpenCL assembly of the next operator
+    # then has to share the GPU with it. Repeated solves in one process were seen to
+    # go from 8 s to 240 s at an unchanged GMRES iteration count.
+    del A_gpu, b_gpu, x_gpu
+    try:
+        _cp.get_default_memory_pool().free_all_blocks()
+        _cp.get_default_pinned_memory_pool().free_all_blocks()
+    except Exception:
+        pass
+
     return x, info, residuals if return_residuals else None

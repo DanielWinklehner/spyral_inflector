@@ -1862,7 +1862,9 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
     geo        = analytic_vars["geo"]
     trj        = analytic_vars["trj_design"]
-    voltage    = analytic_pars["volt"]
+    # Design voltage times the operating scale (.get: objects saved before the key
+    # existed). The design orbit and the electrodes stay those of the design voltage.
+    voltage    = analytic_pars["volt"] * numerical_pars.get("volt_scale", 1.0)
     h          = numerical_pars["h"]
     gamma      = analytic_pars["gammaAng"] 
     anglingAng = analytic_pars["anglingAng"]
@@ -2108,9 +2110,14 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         _shift_lab = (np.zeros(3) if _shift_lab is None
                       else np.asarray(_shift_lab, dtype=float))
 
+        # Added to, not replacing, the translation an electrode already carries: the
+        # entrance (and exit) aperture is positioned through set_translation above,
+        # and an absolute shift here put it at the origin instead of just below the
+        # electrode entrance. The electrodes are rebuilt on every call, so the shift
+        # is added exactly once.
         for _eid, _elec in assy.electrodes.items():
             _elec.set_translation(_shift if _eid in _inflector_ids else _shift_lab,
-                                  absolute=True)
+                                  absolute=False)
 
     numerical_vars["objects"] = assy
 

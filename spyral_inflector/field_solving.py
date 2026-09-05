@@ -266,9 +266,13 @@ def solve_bempp(si, use_gpu=True):
 
     print("...running GMRES...", flush=True)
     # sol, info, res = bempp_cl.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
+    _ts = time.time()
     sol, info, res = gmres(slp, dirichlet_fun, tol=gmres_tol, restart=gmres_restart,
                            preconditioner=gmres_precon, return_residuals=True, use_gpu=use_gpu)
-    print("Done!", flush=True)
+    # The iteration count is the conditioning diagnostic: on the HCHC-60 deck the
+    # same mesh size takes 8 s for some truncation settings and 200+ s for others.
+    print("Done! ({} GMRES iterations, final residual {:.2e}, {:.1f} s)".format(
+        len(res) if res else 0, res[-1] if res else float("nan"), time.time() - _ts), flush=True)
 
     # Save results
     numerical_vars["solution"] = sol

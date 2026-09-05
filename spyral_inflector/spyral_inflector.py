@@ -98,6 +98,10 @@ class SpiralInflector(object):
                                   "gmres_precon": "auto",  # "auto" (jacobi), "jacobi" or "none".
                                   # Jacobi is ~3-4x faster on both CPU and GPU: the single-layer
                                   # matrix diagonal spans several orders of magnitude.
+                                  "volt_scale": 1.0,  # Operating voltage of the spiral electrodes
+                                  # relative to the design voltage "volt". The geometry is built
+                                  # for "volt"; this only scales the boundary values in the BEM
+                                  # solve. optimize_trajectory uses it as a knob.
                                   "aperture_params": {"thickness": None,
                                                       "radius": None,
                                                       "length": None,
@@ -584,6 +588,9 @@ class SpiralInflector(object):
 
     def optimize_fringe(self, **kwargs):
         return optimize_fringe(self, **kwargs)
+
+    def optimize_trajectory(self, **kwargs):
+        return optimize_trajectory(self, **kwargs)
 
     def draw_geometry(self, **kwargs):
         return draw_geometry(self, **kwargs)
