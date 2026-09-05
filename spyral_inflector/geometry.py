@@ -212,8 +212,14 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         #Generate a surface defined by the closed wire created above
         geo_str+="Plane Surface(4) = {3};\n"
         
-        #Extrude the plane surface we just made along the z-axis by an amound dz
-        geo_str+="Ex[] = Extrude {0,0,%f} {Surface{4}; Layers{1}; Recombine;};\n"%(dz)
+        # Extrude the plane surface we just made along the z-axis by an amount dz.
+        # Layers has to follow dz/h: it used to be Layers{1}, i.e. a single element
+        # spanning the whole electrode length however fine h was. Recombine is left
+        # off so the extruded walls come out as triangles -- BEM++ needs triangles,
+        # and a mixed triangle/quadrangle mesh breaks the element assembly in
+        # py_electrodes.PyElectrode.generate_mesh().
+        n_layers = int(max(1, np.ceil(abs(dz) / h)))
+        geo_str+="Ex[] = Extrude {0,0,%f} {Surface{4}; Layers{%d};};\n"%(dz, n_layers)
 
         #Rotate if needed
         geo_str+="Rotate {{0,0,1},{0,0,0},%f}{Volume{Ex[1]};}\n"%(rotation[2])
@@ -349,10 +355,13 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         geo_str += "Wire(3) = {1, 2};\n"
         geo_str += "Plane Surface(4) = {3};\n"
 
-        # Extrude along +z.
+        # Extrude along +z. The layer count has to follow dz/h: Layers{1} puts a
+        # single element across the whole electrode length however fine h is,
+        # which left the quadrupole dipoles at a few dozen triangles.
+        n_layers = int(max(1, np.ceil(abs(dz) / h)))
         geo_str += (
             f"Ex[] = Extrude {{0, 0, {dz:.16g}}} "
-            "{Surface{4}; Layers{1};};\n"
+            f"{{Surface{{4}}; Layers{{{n_layers}}};}};\n"
         )
 
         # Rotate around the electrode's translated z-axis.
@@ -1853,7 +1862,9 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
     geo        = analytic_vars["geo"]
     trj        = analytic_vars["trj_design"]
-    voltage    = analytic_pars["volt"]
+    # Design voltage times the operating scale (.get: objects saved before the key
+    # existed). The design orbit and the electrodes stay those of the design voltage.
+    voltage    = analytic_pars["volt"] * numerical_pars.get("volt_scale", 1.0)
     h          = numerical_pars["h"]
     gamma      = analytic_pars["gammaAng"] 
     anglingAng = analytic_pars["anglingAng"]
@@ -2022,6 +2033,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         assy.add_electrode(outer_cylinder)
 
 
+    # The quadrupoles and their grounded apertures are fixed in the lab frame, so
+    # the entrance-centering shift must not move them. Everything created before
+    # this point belongs to the inflector itself.
+    _inflector_ids = set(assy.electrodes.keys())
+
     if numerical_pars["make_quadrupoles"]:
         a          = numerical_pars["quadrupole_params"]["a"]
         b          = numerical_pars["quadrupole_params"]["b"]
@@ -2031,42 +2047,47 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         quad_volts = numerical_pars["quadrupole_params"]["voltages"]
         aper_rad   = numerical_pars["quadrupole_params"]["aper_rad"]
 
-        pi     = 3.14159265358 
+        pi     = 3.14159265358
         aper_t = 0.005
         gap    = 0.001
+
+        # Mesh size for the quadrupole electrodes. These used to be hardcoded
+        # (0.005 for the apertures, 0.01 for the dipoles) and so ignored the "h"
+        # parameter set on the SpiralInflector.
+        quad_h = numerical_pars["h"]
         
         nquads = len(quad_volts)
 
         for pole in range(nquads):
 
             A1 = SIAperture(name="ent%i"%(4*pole),voltage=0.0)
-            A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=0.005, load=True,header=True)
+            A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
             A1.color="BLACK"
             assy.add_electrode(A1)
             
             A2 = SIAperture(name="ext%i"%(4*pole),voltage=0.0)
-            A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=0.005, load=True,header=True)
+            A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=quad_h, load=True,header=True)
             A2.color="BLACK"
             assy.add_electrode(A2)
 
             
             D1 = SIHyperbolicDipole(name="D%i"%(4*pole), voltage=quad_volts[pole])
-            D1.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,0.0],load=True,header=True)
+            D1.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,0.0],load=True,header=True)
             D1.color="BLUE"            
             assy.add_electrode(D1)
             
             D2 = SIHyperbolicDipole(name="D%i"%(4*pole+1), voltage=quad_volts[pole])
-            D2.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi],load=True,header=True)
+            D2.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi],load=True,header=True)
             D2.color="BLUE"
             assy.add_electrode(D2)
          
             D3 = SIHyperbolicDipole(name="D%i"%(4*pole+2), voltage=-1.0*quad_volts[pole])
-            D3.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi/2],load=True,header=True)
+            D3.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi/2],load=True,header=True)
             D3.color="RED"
             assy.add_electrode(D3)
             
             D4 = SIHyperbolicDipole(name="D%i"%(4*pole+3), voltage=-1.0*quad_volts[pole])
-            D4.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,3*pi/2],load=True,header=True)
+            D4.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=quad_h,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,3*pi/2],load=True,header=True)
             D4.color="RED"
             assy.add_electrode(D4)
         
@@ -2075,6 +2096,29 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         assy.show(show_screen=True)
 
         
+    # Centering shift from optimize_fringe(apply_shift=True). Applied here so it
+    # survives assembly regeneration; get_bempp_mesh() then bakes it into the BEM
+    # mesh, and the STEP export picks it up too.
+    _shift = si.track_variables.get("shift_applied")
+    _shift_lab = si.track_variables.get("shift_applied_lab")
+
+    if _shift is not None:
+        _shift = np.asarray(_shift, dtype=float)
+        # Lab-frame hardware (quadrupoles and their grounded apertures) takes only the
+        # axial component, so it stays centred on the incoming beam while preserving
+        # its spacing to the inflector.
+        _shift_lab = (np.zeros(3) if _shift_lab is None
+                      else np.asarray(_shift_lab, dtype=float))
+
+        # Added to, not replacing, the translation an electrode already carries: the
+        # entrance (and exit) aperture is positioned through set_translation above,
+        # and an absolute shift here put it at the origin instead of just below the
+        # electrode entrance. The electrodes are rebuilt on every call, so the shift
+        # is added exactly once.
+        for _eid, _elec in assy.electrodes.items():
+            _elec.set_translation(_shift if _eid in _inflector_ids else _shift_lab,
+                                  absolute=False)
+
     numerical_vars["objects"] = assy
 
     si.analytic_parameters = analytic_pars

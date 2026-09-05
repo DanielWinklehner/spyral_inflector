@@ -1,5 +1,5 @@
 from py_electrodes.py_electrodes import *
-from PyPATools.field import Field, RegularGridInterpolator
+from PyPATools.field import Field
 from .bempp_gmres_wrapper import gmres
 
 # Define the directions:
@@ -59,15 +59,10 @@ def calculate_efield_bempp(si):
 
     ex, ey, ez = np.gradient(phi, _d[X], _d[Y], _d[Z])
 
-    _field = Field("Spiral Inflector E-Field",
-                   dim=3,
-                   field={"x": RegularGridInterpolator(points=_r, values=-ex,
-                                                       bounds_error=False, fill_value=0.0),
-                          "y": RegularGridInterpolator(points=_r, values=-ey,
-                                                       bounds_error=False, fill_value=0.0),
-                          "z": RegularGridInterpolator(points=_r, values=-ez,
-                                                       bounds_error=False, fill_value=0.0)
-                          })
+    _field = Field.from_arrays(grid={"x": _r[X], "y": _r[Y], "z": _r[Z]},
+                               values={"x": -ex, "y": -ey, "z": -ez},
+                               label="Spiral Inflector E-Field",
+                               dim=3)
 
     numerical_vars["ef_itp"] = _field
     si.numerical_variables = numerical_vars
@@ -229,6 +224,9 @@ def solve_bempp(si, use_gpu=True):
 
     electrodes = numerical_vars["objects"].electrodes
     gmres_tol = bempp_params["gmres_tol"]
+    # .get() so SpiralInflector instances saved before these keys existed still load
+    gmres_restart = bempp_params.get("gmres_restart", 200)
+    gmres_precon = bempp_params.get("gmres_precon", "auto")
 
     if numerical_vars["full mesh"] is None:
         print("Please generate a mesh before solving with BEM++!")
@@ -268,8 +266,13 @@ def solve_bempp(si, use_gpu=True):
 
     print("...running GMRES...", flush=True)
     # sol, info, res = bempp_cl.api.linalg.gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True)
-    sol, info, res = gmres(slp, dirichlet_fun, tol=gmres_tol, return_residuals=True, use_gpu=use_gpu)
-    print("Done!", flush=True)
+    _ts = time.time()
+    sol, info, res = gmres(slp, dirichlet_fun, tol=gmres_tol, restart=gmres_restart,
+                           preconditioner=gmres_precon, return_residuals=True, use_gpu=use_gpu)
+    # The iteration count is the conditioning diagnostic: on the HCHC-60 deck the
+    # same mesh size takes 8 s for some truncation settings and 200+ s for others.
+    print("Done! ({} GMRES iterations, final residual {:.2e}, {:.1f} s)".format(
+        len(res) if res else 0, res[-1] if res else float("nan"), time.time() - _ts), flush=True)
 
     # Save results
     numerical_vars["solution"] = sol

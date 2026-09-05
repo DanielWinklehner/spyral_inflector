@@ -55,6 +55,100 @@ class IterationCounter(object):
         return self._residuals
 
 
+def _dense_array(A_op):
+    """Return the dense matrix behind a bempp discrete operator, or None.
+
+    Only dense assembly exposes one. FMM and H-matrix operators do not, and both
+    the GPU path and the Jacobi preconditioner need it.
+    """
+    for attr in ("_A", "A"):
+        if hasattr(A_op, attr):
+            try:
+                dense = _np.asarray(getattr(A_op, attr))
+            except Exception:
+                return None
+            return dense if dense.ndim == 2 else None
+
+    return None
+
+
+def _jacobi_preconditioner(A_op, on_gpu):
+    """Diagonal (Jacobi) preconditioner for a dense operator, or None.
+
+    The Laplace single-layer matrix is badly scaled -- on a 15.5k element spiral
+    inflector mesh its diagonal spans 8.0e-11 to 1.7e-07 -- so dividing the
+    diagonal out cuts the iteration count sharply on both backends.
+    """
+    dense = _dense_array(A_op)
+
+    if dense is None:
+        return None
+
+    diag = _np.diag(dense).copy()
+
+    if not _np.all(_np.isfinite(diag)) or _np.any(diag == 0.0):
+        return None
+
+    if on_gpu:
+        diag_gpu = _cp.asarray(diag)
+
+        return _cu_linalg.LinearOperator(dense.shape,
+                                         matvec=lambda v: v / diag_gpu,
+                                         dtype=_cp.float64)
+
+    import scipy.sparse.linalg
+
+    return scipy.sparse.linalg.LinearOperator(dense.shape, matvec=lambda v: v / diag)
+
+
+def _resolve_preconditioner(name, A_op, on_gpu):
+    """Turn the preconditioner setting into a LinearOperator, or None.
+
+    "auto" means jacobi on both backends. Measured on a 15,508 element spiral
+    inflector mesh at restart=200, seconds for the GMRES solve:
+
+        tol     GPU none   GPU jacobi   CPU none   CPU jacobi
+        1e-05      2.71        0.90        9.84        2.80
+        1e-06      3.10        0.92       15.70        3.24
+        1e-08      3.80        0.90       25.60        4.35
+        1e-10      5.73        2.20           -        5.09
+
+    It is also far more accurate, which is the stronger reason to keep it on.
+    Against a dense direct solve, relative error in the surface-charge
+    coefficients and in the potential sampled along the beam axis:
+
+        tol      none: coeff / potential      jacobi: coeff / potential
+        1e-05      1.97e-03 / 8.19e-07          6.14e-09 / 8.04e-12
+        1e-06      1.01e-05 / 4.39e-09          6.14e-09 / 8.04e-12
+        1e-08      8.63e-08 / 3.19e-11          6.14e-09 / 8.04e-12
+
+    Note the jacobi column is flat: with restart=200 it converges to ~1e-9 in
+    the first restart cycle whatever tol says, so gmres_tol stops being the
+    thing that controls accuracy. Unpreconditioned at the default tol=1e-5 the
+    coefficients are only good to 2e-3.
+    """
+    import bempp_cl.api
+
+    name = "none" if name is None else str(name).lower()
+
+    if name == "auto":
+        name = "jacobi"
+
+    if name == "none":
+        return None
+
+    if name != "jacobi":
+        raise ValueError("Unknown preconditioner %r; use 'auto', 'jacobi' or 'none'" % name)
+
+    preconditioner = _jacobi_preconditioner(A_op, on_gpu)
+
+    if preconditioner is None:
+        bempp_cl.api.log("Jacobi preconditioner unavailable (no usable dense diagonal); "
+                         "continuing without one")
+
+    return preconditioner
+
+
 def gmres(
         A,
         b,
@@ -65,6 +159,7 @@ def gmres(
         return_residuals=False,
         return_iteration_count=False,
         use_gpu=True,
+        preconditioner="auto",
 ):
     """Perform GMRES solve via CuPy (GPU) or scipy (CPU).
 
@@ -78,6 +173,15 @@ def gmres(
     ----------
     use_gpu : bool
         If True and CuPy is available, use GPU acceleration. Default: True.
+    restart : int or None
+        GMRES restart depth. None uses the backend default of 20, which is far
+        from optimal for these operators: on a 15,508 element spiral inflector
+        mesh, restart=200 took the GPU solve from 7.6 s to 2.1 s and the CPU
+        solve from 60.6 s to 9.8 s.
+    preconditioner : str
+        'auto' (jacobi), 'jacobi' or 'none'. Jacobi is roughly 3-4x faster on
+        both backends here and needs a dense operator; it is skipped with a log
+        message otherwise.
 
     """
     from bempp_cl.api.assembly.boundary_operator import BoundaryOperator
@@ -94,6 +198,7 @@ def gmres(
             return_residuals,
             return_iteration_count,
             use_gpu,
+            preconditioner,
         )
 
     if isinstance(A, BlockedOperatorBase):
@@ -107,6 +212,7 @@ def gmres(
             return_residuals,
             return_iteration_count,
             use_gpu,
+            preconditioner,
         )
 
     raise ValueError("A must be a BoundaryOperator or BlockedBoundaryOperator")
@@ -122,8 +228,16 @@ def _gmres_single_op_imp(
         return_residuals=False,
         return_iteration_count=False,
         use_gpu=True,
+        preconditioner="auto",
 ):
-    """Run implementation of GMRES for single operators (CPU or GPU)."""
+    """Run implementation of GMRES for single operators (CPU or GPU).
+
+    restart is the GMRES restart depth. Leaving it None uses the backend default
+    of 20, which is far from optimal here: on a 15.5k element mesh, restart=200
+    took the GPU solve from 7.6 s to 2.1 s and the CPU solve from 60.6 s to 9.8 s.
+
+    preconditioner is 'auto' (jacobi), 'jacobi' or 'none'.
+    """
     from bempp_cl.api.assembly.grid_function import GridFunction
     import scipy.sparse.linalg
     import bempp_cl.api
@@ -148,9 +262,11 @@ def _gmres_single_op_imp(
     # Decide whether to use GPU
     use_gpu_actual = use_gpu and CUPY_AVAILABLE
 
+    M = _resolve_preconditioner(preconditioner, A_op, use_gpu_actual)
+
     if use_gpu_actual:
         bempp_cl.api.log("Starting GMRES iteration on GPU (CuPy)")
-        x, info, res = _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals)
+        x, info, res = _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals, M=M)
     else:
         if use_gpu and not CUPY_AVAILABLE:
             bempp_cl.api.log("CuPy not available, falling back to CPU scipy")
@@ -159,7 +275,7 @@ def _gmres_single_op_imp(
         callback = IterationCounter(return_residuals)
         start_time = time.time()
         x, info = scipy.sparse.linalg.gmres(
-            A_op, b_vec, rtol=tol, restart=restart, maxiter=maxiter, callback=callback
+            A_op, b_vec, rtol=tol, restart=restart, maxiter=maxiter, M=M, callback=callback
         )
         end_time = time.time()
         bempp_cl.api.log("GMRES finished in %i iterations and took %.2E sec." % (callback.count, end_time - start_time))
@@ -192,6 +308,7 @@ def _gmres_block_op_imp(
         return_residuals=False,
         return_iteration_count=False,
         use_gpu=True,
+        preconditioner="auto",
 ):
     """Run implementation of GMRES for blocked operators (CPU or GPU)."""
     import scipy.sparse.linalg
@@ -214,9 +331,11 @@ def _gmres_block_op_imp(
     # Decide whether to use GPU
     use_gpu_actual = use_gpu and CUPY_AVAILABLE
 
+    M = _resolve_preconditioner(preconditioner, A_op, use_gpu_actual)
+
     if use_gpu_actual:
         bempp_cl.api.log("Starting GMRES iteration on GPU (CuPy)")
-        x, info, res = _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals)
+        x, info, res = _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals, M=M)
     else:
         if use_gpu and not CUPY_AVAILABLE:
             bempp_cl.api.log("CuPy not available, falling back to CPU scipy")
@@ -225,7 +344,7 @@ def _gmres_block_op_imp(
         callback = IterationCounter(return_residuals)
         start_time = time.time()
         x, info = scipy.sparse.linalg.gmres(
-            A_op, b_vec, rtol=tol, restart=restart, maxiter=maxiter, callback=callback
+            A_op, b_vec, rtol=tol, restart=restart, maxiter=maxiter, M=M, callback=callback
         )
         end_time = time.time()
         bempp_cl.api.log("GMRES finished in %i iterations and took %.2E sec." % (callback.count, end_time - start_time))
@@ -248,8 +367,13 @@ def _gmres_block_op_imp(
     return res_fun, info
 
 
-def _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals):
-    """Perform GMRES on GPU using CuPy."""
+def _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals, M=None):
+    """Perform GMRES on GPU using CuPy.
+
+    Requires a dense operator: the whole matrix is copied to the device, which is
+    O(N^2) memory (1.92 GB at N = 15,508). FMM or H-matrix operators cannot use
+    this path.
+    """
     import bempp_cl.api
     import time
 
@@ -260,12 +384,10 @@ def _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals):
     start_time = time.time()
 
     # Extract dense matrix from bempp operator
-    if hasattr(A_op, '_A'):
-        A_dense = _np.asarray(A_op._A)
-    elif hasattr(A_op, 'A'):
-        A_dense = _np.asarray(A_op.A)
-    else:
-        raise RuntimeError(f"Could not extract matrix from {type(A_op)}")
+    A_dense = _dense_array(A_op)
+
+    if A_dense is None:
+        raise RuntimeError(f"Could not extract a dense matrix from {type(A_op)}")
 
     # Convert to CuPy
     A_gpu = _cp.asarray(A_dense, dtype=_cp.float64)
@@ -297,6 +419,7 @@ def _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals):
             atol=0.0,
             restart=restart,
             maxiter=maxiter,
+            M=M,
             callback=gpu_callback,
         )
     else:
@@ -306,6 +429,7 @@ def _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals):
             tol=tol,
             restart=restart,
             maxiter=maxiter,
+            M=M,
             callback=gpu_callback,
         )
 
@@ -317,5 +441,16 @@ def _gmres_gpu(A_op, b_vec, tol, restart, maxiter, return_residuals):
     x = _cp.asnumpy(x_gpu)
     transfer_time_from = time.time() - start_time
     bempp_cl.api.log(f"Transferred solution to CPU in {transfer_time_from:.4f}s")
+
+    # Hand the device memory back. CuPy's pool would otherwise keep the N x N block
+    # (5 GB at 26k elements) cached, and bempp's OpenCL assembly of the next operator
+    # then has to share the GPU with it. Repeated solves in one process were seen to
+    # go from 8 s to 240 s at an unchanged GMRES iteration count.
+    del A_gpu, b_gpu, x_gpu
+    try:
+        _cp.get_default_memory_pool().free_all_blocks()
+        _cp.get_default_pinned_memory_pool().free_all_blocks()
+    except Exception:
+        pass
 
     return x, info, residuals if return_residuals else None
