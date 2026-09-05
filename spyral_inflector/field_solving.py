@@ -155,13 +155,14 @@ def calculate_potential(si,
     # Initialize potential array
     pot = np.zeros(mesh[0].shape)
 
-    # Index borders (can be float)
-    borders = np.array([np.linspace(0, _n[i], domain_decomp[i] + 1) for i in XYZ])
+    # Index borders (can be float). Lists, not a 2-D array: the three directions may
+    # be decomposed into different numbers of blocks.
+    borders = [np.linspace(0, _n[i], domain_decomp[i] + 1) for i in XYZ]
 
     # Indices (must be int)
     # note: rounding will likely lead to domains that are off in size by one index, but that's fine
-    start_idxs = np.array([np.array(borders[i][:-1], int) - overlap for i in XYZ])
-    end_idxs = np.array([np.array(borders[i][1:], int) + overlap for i in XYZ])
+    start_idxs = [np.array(borders[i][:-1], int) - overlap for i in XYZ]
+    end_idxs = [np.array(borders[i][1:], int) + overlap for i in XYZ]
 
     for i in XYZ:
         start_idxs[i][0] = 0
