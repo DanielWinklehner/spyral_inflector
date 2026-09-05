@@ -2098,13 +2098,19 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     # survives assembly regeneration; get_bempp_mesh() then bakes it into the BEM
     # mesh, and the STEP export picks it up too.
     _shift = si.track_variables.get("shift_applied")
+    _shift_lab = si.track_variables.get("shift_applied_lab")
 
     if _shift is not None:
         _shift = np.asarray(_shift, dtype=float)
+        # Lab-frame hardware (quadrupoles and their grounded apertures) takes only the
+        # axial component, so it stays centred on the incoming beam while preserving
+        # its spacing to the inflector.
+        _shift_lab = (np.zeros(3) if _shift_lab is None
+                      else np.asarray(_shift_lab, dtype=float))
 
         for _eid, _elec in assy.electrodes.items():
-            if _eid in _inflector_ids:
-                _elec.set_translation(_shift, absolute=True)
+            _elec.set_translation(_shift if _eid in _inflector_ids else _shift_lab,
+                                  absolute=True)
 
     numerical_vars["objects"] = assy
 

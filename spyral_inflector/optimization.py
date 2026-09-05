@@ -231,19 +231,23 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
         # picks it up, so the electrodes are translated to centre the incoming beam
         # on the machine axis; doing it here rather than on the assembly directly
         # means it survives the re-meshing below and reaches the exported geometry.
-        # Lateral only. The request is a centred ENTRANCE trajectory and a LEVEL exit;
-        # levelness is the b_max angle handled above, and translating the inflector
-        # vertically would just move it out of the median plane. shift[2] is still
-        # measured and returned, it is simply not applied here.
+        # Lateral AND axial. The inflector assembly is aligned to the beam in all
+        # three axes; the axial component brings the exit back onto the median plane.
         _applied = np.array(track_vars["shift"], dtype=float)
-        _applied[2] = 0.0
 
         si.track_variables["shift_applied"] = _applied
 
-        print("Applying centering shift dx={:.4f} mm, dy={:.4f} mm "
-              "(dz={:.4f} mm measured, not applied)".format(
-                  1000.0 * _applied[0], 1000.0 * _applied[1],
-                  1000.0 * track_vars["shift"][2]))
+        # The quadrupoles and their apertures stay centred on the incoming beam
+        # laterally, but follow the inflector axially so the drift between quad 2 and
+        # the inflector entrance -- 38 mm, where the matching optics live -- is
+        # preserved. The source-to-quad-1 gap is only ~5 mm, over which the beam
+        # barely evolves, so changing that instead is optically irrelevant.
+        si.track_variables["shift_applied_lab"] = np.array([0.0, 0.0, _applied[2]])
+
+        print("Applying shift: inflector dx={:.4f} dy={:.4f} dz={:.4f} mm, "
+              "quadrupoles dz={:.4f} mm".format(
+                  1000.0 * _applied[0], 1000.0 * _applied[1], 1000.0 * _applied[2],
+                  1000.0 * _applied[2]))
 
     # Both loops pick their best-scoring adjustment above, but nothing ever put it
     # back: the limits still in effect were whatever the final iteration happened
