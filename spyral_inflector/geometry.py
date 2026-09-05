@@ -2,17 +2,139 @@ from py_electrodes.py_electrodes import *  # From py_electrodes we also get HAVE
 import matplotlib.pyplot as plt
 from .vector import Vector
 from PyPATools.particles import ParticleDistribution
+import numpy as np
 
 X_AXIS = np.array([1, 0, 0], float)
 Y_AXIS = np.array([0, 1, 0], float)
 Z_AXIS = np.array([0, 0, 1], float)
 
+
+def _longitudinal_profile(specification, num_sections, *, scalar_mode, name):
+    """Evaluate a geometry modifier on the normalized inflector length.
+
+    The normalized coordinate ``xi`` runs from -1 at array index zero to +1
+    at the final section. Supported specifications are:
+
+    * scalar: retains the legacy behavior selected by ``scalar_mode``;
+    * sequence: polynomial coefficients in ascending order, i.e.
+      ``[c0, c1, c2]`` evaluates ``c0 + c1*xi + c2*xi**2``;
+    * callable: called once as ``specification(xi)``;
+    * dictionary with ``kind='polynomial'`` and ``coefficients=[...]``;
+    * dictionary with ``kind='samples'``, ``values=[...]`` and optional
+      ``positions=[...]``. Samples are linearly interpolated.
+
+    ``positions`` use the same [-1, +1] normalized coordinate. A callable
+    may return either a scalar or one value per section.
+    """
+
+    if num_sections < 1:
+        raise ValueError(f"{name} requires at least one geometry section")
+
+    xi = np.linspace(-1.0, 1.0, num_sections)
+
+    if callable(specification):
+        profile = specification(xi)
+
+    elif isinstance(specification, dict):
+        kind = str(specification.get("kind", "polynomial")).lower()
+
+        if kind in ("polynomial", "poly"):
+            coefficients = specification.get(
+                "coefficients", specification.get("coeffs")
+            )
+            if coefficients is None:
+                raise ValueError(
+                    f"{name} polynomial specification requires "
+                    "'coefficients'"
+                )
+            coefficients = np.asarray(coefficients, dtype=float)
+            if coefficients.ndim != 1 or coefficients.size == 0:
+                raise ValueError(
+                    f"{name} polynomial coefficients must be a nonempty "
+                    "one-dimensional sequence"
+                )
+            profile = np.polynomial.polynomial.polyval(xi, coefficients)
+
+        elif kind in ("samples", "sampled", "control_points"):
+            values = np.asarray(specification.get("values"), dtype=float)
+            if values.ndim != 1 or values.size == 0:
+                raise ValueError(
+                    f"{name} sampled specification requires a nonempty "
+                    "one-dimensional 'values' sequence"
+                )
+
+            positions = specification.get("positions")
+            if positions is None:
+                positions = np.linspace(-1.0, 1.0, values.size)
+            else:
+                positions = np.asarray(positions, dtype=float)
+
+            if positions.shape != values.shape:
+                raise ValueError(
+                    f"{name} sampled 'positions' and 'values' must have "
+                    "the same shape"
+                )
+            if np.any(np.diff(positions) <= 0.0):
+                raise ValueError(
+                    f"{name} sampled 'positions' must be strictly increasing"
+                )
+            if positions[0] > -1.0 or positions[-1] < 1.0:
+                raise ValueError(
+                    f"{name} sampled 'positions' must span [-1, +1]"
+                )
+
+            profile = np.interp(xi, positions, values)
+
+        else:
+            raise ValueError(
+                f"Unsupported {name} profile kind {kind!r}; expected "
+                "'polynomial' or 'samples'"
+            )
+
+    else:
+        values = np.asarray(specification, dtype=float)
+
+        if values.ndim == 0:
+            value = float(values)
+            if scalar_mode == "legacy_angling":
+                # Preserve the old sentinel/disable behavior for zero and
+                # negative scalar values, including the historical -1.
+                if value <= 0.0:
+                    profile = np.zeros(num_sections, dtype=float)
+                else:
+                    profile = np.linspace(value, -value, num_sections)
+            elif scalar_mode == "constant":
+                profile = np.full(num_sections, value, dtype=float)
+            else:
+                raise ValueError(f"Unknown scalar mode {scalar_mode!r}")
+
+        elif values.ndim == 1 and values.size > 0:
+            # A bare sequence is concise polynomial notation.
+            profile = np.polynomial.polynomial.polyval(xi, values)
+        else:
+            raise ValueError(
+                f"{name} must be a scalar, callable, dictionary, or "
+                "nonempty one-dimensional polynomial coefficient sequence"
+            )
+
+    profile = np.asarray(profile, dtype=float)
+    if profile.ndim == 0:
+        profile = np.full(num_sections, float(profile), dtype=float)
+    if profile.shape != (num_sections,):
+        raise ValueError(
+            f"{name} profile returned shape {profile.shape}; expected "
+            f"({num_sections},)"
+        )
+    if not np.all(np.isfinite(profile)):
+        raise ValueError(f"{name} profile contains non-finite values")
+
+    return profile
+
 HAVE_BEMPP = False
 try:
-    import bempp.api
-    from bempp.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
-    from bempp.api.grid import Grid as BemppGrid
-
+    import bempp_cl.api
+    from bempp_cl.api.shapes.shapes import __generate_grid_from_geo_string as generate_from_string
+    from bempp_cl.api.grid import Grid as BemppGrid
     HAVE_BEMPP = True
 except ImportError:
     bempp = None
@@ -21,7 +143,6 @@ except ImportError:
 HAVE_FENICS = False
 try:
     import fenics as fn
-
     HAVE_FENICS = True
 except ImportError:
     fn = None
@@ -29,12 +150,226 @@ except ImportError:
 HAVE_MESHIO = False
 try:
     import meshio
-
     HAVE_MESHIO = True
 except ImportError:
     meshio = None
 
 
+
+class SIHyperbolicDipole(PyElectrode):
+    def __init__(self, parent=None, name="New Dipole", voltage=0, offset=0):
+        super().__init__(name=name, voltage=voltage)
+        self._parent = parent  # the spiral inflector that contains this dipole
+        self._offset = offset    
+
+
+    def create_geo_str_old(self, r, dz, a, b, translation=None, rotation=None, h=0.005, load=True,header=True):
+
+        offset = self._offset
+
+        if translation is None:
+            translation = np.array([0.0, 0.0, 0.0])
+
+        if rotation is None:
+            rotation = np.array([0.0, 0.0, 0.0])
+        
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
+Geometry.NumSubEdges = 100; // nicer display of curve
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+""".format(h)
+        else:
+            geo_str = ""
+
+        #Define the point at which the ENTRANCE to the dipole is centered
+        #Not the geometric center, it will be extruded only in the +z direction from here
+        geo_str+="Point(1000) = {%f,%f,%f};\n"%(translation[0],translation[1],translation[2])
+
+        #Generate the points that will define the hyperbolic curve
+        geo_str+="N = 100;\n"
+        geo_str+="umin = -1;\n"
+        geo_str+="umax = 1;\n"
+        geo_str+="x0 = 0;\n"
+        geo_str+="For i In {0:N-1}\n"
+        geo_str+="u = umin + (umax - umin) / (N - 1) * i;\n"
+        geo_str+="x = x0 + %f * Sqrt(1 + u^2);\n"%(a)
+        geo_str+="y = x0 + %f * u;\n"%(b)
+        geo_str+="x2= -1.0*x;\n"
+        geo_str+="y2= -1.0*y;\n"
+        geo_str+="Point(1 + i) = {x, y, %f, 1.0};\n"%(translation[2])
+        geo_str+="Point(N+1+i) = {x2,y2,%f, 1.0};\n"%(translation[2])
+        geo_str+="EndFor\n"
+
+        #Create a hyperbolic curve by splining the points above
+        geo_str+="Spline(1) = {1:N};\n"
+        
+        #Create a circle centered at the origin and connecting the end pts of the hyperbola
+        geo_str+="Circle(2) = {1,1000,N};\n"
+        
+        #Combine the hyperbolic and circular curves into a sincle wire element
+        geo_str+="Wire(3) = {1,2};\n"
+
+        #Generate a surface defined by the closed wire created above
+        geo_str+="Plane Surface(4) = {3};\n"
+        
+        #Extrude the plane surface we just made along the z-axis by an amound dz
+        geo_str+="Ex[] = Extrude {0,0,%f} {Surface{4}; Layers{1}; Recombine;};\n"%(dz)
+
+        #Rotate if needed
+        geo_str+="Rotate {{0,0,1},{0,0,0},%f}{Volume{Ex[1]};}\n"%(rotation[2])
+        
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+
+        return geo_str
+
+    def create_geo_str(
+            self,
+            r,
+            dz,
+            a,
+            b,
+            translation=None,
+            rotation=None,
+            h=0.005,
+            load=True,
+            header=True
+    ):
+        """
+        Create a hyperbolic quadrupole electrode cross-section and extrude it.
+
+        Parameters
+        ----------
+        r : float
+            Outer radius of the electrode cross-section.
+        dz : float
+            Extrusion length along +z.
+        a : float
+            Hyperbola vertex radius. For a symmetric ideal quadrupole,
+            this is the clear-aperture radius.
+        b : float
+            Hyperbola transverse scale. Use b == a for ideal quadrupole symmetry.
+        translation : array-like, optional
+            Electrode center position [x, y, z].
+        rotation : array-like, optional
+            Rotation angles [rx, ry, rz] in radians. Only rz is used here.
+        h : float
+            Maximum mesh characteristic length.
+        load : bool
+            Load the generated geometry into the PyElectrode object.
+        header : bool
+            Include the Gmsh OpenCASCADE header.
+        """
+
+        if translation is None:
+            translation = np.array([0.0, 0.0, 0.0], dtype=float)
+        else:
+            translation = np.asarray(translation, dtype=float)
+
+        if rotation is None:
+            rotation = np.array([0.0, 0.0, 0.0], dtype=float)
+        else:
+            rotation = np.asarray(rotation, dtype=float)
+
+        if translation.shape != (3,):
+            raise ValueError("translation must contain exactly three values")
+
+        if rotation.shape != (3,):
+            raise ValueError("rotation must contain exactly three values")
+
+        if a <= 0.0:
+            raise ValueError("a must be positive")
+
+        if b <= 0.0:
+            raise ValueError("b must be positive")
+
+        if r <= a:
+            raise ValueError(
+                f"Outer radius r must be greater than the hyperbola "
+                f"vertex radius a; received r={r}, a={a}"
+            )
+
+        if dz == 0.0:
+            raise ValueError("dz must be nonzero")
+
+        # For:
+        #
+        #     x_local = a * sqrt(1 + u^2)
+        #     y_local = b * u
+        #
+        # require x_local^2 + y_local^2 = r^2 at the endpoints.
+        u_max = np.sqrt(
+            (r**2 - a**2) / (a**2 + b**2)
+        )
+
+        tx, ty, tz = translation
+
+        if header:
+            geo_str = (
+                'SetFactory("OpenCASCADE");\n'
+                'Geometry.NumSubEdges = 100;\n'
+                f'Mesh.CharacteristicLengthMax = {h:.16g};\n'
+            )
+        else:
+            geo_str = ""
+
+        # Center used by the circular rear boundary.
+        geo_str += (
+            f"Point(1000) = "
+            f"{{{tx:.16g}, {ty:.16g}, {tz:.16g}, {h:.16g}}};\n"
+        )
+
+        # Hyperbolic face:
+        #
+        #     (x - tx)^2/a^2 - (y - ty)^2/b^2 = 1
+        #
+        geo_str += "N = 100;\n"
+        geo_str += f"umin = {-u_max:.16g};\n"
+        geo_str += f"umax = {u_max:.16g};\n"
+
+        geo_str += "For i In {0:N-1}\n"
+        geo_str += "    u = umin + (umax - umin) / (N - 1) * i;\n"
+        geo_str += f"    x = {tx:.16g} + {a:.16g} * Sqrt(1 + u^2);\n"
+        geo_str += f"    y = {ty:.16g} + {b:.16g} * u;\n"
+        geo_str += (
+            f"    Point(1 + i) = "
+            f"{{x, y, {tz:.16g}, {h:.16g}}};\n"
+        )
+        geo_str += "EndFor\n"
+
+        # Hyperbolic front face.
+        geo_str += "Spline(1) = {1:N};\n"
+
+        # Circular rear face centered at the translated quadrupole axis.
+        # Point 1 and Point N are both exactly radius r from Point 1000.
+        geo_str += "Circle(2) = {N, 1000, 1};\n"
+
+        # Closed cross-sectional boundary and surface.
+        geo_str += "Wire(3) = {1, 2};\n"
+        geo_str += "Plane Surface(4) = {3};\n"
+
+        # Extrude along +z.
+        geo_str += (
+            f"Ex[] = Extrude {{0, 0, {dz:.16g}}} "
+            "{Surface{4}; Layers{1};};\n"
+        )
+
+        # Rotate around the electrode's translated z-axis.
+        if abs(rotation[2]) > 0.0:
+            geo_str += (
+                f"Rotate {{{{0, 0, 1}}, "
+                f"{{{tx:.16g}, {ty:.16g}, {tz:.16g}}}, "
+                f"{rotation[2]:.16g}}} "
+                "{Volume{Ex[1]};}\n"
+            )
+
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
+
+        
 class SIAperture(PyElectrode):
     def __init__(self, parent=None, name="New Aperture", voltage=0, offset=0):
         super().__init__(name=name, voltage=voltage)
@@ -163,7 +498,7 @@ class SICylinder(PyElectrode):
         self._parent = parent  # the spiral inflector that contains this aperture
         self._offset = offset
 
-    def create_geo_str(self, r, zmin, zmax, h=0.0075, load=True, header=True):
+    def create_geo_str(self, r, zmin, zmax, h=0.0075, load=True, header=True,offsetXY=[0.0,0.0]):
         # TODO: This docstring is incorrect -PW
         """
 
@@ -194,38 +529,299 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         geo_str += "// Cylinder\n"
         geo_str += "Cylinder({}) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n\n".format(1 + offset, zmin, zmax - zmin, r)
 
-        # Call function in PyElectrode module we inherit from if load is not False
+        
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
-
         return geo_str
 
 
 class SIElectrode(PyElectrode):
+    # Match the intent of the old "last 10 of 100 slices" guard without
+    # making the physical cut depth depend on the geometry resolution.
+    _GAMMA_TERMINAL_FRACTION = 0.10
+
     def __init__(self, parent=None, name="New Spiral Electrode", voltage=10000, offset=0):
         super().__init__(name=name, voltage=voltage)
         self._parent = parent  # the spiral inflector that contains this aperture
         self._offset = offset
 
-    def create_geo_str(self, raw_geo, elec_type, h=0.005, load=True, header=True):
+    def rotate_point_around_axis(self, point, axis, theta, axis_point=(0, 0, 0)):
+
+        theta = np.radians(theta)
+
+        axis = np.array(axis)
+        axis = axis / np.linalg.norm(axis)
+
+        point = np.array(point)
+        axis_point = np.array(axis_point)
+        translated_point = point - axis_point
+
+        # Rodrigues' rotation formula (rotation matrix)
+        W1, W2, W3 = axis
+        x, y, z = translated_point
+
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        one_minus_cos_t = 1 - cos_t
+
+        Rot_mat = np.array([
+            [cos_t + W1**2 * one_minus_cos_t,       W1*W2 * one_minus_cos_t - W3*sin_t, W1*W3 * one_minus_cos_t + W2*sin_t],
+            [W2*W1 * one_minus_cos_t + W3*sin_t, cos_t + W2**2 * one_minus_cos_t,       W2*W3 * one_minus_cos_t - W1*sin_t],
+            [W3*W1 * one_minus_cos_t - W2*sin_t, W3*W2 * one_minus_cos_t + W1*sin_t, cos_t + W3**2 * one_minus_cos_t]
+        ])
+        
+        rotated_translated_point = Rot_mat @ np.array([x, y, z])
+        rotated_point = rotated_translated_point + axis_point
+
+        return rotated_point
+
+    def _transformed_section_points(self, section_points, angle_degrees):
+        """Apply the existing plate-angle rotation to one five-point slice."""
+        points = np.asarray(section_points, dtype=float).copy()
+        W1, W2, W3, W4 = points[:4]
+        segment_center = 0.25 * (W1 + W2 + W3 + W4)
+        section_normal = np.cross(W2 - W1, W3 - W1)
+        normal_size = np.linalg.norm(section_normal)
+        if normal_size <= 1.0e-14:
+            raise ValueError("Cannot rotate a degenerate electrode section")
+        section_normal /= normal_size
+
+        if abs(angle_degrees) > 1.0e-14:
+            points = np.array([
+                self.rotate_point_around_axis(
+                    point,
+                    section_normal,
+                    angle_degrees,
+                    axis_point=segment_center,
+                )
+                for point in points
+            ])
+
+        return points
+
+    def _gamma_exit_frame(self, raw_geo, angle_at_segment):
+        """Return an orthonormal frame anchored to the upper exit edge."""
+        upper_end = self._transformed_section_points(
+            raw_geo[0:5, -1, :], angle_at_segment[-1]
+        )
+        lower_end = self._transformed_section_points(
+            raw_geo[5:10, -1, :], angle_at_segment[-1]
+        )
+
+        outer_edge_1 = upper_end[2]
+        outer_edge_2 = upper_end[3]
+        plane_point = 0.5 * (outer_edge_1 + outer_edge_2)
+
+        width_axis = outer_edge_2 - outer_edge_1
+        width_size = np.linalg.norm(width_axis)
+        if width_size <= 1.0e-14:
+            raise ValueError(
+                "Cannot construct gamma plane from a zero-width upper "
+                "electrode exit edge"
+            )
+        width_axis /= width_size
+
+        zero_normal = np.cross(width_axis, upper_end[4] - plane_point)
+        zero_size = np.linalg.norm(zero_normal)
+        if zero_size <= 1.0e-14:
+            raise ValueError("Cannot determine the upper-electrode exit plane")
+        zero_normal /= zero_size
+
+        body_index = -2 if raw_geo.shape[1] > 1 else -1
+        upper_body_section = self._transformed_section_points(
+            raw_geo[0:5, body_index, :], angle_at_segment[body_index]
+        )
+        upper_body_center = np.mean(upper_body_section[:4], axis=0)
+        if np.dot(zero_normal, upper_body_center - plane_point) < 0.0:
+            zero_normal *= -1.0
+
+        upper_center = np.mean(upper_end[:4], axis=0)
+        lower_center = np.mean(lower_end[:4], axis=0)
+        upper_direction = upper_center - lower_center
+
+        ninety_normal = (
+            upper_direction
+            - np.dot(upper_direction, width_axis) * width_axis
+            - np.dot(upper_direction, zero_normal) * zero_normal
+        )
+        ninety_size = np.linalg.norm(ninety_normal)
+        if ninety_size <= 1.0e-14:
+            ninety_normal = np.cross(zero_normal, width_axis)
+            ninety_size = np.linalg.norm(ninety_normal)
+        ninety_normal /= ninety_size
+        if np.dot(ninety_normal, upper_direction) < 0.0:
+            ninety_normal *= -1.0
+
+        # Choose the width sign so (width, vertical, backward) is a
+        # right-handed frame. Flipping this axis does not alter the cut plane.
+        if np.dot(np.cross(width_axis, ninety_normal), zero_normal) < 0.0:
+            width_axis *= -1.0
+
+        return width_axis, ninety_normal, zero_normal, plane_point
+
+    def _make_gamma_plane(self, raw_geo, angle_at_segment, gamma_angle):
+        """Define the shared exit cut plane from the final angled geometry.
+
+        The zero-degree normal points back into the electrode body, ensuring
+        that the negative half-space contains no electrode at gamma=0. The
+        90-degree normal points from the lower electrode toward the upper one.
+        The Boolean cutter is separately bounded to the terminal region.
         """
+        _, ninety_normal, zero_normal, plane_point = self._gamma_exit_frame(
+            raw_geo,
+            angle_at_segment,
+        )
 
-        Creates the geo string for a circular aperture plate with a elliptical or rectangular hole
-        For circular or square holes set a = b
-        This plate is centered around the origin (local coordinate system) with surface normal in z direction
-        and needs to be shifted/rotated.
+        gamma_radians = np.radians(gamma_angle)
+        gamma_normal = (
+            np.cos(gamma_radians) * zero_normal
+            + np.sin(gamma_radians) * ninety_normal
+        )
+        gamma_normal /= np.linalg.norm(gamma_normal)
 
-        :param raw_geo: ndim=3 numpy array containing the guide rails of the spiral electrodes
-        :param elec_type: 'anode' or 'cathode'
-        :param h: desired mesh resolution
-        :param load: Flag whether to also load from geo string directly.
-                     Cave: If False, geo str will not be saved internally!
-        :param header: Flag whether to include the header for the geo string.
-        :return gmsh_str: the string object for gmsh
-        """
+        return [
+            gamma_normal,
+            plane_point,
+            np.dot(gamma_normal, plane_point),
+        ]
 
-        f = self._offset  # Normally I use offset = self._offset, but there are a lot of uses of it so to keep
-        # it short, I will use f here. -PW
+    def _gamma_boolean_geo_str(
+            self, electrode_volume, cutter_volume, raw_geo,
+            angle_at_segment, gamma_normal, plane_point):
+        """Return a planar gamma cut confined to the electrode terminus."""
+        bounds = np.ptp(np.asarray(raw_geo).reshape(-1, 3), axis=0)
+        cut_size = max(1.0, 10.0 * np.linalg.norm(bounds))
+
+        geo_str = "\n// True planar gamma cut\n"
+        geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n".format(
+            cutter_volume,
+            -cut_size,
+            -cut_size,
+            -cut_size,
+            2.0 * cut_size,
+            2.0 * cut_size,
+            cut_size,
+        )
+
+        z_axis = np.array([0.0, 0.0, 1.0])
+        rotation_axis = np.cross(z_axis, gamma_normal)
+        rotation_size = np.linalg.norm(rotation_axis)
+        z_alignment = np.clip(np.dot(z_axis, gamma_normal), -1.0, 1.0)
+
+        if rotation_size > 1.0e-14:
+            rotation_axis /= rotation_size
+            rotation_angle = np.arccos(z_alignment)
+            geo_str += (
+                "Rotate {{ {{ {}, {}, {} }}, {{ 0, 0, 0 }}, {} }} "
+                "{{ Volume{{ {} }}; }}\n".format(
+                    rotation_axis[0],
+                    rotation_axis[1],
+                    rotation_axis[2],
+                    rotation_angle,
+                    cutter_volume,
+                )
+            )
+        elif z_alignment < 0.0:
+            geo_str += (
+                "Rotate { { 1, 0, 0 }, { 0, 0, 0 }, Pi } "
+                "{ Volume{ " + str(cutter_volume) + " }; }\n"
+            )
+
+        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(
+            plane_point[0],
+            plane_point[1],
+            plane_point[2],
+            cutter_volume,
+        )
+
+        # Bound the half-space in all three spatial directions around the
+        # physical terminus. A slab bounded only along the exit normal is not
+        # sufficient for a curved inflector: the distant entrance can curl
+        # back into that same slab.
+        upper_centers = np.mean(raw_geo[0:4, :, :], axis=0)
+        segment_lengths = np.linalg.norm(
+            np.diff(upper_centers, axis=0),
+            axis=1,
+        )
+        path_length = np.sum(segment_lengths)
+        if path_length <= 1.0e-14:
+            raise ValueError(
+                "Cannot bound the gamma cut on a zero-length electrode"
+            )
+
+        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length
+        tail_start = raw_geo.shape[1] - 1
+        accumulated_length = 0.0
+        while tail_start > 0 and accumulated_length < target_tail_length:
+            tail_start -= 1
+            accumulated_length += segment_lengths[tail_start]
+
+        terminal_sections = []
+        for section_index in range(tail_start, raw_geo.shape[1]):
+            terminal_sections.append(self._transformed_section_points(
+                raw_geo[0:5, section_index, :],
+                angle_at_segment[section_index],
+            ))
+            terminal_sections.append(self._transformed_section_points(
+                raw_geo[5:10, section_index, :],
+                angle_at_segment[section_index],
+            ))
+        terminal_points = np.concatenate(terminal_sections, axis=0)
+
+        terminal_min = np.min(terminal_points, axis=0)
+        terminal_max = np.max(terminal_points, axis=0)
+        terminal_span = terminal_max - terminal_min
+        terminal_padding = max(
+            1.0e-6,
+            0.05 * np.linalg.norm(terminal_span),
+            segment_lengths[-1] if segment_lengths.size else 0.0,
+        )
+        terminal_min -= terminal_padding
+        terminal_max += terminal_padding
+        terminal_volume = cutter_volume + 100_000
+
+        geo_str += "Box({}) = {{ {}, {}, {}, {}, {}, {} }};\n".format(
+            terminal_volume,
+            terminal_min[0],
+            terminal_min[1],
+            terminal_min[2],
+            terminal_max[0] - terminal_min[0],
+            terminal_max[1] - terminal_min[1],
+            terminal_max[2] - terminal_min[2],
+        )
+
+        geo_str += (
+            "gamma_cutter_{}() = BooleanIntersection "
+            "{{ Volume{{ {} }}; Delete; }}"
+            "{{ Volume{{ {} }}; Delete; }};\n".format(
+                electrode_volume,
+                cutter_volume,
+                terminal_volume,
+            )
+        )
+
+        # Do not explicitly assign the result back to electrode_volume: OCC
+        # creates the Boolean result before deleting its inputs, so reusing
+        # that live tag raises "OpenCASCADE entity ... already exists". Let
+        # Gmsh return the result tags and preserve the original tag when it can.
+        geo_str += (
+            "gamma_result_{}() = BooleanDifference "
+            "{{ Volume{{ {} }}; Delete; }}"
+            "{{ Volume{{ gamma_cutter_{}() }}; Delete; }};\n".format(
+                electrode_volume,
+                electrode_volume,
+                electrode_volume,
+            )
+        )
+        return geo_str
+
+            
+    def create_geo_str(self, raw_geo, elec_type, h=0.005,
+                       load=True, header=True, gammaAng = -1.0,
+                       gamma_plane=None, angling = -1,
+                       vee_shape="linear"):
+
+        f = self._offset
 
         if elec_type not in ["anode", "cathode"]:
             print("SIElectrode could not understand electrode type {}. Must be 'Anode' or 'Cathode'".format(type))
@@ -239,55 +835,204 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         else:
             geo_str = ""
 
-        new_pt = 1
-        new_ln = 1
+        new_pt   = 1
+        new_ln   = 1
         new_loop = 1
-        new_vol = 1
+        new_vol  = 1
 
         # Shift the index in geo object for anode or cathode...
-        if elec_type == "anode":
+        if elec_type   == "anode":
             k = 0
         elif elec_type == "cathode":
             k = 5
 
-        num_sections = len(raw_geo[0, :, 0])
+        num_sections    = len(raw_geo[0, :, 0])
+
+        vee_shape = str(vee_shape).strip().lower()
+        if vee_shape in ("v", "vee", "legacy"):
+            vee_shape = "linear"
+        if vee_shape not in ("linear", "parabolic"):
+            raise ValueError(
+                f"Unsupported vee_shape {vee_shape!r}; expected "
+                "'linear' or 'parabolic'"
+            )
+
+        #### ------- Set up the angling per slice ------ #####
+        # A positive scalar retains the historical +angle -> -angle ramp.
+        # Polynomial, sampled, and callable specifications may contain any
+        # signed profile. This isn't flipped for anode vs cathode because the
+        # cross products defining each slice normal are antiparallel.
+        angle_at_segment = _longitudinal_profile(
+            angling,
+            num_sections,
+            scalar_mode="legacy_angling",
+            name="angling",
+        )
+        apply_angling = np.any(np.abs(angle_at_segment) > 1.0e-14)
+
+        # Apply gamma as a Boolean half-space cut to the completed solid. This
+        # makes the cut a genuine plane and avoids special-casing only the last
+        # few loft sections.
+        requested_gamma_angle = float(gammaAng)
+        if requested_gamma_angle > 90.0:
+            raise ValueError(
+                "gammaAng must not exceed 90 degrees; received "
+                f"{requested_gamma_angle}"
+            )
+        apply_boolean_gamma = requested_gamma_angle > 0.0
+
+        if apply_boolean_gamma and elec_type == "anode":
+            boolean_gamma_plane = self._make_gamma_plane(
+                raw_geo,
+                angle_at_segment,
+                requested_gamma_angle,
+            )
+        elif apply_boolean_gamma:
+            if gamma_plane is None or len(gamma_plane) != 3:
+                raise ValueError(
+                    "The anode must be processed first to define the shared "
+                    "gamma cut plane"
+                )
+            boolean_gamma_plane = gamma_plane
+        else:
+            boolean_gamma_plane = [None, None, None]
 
         for j in range(num_sections):
-            for i in range(5):
-                geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(new_pt + f,
-                                                                        raw_geo[i + k, j, 0],
-                                                                        raw_geo[i + k, j, 1],
-                                                                        raw_geo[i + k, j, 2],
-                                                                        h)
+            section_points = self._transformed_section_points(
+                raw_geo[k:k + 5, j, :],
+                angle_at_segment[j],
+            )
+            W1, W2, W3, W4, W5 = section_points
+
+            for point in section_points:
+                geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(
+                    new_pt + f,
+                    point[0],
+                    point[1],
+                    point[2],
+                    h,
+                )
                 new_pt += 1
 
+            # The legacy inner face consists of the two straight segments
+            # W1--W5 and W5--W2.  For the parabolic option, sample the unique
+            # parabola through those same edge and center points and ask Gmsh
+            # to construct a smooth spline through the samples.  This changes
+            # only the facing surface: sigma retains exactly the same meaning
+            # as the edge-to-center sag, including a varying sigma(s).
+            smooth_face_point_tags = None
+            if vee_shape == "parabolic":
+                face_edge_1, face_edge_2, face_center = W1, W2, W5
+                edge_midpoint = 0.5 * (face_edge_1 + face_edge_2)
+                half_span = 0.5 * (face_edge_2 - face_edge_1)
+                sag_vector = edge_midpoint - face_center
+
+                # W1, W5 and W2 keep their normal point tags. Additional
+                # spline points use a distant, electrode-specific tag range
+                # so the established five-point-per-section numbering and all
+                # downstream offsets remain untouched.
+                interior_eta = (-0.75, -0.5, -0.25, 0.25, 0.5, 0.75)
+                extra_tag_base = (
+                    10_000_000
+                    + (0 if elec_type == "anode" else 1_000_000)
+                    + j * len(interior_eta)
+                )
+                extra_tags = []
+                for local_index, eta in enumerate(interior_eta):
+                    point = (
+                        face_center
+                        + eta * half_span
+                        + (eta ** 2.0) * sag_vector
+                    )
+                    point_tag = extra_tag_base + local_index
+                    extra_tags.append(point_tag)
+                    geo_str += (
+                        "Point({}) = {{ {}, {}, {}, {} }};\n".format(
+                            point_tag,
+                            point[0],
+                            point[1],
+                            point[2],
+                            h,
+                        )
+                    )
+
+                base_point = j * 5
+                smooth_face_point_tags = [
+                    base_point + 1 + f,
+                    extra_tags[0],
+                    extra_tags[1],
+                    extra_tags[2],
+                    base_point + 5 + f,
+                    extra_tags[3],
+                    extra_tags[4],
+                    extra_tags[5],
+                    base_point + 2 + f,
+                ]
+                    
+                    
             # For each section, add the lines
             geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 0 + f, (j * 5) + 4 + f, (j * 5) + 2 + f)
             geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 1 + f, (j * 5) + 3 + f, (j * 5) + 1 + f)
             geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 2 + f, (j * 5) + 3 + f, (j * 5) + 4 + f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3 + f, (j * 5) + 5 + f, (j * 5) + 2 + f)
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4 + f, (j * 5) + 1 + f, (j * 5) + 5 + f)
+
+            if vee_shape == "linear":
+                geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 3 + f, (j * 5) + 5 + f, (j * 5) + 2 + f)
+                geo_str += "Line({}) = {{ {}, {} }};\n".format(new_ln + 4 + f, (j * 5) + 1 + f, (j * 5) + 5 + f)
+            else:
+                geo_str += "Spline({}) = {{ {} }};\n".format(
+                    new_ln + 3 + f,
+                    ", ".join(str(tag) for tag in smooth_face_point_tags),
+                )
 
             new_ln += 5
 
-            geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop + f,
+            if vee_shape == "linear":
+                geo_str += "Wire({}) = {{ {}, {}, {}, {}, {} }};\n\n".format(new_loop + f,
+                                                                             (j * 5) + 3 + f,
+                                                                             (j * 5) + 2 + f,
+                                                                             (j * 5) + 5 + f,
+                                                                             (j * 5) + 4 + f,
+                                                                             (j * 5) + 1 + f)
+            else:
+                geo_str += "Wire({}) = {{ {}, {}, {}, {} }};\n\n".format(new_loop + f,
                                                                          (j * 5) + 3 + f,
                                                                          (j * 5) + 2 + f,
-                                                                         (j * 5) + 5 + f,
                                                                          (j * 5) + 4 + f,
                                                                          (j * 5) + 1 + f)
 
             new_loop += 1
 
-        geo_str += "Ruled ThruSections({}) = {{ {}:{} }};".format(new_vol + f, 1 + f, new_loop - 1 + f)
+        electrode_volume = new_vol + f
+        geo_str += "Ruled ThruSections({}) = {{ {}:{} }};\n".format(
+            electrode_volume,
+            1 + f,
+            new_loop - 1 + f,
+        )
 
+        if apply_boolean_gamma:
+            gamma_normal = np.asarray(boolean_gamma_plane[0], dtype=float)
+            plane_point = np.asarray(boolean_gamma_plane[1], dtype=float)
+            cutter_volume = 9_000_000 + f
+            geo_str += self._gamma_boolean_geo_str(
+                electrode_volume,
+                cutter_volume,
+                raw_geo,
+                angle_at_segment,
+                gamma_normal,
+                plane_point,
+            )
+
+        
         new_vol += 1
 
         # Call function in PyElectrode module we inherit from if load is not False
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
 
-        return geo_str
+        if elec_type == "cathode":
+            return geo_str
+        else:
+            return geo_str, boolean_gamma_plane
 
 
 # Geometrically, trajectories have much in common with electrodes...
@@ -341,6 +1086,8 @@ Geometry.NumSubEdges = 100; // nicer display of curve
 
         geo_str += "// Center Spline:\n"
         for _x, _y, _z in points:
+            if np.isnan(_x):
+                break
             geo_str += "Point({}) = {{ {}, {}, {} }};\n".format(new_pt + offset, _x, _y, _z)
             new_pt += 1
 
@@ -742,18 +1489,26 @@ def generate_analytical_geometry(si):
     for i in range(ns):
         diff_hat[i, :] = diff[i, :] / diff_norm[i]  # Calculate each normalized vector
 
+    sigma_at_segment = _longitudinal_profile(
+        sigma,
+        ns,
+        scalar_mode="constant",
+        name="sigma",
+    )
+    sigma_displacement = diff_hat * sigma_at_segment[:, np.newaxis]
+
     geo = np.zeros([10, ns, 3])  # Initialize geo array
 
     # Upper Electrode
-    geo[0, :, :] = geos[0][0, :, :] + diff_hat * sigma
-    geo[1, :, :] = geos[0][1, :, :] + diff_hat * sigma
-    geo[2, :, :] = geos[1][0, :, :] + diff_hat * sigma  # Should reduce the thickness
-    geo[3, :, :] = geos[1][1, :, :] + diff_hat * sigma  # Should reduce the thickness
+    geo[0, :, :] = geos[0][0, :, :] + sigma_displacement
+    geo[1, :, :] = geos[0][1, :, :] + sigma_displacement
+    geo[2, :, :] = geos[1][0, :, :] + sigma_displacement  # Should reduce the thickness
+    geo[3, :, :] = geos[1][1, :, :] + sigma_displacement  # Should reduce the thickness
     geo[4, :, :] = 0.5 * (geos[0][0, :, :] + geos[0][1, :, :])
 
     # Lower Electrode
-    geo[5, :, :] = geos[0][2, :, :] + diff_hat * sigma
-    geo[6, :, :] = geos[0][3, :, :] + diff_hat * sigma
+    geo[5, :, :] = geos[0][2, :, :] + sigma_displacement
+    geo[6, :, :] = geos[0][3, :, :] + sigma_displacement
     geo[7, :, :] = geos[1][2, :, :]
     geo[8, :, :] = geos[1][3, :, :]
     geo[9, :, :] = 0.5 * (geos[0][2, :, :] + geos[0][3, :, :])
@@ -777,14 +1532,13 @@ def generate_numerical_geometry(si):
 
     print("Generating numerical geometry... ", end="")
 
-    geos = []
-    _ion = analytic_params["ion"]  # type: ParticleDistribution
-    ns = analytic_params["ns"]  # type: int
-    gap = analytic_params["gap"]  # type: float
-    sigma = analytic_params["sigma"]  # type: float
+    geos   = []
+    _ion   = analytic_params["ion"]  # type: ParticleDistribution
+    ns     = analytic_params["ns"]  # type: int
+    gap    = analytic_params["gap"]  # type: float
+    sigma  = analytic_params["sigma"]  # type: float
     aspect_ratio = analytic_params["aspect_ratio"]  # type: float
     kp = analytic_vars["kp"]  # type: float
-
     b = analytic_vars["b"]  # type: np.ndarray
     trj_design = analytic_vars["trj_design"]  # type: np.ndarray
     trj_vel = analytic_vars["trj_vel"]
@@ -885,18 +1639,26 @@ def generate_numerical_geometry(si):
     for i in range(ns):
         diff_hat[i, :] = diff[i, :] / diff_norm[i]  # Calculate each normalized vector
 
+    sigma_at_segment = _longitudinal_profile(
+        sigma,
+        ns,
+        scalar_mode="constant",
+        name="sigma",
+    )
+    sigma_displacement = diff_hat * sigma_at_segment[:, np.newaxis]
+
     geo = np.zeros([10, ns, 3])  # Initialize geo array
 
     # Upper Electrode
-    geo[0, :, :] = geos[0][0, :, :] + diff_hat * sigma
-    geo[1, :, :] = geos[0][1, :, :] + diff_hat * sigma
-    geo[2, :, :] = geos[1][0, :, :] + diff_hat * sigma  # Should reduce the thickness
-    geo[3, :, :] = geos[1][1, :, :] + diff_hat * sigma  # Should reduce the thickness
+    geo[0, :, :] = geos[0][0, :, :] + sigma_displacement
+    geo[1, :, :] = geos[0][1, :, :] + sigma_displacement
+    geo[2, :, :] = geos[1][0, :, :] + sigma_displacement  # Should reduce the thickness
+    geo[3, :, :] = geos[1][1, :, :] + sigma_displacement  # Should reduce the thickness
     geo[4, :, :] = 0.5 * (geos[0][0, :, :] + geos[0][1, :, :])
 
     # Lower Electrode
-    geo[5, :, :] = geos[0][2, :, :] + diff_hat * sigma
-    geo[6, :, :] = geos[0][3, :, :] + diff_hat * sigma
+    geo[5, :, :] = geos[0][2, :, :] + sigma_displacement
+    geo[6, :, :] = geos[0][3, :, :] + sigma_displacement
     geo[7, :, :] = geos[1][2, :, :]
     geo[8, :, :] = geos[1][3, :, :]
     geo[9, :, :] = 0.5 * (geos[0][2, :, :] + geos[0][3, :, :])
@@ -917,9 +1679,11 @@ def get_norm_vec_and_angles_from_geo(geo):
 
     # face angle is the angle of mid_vec_b projected into x/y plane with x/z plane
     temp_vec = Vector([mid_vec_b[0], mid_vec_b[1], 0.0])
-    # face_angle = 0.5 * np.pi - temp_vec.angle_with(Vector(Y_AXIS))
-    face_angle = np.arctan2(mid_vec_b[1], mid_vec_b[0])
 
+    #face_angle = 0.5 * np.pi - temp_vec.angle_with(Vector(Y_AXIS))
+    face_angle = np.arctan2(mid_vec_b[1],mid_vec_b[0])
+
+    
     return tilt_angle, face_angle
 
 
@@ -1067,7 +1831,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     numerical_pars = si.numerical_parameters
     numerical_vars = si.numerical_variables
     solver = si.solver
-
+    
     if apertures is not None:
         numerical_pars["make_aperture"] = apertures
 
@@ -1087,11 +1851,14 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     if abort_flag:
         return 1
 
-    geo = analytic_vars["geo"]
-    trj = analytic_vars["trj_design"]
-    voltage = analytic_pars["volt"]
-    h = numerical_pars["h"]
-
+    geo        = analytic_vars["geo"]
+    trj        = analytic_vars["trj_design"]
+    voltage    = analytic_pars["volt"]
+    h          = numerical_pars["h"]
+    gamma      = analytic_pars["gammaAng"] 
+    anglingAng = analytic_pars["anglingAng"]
+    vee_shape  = analytic_pars.get("vee_shape", "linear")
+    
     # Variables for fenics solving, won't affect anything BEMPP related (ideally) -PW
     anode_offset = 0
     cathode_offset = 1000
@@ -1101,11 +1868,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     housing_offset = 5000
 
     anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
-    anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True)
+    _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng, vee_shape=vee_shape)
     anode.color = "RED"
 
     cathode = SIElectrode(name="SI Cathode", voltage=-voltage, offset=cathode_offset)
-    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=True)
+    cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=True, gammaAng = gamma, gamma_plane = anode_gamma_plane, angling = anglingAng, vee_shape=vee_shape)
     anode.color = "BLUE"
 
     # Create an assembly holding all the electrodes
@@ -1182,7 +1949,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         entrance_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, translation=translation, rotation=rotation,
                                          hole_type=hole_type,
                                          h=h, load=True, header=True)
-        entrance_aperture.color = "GREEN"
+        entrance_aperture.color = "BLACK"
 
         assy.add_electrode(entrance_aperture)
 
@@ -1216,7 +1983,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             tvec /= np.linalg.norm(tvec)
             norm_vec = np.cross(tvec, np.array([0.0, 0.0, -1.0]))
 
-            # norm_vec = Vector(trj[-1] - trj[-2]).normalized()
+            #norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
             translation = np.array([trj[-1][0] + norm_vec[0] * b_gap,
                                     trj[-1][1] + norm_vec[1] * b_gap,
@@ -1237,7 +2004,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             # Create geo string and load
             exit_aperture.create_geo_str(r=r, dz=dz, a=a, b=b, translation=translation, rotation=rotation,
                                          hole_type=hole_type, h=h, load=True, header=True)
-            exit_aperture.color = "GREEN"
+            exit_aperture.color = "BLACK"
 
             assy.add_electrode(exit_aperture)
 
@@ -1247,16 +2014,67 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         zmin = numerical_pars["cylinder_params"]["zmin"]
         zmax = numerical_pars["cylinder_params"]["zmax"]
         voltage = numerical_pars["cylinder_params"]["voltage"]
-
+        
         outer_cylinder = SICylinder(name="Outer Cylinder", voltage=voltage, offset=cylinder_offset)
-        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.01, load=True, header=True)
+        outer_cylinder.create_geo_str(r=r, zmin=zmin, zmax=zmax, h=0.01, load=True, header=True,offsetXY=offsetXY)
         outer_cylinder.color = "GREEN"
 
         assy.add_electrode(outer_cylinder)
 
+
+    if numerical_pars["make_quadrupoles"]:
+        a          = numerical_pars["quadrupole_params"]["a"]
+        b          = numerical_pars["quadrupole_params"]["b"]
+        r          = numerical_pars["quadrupole_params"]["radius"]
+        z_starts   = numerical_pars["quadrupole_params"]["z_starts"]
+        quad_lens  = numerical_pars["quadrupole_params"]["lengths"]
+        quad_volts = numerical_pars["quadrupole_params"]["voltages"]
+        aper_rad   = numerical_pars["quadrupole_params"]["aper_rad"]
+
+        pi     = 3.14159265358 
+        aper_t = 0.005
+        gap    = 0.001
+        
+        nquads = len(quad_volts)
+
+        for pole in range(nquads):
+
+            A1 = SIAperture(name="ent%i"%(4*pole),voltage=0.0)
+            A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=0.005, load=True,header=True)
+            A1.color="BLACK"
+            assy.add_electrode(A1)
+            
+            A2 = SIAperture(name="ext%i"%(4*pole),voltage=0.0)
+            A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=0.005, load=True,header=True)
+            A2.color="BLACK"
+            assy.add_electrode(A2)
+
+            
+            D1 = SIHyperbolicDipole(name="D%i"%(4*pole), voltage=quad_volts[pole])
+            D1.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,0.0],load=True,header=True)
+            D1.color="BLUE"            
+            assy.add_electrode(D1)
+            
+            D2 = SIHyperbolicDipole(name="D%i"%(4*pole+1), voltage=quad_volts[pole])
+            D2.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi],load=True,header=True)
+            D2.color="BLUE"
+            assy.add_electrode(D2)
+         
+            D3 = SIHyperbolicDipole(name="D%i"%(4*pole+2), voltage=-1.0*quad_volts[pole])
+            D3.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,pi/2],load=True,header=True)
+            D3.color="RED"
+            assy.add_electrode(D3)
+            
+            D4 = SIHyperbolicDipole(name="D%i"%(4*pole+3), voltage=-1.0*quad_volts[pole])
+            D4.create_geo_str(r=r,dz=quad_lens[pole],a=a,b=b,h=0.01,translation=[0,0,z_starts[pole]],rotation=[0.0,0.0,3*pi/2],load=True,header=True)
+            D4.color="RED"
+            assy.add_electrode(D4)
+        
+
     if si.debug:
         assy.show(show_screen=True)
 
+        
     numerical_vars["objects"] = assy
 
     si.analytic_parameters = analytic_pars
@@ -1300,7 +2118,6 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
                                    leaf_view["domns"])
 
             # bempp.api.PLOT_BACKEND = "gmsh"
-            #
             # _full_mesh.plot()
 
     elif si.solver == "fenics":

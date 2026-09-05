@@ -32,9 +32,15 @@ programs in the
 [Python Particle Accelerator Tools](https://github.com/users/DanielWinklehner/projects/1) 
 project and includes installation of py_electrodes and bempp-cl through pip+git.
 
-_Note: Unfortunately, bempp-cl requires OpenCL drivers 
-installed and the Windows Subsystem for Linux (WSL) does not support that kind
-of hardware access (yet)._
+_Note: Bempp-cl requires OpenCL drivers._ This is a bit tricky in the WSL2. We have not found a way to get GPU support (though supposedly there is an older NVIDIA driver that exposes opencl to the WSL2). CPU support in anaconda works by installing the intel ocl drivers:
+```bash
+conda install -c conda-forge intel-opencl-rt
+```
+and then either manually deleting the pocl.icd file in
+```bash
+$HOME/anaconda3/envs/<env_name>/etc/OpenCL/vendors/
+```
+or pointing the code to the intel device in the beginning of the python script. We are working on automating this.
 
 ### Installing the module
 ```bash
@@ -42,11 +48,7 @@ git clone https://github.com/DanielWinklehner/spyral_inflector.git
 cd spyral_inflector
 ```
 
-The module can be installed using the setup.py file:
-```bash
-python setup.py install
-```
-or through pip (or pip3):
+The module can be installed through pip (or pip3):
 ```bash
 pip install .
 ```

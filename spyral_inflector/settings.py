@@ -1,7 +1,6 @@
 import os
 import platform
 
-
 class SettingsHandler(object):
     r"""
     Class that handles the Settings.txt file. In both Windows and Linux, there are two locations:

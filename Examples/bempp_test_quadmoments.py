@@ -1,23 +1,51 @@
-from spyral_inflector import *
+# Version of bempp_test incorporating geometry modifications to the electrodes
+# explored initially by Barnard et al. (2021)
 
+from spyral_inflector import *
 import os
 os.environ["PYOPENCL_COMILER_OUTPUT"] = "1"
 os.environ["PYOPENCL_CT"] = "1:0"
 
-h2p = ParticleDistribution(species=IonSpecies("H2_1+"))
-h2p.set_mean_energy_z_mev(0.07)
 
-si = SpiralInflector(ion=h2p,
-                     method="numerical",
-                     solver="bempp",
-                     volt=12000,
-                     gap=18e-3,
-                     tilt=27.0,
-                     aspect_ratio=2.5,
-                     dx=10e-3,
-                     sigma=1.5E-3,
-                     ns=60,
-                     debug=False)
+
+##- Injection parameters -##
+MEAN_INJECTION_ENERGY = 0.07 # 70 keV out of RFQ
+ION_SPECIES           = "H2_1+"
+
+##- Spiral Inflector Parameters -##
+METHOD       = "numerical"  
+SOLVER       = "bempp"     
+VOLTAGE      = 12000.0      # Voltage applied across two spiral electrodes, 12000 default
+PLATE_GAP    = 0.018        # Gap between electrodes [m], 0.018 default
+TILT         = 27.0         # Angle of the exit of the spiral inflector [degrees], 27 default
+THICKNESS    = 0.01         # Electrode thickness [m], 0.01 default
+V_SHAPE      = 0.00015      # Characterizes the V shape of the electrodes [m], 0.0015 default
+SIM_POINTS   = 100          # Points along the beam trajectory, controls the resolution of the solution
+ASPECT_RATIO = 2.5	    # Controls width of electrodes relative to thickness
+ROTATION     = 0.0          # Rotation [deg] of the inflector
+GAMMA        = 15.0         # Wedge cut angle [deg]
+ANGLING      = 10.0	    # Plate face angling [deg], deviation from parallel. Will vary from -ANGLING to +ANGLING.
+DEBUG        = True
+
+
+h2p = ParticleDistribution(species=IonSpecies(ION_SPECIES))
+h2p.set_mean_energy_z_mev(MEAN_INJECTION_ENERGY)
+
+si = SpiralInflector(ion           = H2P,
+                     method        = METHOD,
+                     volt          = VOLTAGE,
+                     gap           = PLATE_GAP,
+                     tilt          = TILT,
+                     dx            = THICKNESS,
+                     sigma         = V_SHAPE,
+                     ns            = SIM_POINTS,
+                     aspect_ratio  = ASPECT_RATIO,
+                     rotation      = ROTATION,
+                     debug         = DEBUG,
+                     gammaAng      = GAMMA,
+                     anglingAng    = ANGLING)
+
+
 
 # si.load_bfield()
 si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
@@ -54,6 +82,24 @@ si.set_parameter(key="housing_params",
                         "thickness": 5E-3,
                         "voltage": 0.0,
                         "experimental": True})
+
+
+# Optional, can create quadrupoles
+# a,b control shape of hyperbolic electrodes, r the outer radius.
+# a,b,r are fixed for all quads. Different geometry not currently supported
+# z starts takes a list of positions along the z-axis where quads start
+# lengths takes a list of quadrupole lengths along the z-axis
+# voltages takes a list at which each quadrupole operates
+#
+#si.set_parameter(key="quadrupole_params",
+#                 value={ "a": 0.01,
+#                         "b": 0.01,
+#                         "radius": 0.02,
+#                         "z_starts": [-0.31,-0.23],
+#                         "lengths": [0.05,0.05],
+#                         "voltages": [0,0],
+#			 "aper_rad": 0.02})
+
 
 si.generate_geometry()
 si.generate_meshed_model()

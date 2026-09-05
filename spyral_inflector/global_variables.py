@@ -4,6 +4,11 @@ import os
 import sys
 import shutil
 from PyPATools.colors import MyColors
+import tempfile
+import atexit
+
+TEMP_DIR = tempfile.mkdtemp(prefix="py_electrodes_")
+atexit.register(lambda: shutil.rmtree(TEMP_DIR, ignore_errors=True))
 
 # --- Set global variables from settings.txt file--- #
 settings = SettingsHandler()
@@ -23,9 +28,9 @@ else:
     LOG_FONT_SIZE = 10
 
 # Temporary directory for saving intermittent files
-if os.path.exists(TEMP_DIR):
-    shutil.rmtree(TEMP_DIR)
-os.mkdir(TEMP_DIR)
+# if os.path.exists(TEMP_DIR):
+#     shutil.rmtree(TEMP_DIR)
+# os.mkdir(TEMP_DIR)
 
 # Other variables
 COLORS = MyColors()
