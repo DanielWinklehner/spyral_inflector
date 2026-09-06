@@ -10,8 +10,8 @@ STEP export of the result.
 - Python 3.10+, numpy, scipy, matplotlib
 - [PyPATools](https://github.com/DanielWinklehner/PyPATools) (ions, particle
   distributions, fields, pushers, trackers)
-- [py_electrodes](https://github.com/DanielWinklehner/py_electrodes), branch
-  `step-import-via-gmsh` or later (gmsh meshing, STEP import/export with
+- [py_electrodes](https://github.com/DanielWinklehner/py_electrodes), master from
+  September 2026 or later (gmsh meshing, STEP import/export with
   transformations, collision detection)
 - [bempp-cl](https://github.com/bempp/bempp-cl) with an OpenCL driver; optional
   `cupy` for the GPU GMRES, optional `dfols` for the trust-region optimizer
