@@ -719,7 +719,7 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
                         outside_start=None, outside_window=0.025,
                         centering_window=(0.75, 1.0), centering="clearance",
                         fringe_margin=1.5, min_clearance=1.0e-3,
-                        move_quadrupoles=True, verbose=True):
+                        move_quadrupoles=True, fixed=None, verbose=True):
     """Set the fringe-field corrections of the spiral inflector from one test particle
     tracked through the whole system.
 
@@ -817,6 +817,8 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
     :param dt, nsteps: tracking time step and number of steps
     :param fd_steps: broyden: finite-difference steps for the initial Jacobian, in
                      knob units; dfols: initial trust-region radius per knob
+    :param fixed: {knob index: value} holds knobs at given values and leaves them out of
+                  the solve (0 db_entrance [deg], 1 db_exit [deg], 2 dz [m], 3 volt_scale)
     :param bounds: (lo, hi) per knob; truncations cannot be negative
     :param max_step: broyden: largest change of each knob per iteration
     :param outside_start, outside_window: outside window along the path (m)
@@ -922,6 +924,22 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
     fd_steps = np.asarray(fd_steps, dtype=float)[:n_x]
     max_step = np.asarray(max_step, dtype=float)[:n_x]
     x = np.clip(x, lo, hi)
+
+    # Knobs held fixed are taken out of the solve; the solvers below see only `free`.
+    fixed = {} if fixed is None else {int(k): float(v) for k, v in dict(fixed).items() if int(k) < n_x}
+    for _k, _v in fixed.items():
+        x[_k] = _v
+        lo[_k] = hi[_k] = _v
+    free = np.array([k for k in range(n_x) if k not in fixed], dtype=int)
+    if free.size == 0:
+        maxiter = 0
+    _x_template = x.copy()
+
+    def _expand(xf):
+        xx = _x_template.copy()
+        xx[free] = xf
+        return xx
+
     tol = np.array([tol_angle, tol_offset, tol_offset, tol_width])
     n_res = len(tol)
     knob_names = ["db_entrance [deg]", "db_exit [deg]", "dz [mm]", "volt_scale"][:n_x]
@@ -998,13 +1016,14 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
     elif solver == "dfols":
         import dfols
 
-        x_start, f_start = x.copy(), f.copy()
+        x_start, f_start = x[free].copy(), f.copy()
 
-        def _objfun(xx):
-            if np.allclose(xx, x_start):
+        def _objfun(xf):
+            if np.allclose(xf, x_start):
                 return f_start / tol  # DFO-LS evaluates x0 itself; reuse the start
-            ff, mm = _eval(np.asarray(xx, dtype=float), "dfols")
-            _update_best(np.asarray(xx, dtype=float), ff, mm["index"])
+            xx = _expand(np.asarray(xf, dtype=float))
+            ff, mm = _eval(xx, "dfols")
+            _update_best(xx, ff, mm["index"])
             if not np.all(np.isfinite(ff)):
                 # A failed evaluation (particle lost, track too short): hand the
                 # trust region a large residual so it retreats from that point.
@@ -1015,13 +1034,13 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
         # scaling_within_bounds maps each knob to [0, 1] over its bounds, so the
         # trust-region radius is set in those units: fd_steps as the initial radius,
         # the useful resolution of each knob as the final one.
-        span = hi - lo
-        rhobeg = float(np.min(fd_steps / span))
-        rhoend = float(np.min(np.array([0.02, 0.02, 0.05e-3, 1e-3])[:n_x] / span))
+        span = (hi - lo)[free]
+        rhobeg = float(np.min(fd_steps[free] / span))
+        rhoend = float(np.min(np.array([0.02, 0.02, 0.05e-3, 1e-3])[:n_x][free] / span))
 
-        soln = dfols.solve(_objfun, x, bounds=(lo, hi),
+        soln = dfols.solve(_objfun, x[free], bounds=(lo[free], hi[free]),
                            rhobeg=rhobeg, rhoend=rhoend,
-                           maxfun=int(maxiter) + n_x + 1,
+                           maxfun=int(maxiter) + len(free) + 1,
                            objfun_has_noise=True, scaling_within_bounds=True,
                            user_params={"model.abs_tol": 1.0},  # all residuals within tol
                            print_progress=False)
@@ -1031,34 +1050,35 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
         # Finite-difference Jacobian, one evaluation per knob. Forward steps, unless
         # that would leave the bounds. Four residuals for three knobs, so the Newton
         # step below is a Gauss-Newton (least-squares) step.
-        jac = np.zeros((n_res, n_x))
-        for k in range(n_x):
+        jac = np.zeros((n_res, len(free)))
+        for col, k in enumerate(free):
             step = fd_steps[k] if x[k] + fd_steps[k] <= hi[k] else -fd_steps[k]
             xk = x.copy()
             xk[k] += step
             fk, mk = _eval(xk, "jac{}".format(k))
             if not np.all(np.isfinite(fk)):
                 raise RuntimeError("Jacobian evaluation {} failed: {}".format(k, mk["failure"]))
-            jac[:, k] = (fk - f) / step
+            jac[:, col] = (fk - f) / step
             _update_best(xk, fk, mk["index"])
 
         if verbose:
             with np.printoptions(precision=4, suppress=True):
                 print("Jacobian (rows: angle [deg], centering [mm], z [mm], width [mm]; "
-                      "columns: {}):".format(", ".join(knob_names)))
+                      "columns: {}):".format(", ".join(knob_names[k] for k in free)))
                 print(jac * np.array([[1.0], [1e3], [1e3], [1e3]])
-                      * np.array([[1.0, 1.0, 1e-3, 1.0][:n_x]]))
+                      * np.array([[[1.0, 1.0, 1e-3, 1.0][k] for k in free]]))
 
         for it in range(int(maxiter)):
-            dx = _bounded_newton_step(jac, f, x, lo, hi, max_step)
+            dx = _bounded_newton_step(jac, f, x[free], lo[free], hi[free], max_step[free])
 
-            if np.linalg.norm(dx / max_step) < 1e-9:
+            if np.linalg.norm(dx / max_step[free]) < 1e-9:
                 status = "no step possible within the bounds"
                 break
 
             f_new, m_new = None, None
             for _try in range(3):
-                x_new = np.clip(x + dx, lo, hi)
+                x_new = x.copy()
+                x_new[free] = np.clip(x[free] + dx, lo[free], hi[free])
                 f_new, m_new = _eval(x_new, "iter{}".format(it))
                 if np.all(np.isfinite(f_new)):
                     break
@@ -1068,7 +1088,7 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
                 status = "evaluation kept failing after halving the step"
                 break
 
-            s_vec = x_new - x
+            s_vec = (x_new - x)[free]
             y_vec = f_new - f
             if s_vec @ s_vec > 0.0:
                 jac += np.outer(y_vec - jac @ s_vec, s_vec) / (s_vec @ s_vec)

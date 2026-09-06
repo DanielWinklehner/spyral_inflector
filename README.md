@@ -1,212 +1,117 @@
 # spyral_inflector
-A python module to help with the design of cyclotron spiral inflectors.
 
-## Installation
+Design and simulation of cyclotron spiral inflectors: analytic electrode geometry,
+BEM field solve of the built electrodes (with apertures, housing and electrostatic
+quadrupoles), fringe-field optimization of the design orbit, particle tracking, and
+STEP export of the result.
 
-**Prerequisites:**
-This modules has several required prerequisite modules to be installed. Some of the common packages that you may already have are:
-- numpy
-- scipy
-- matplotlib
+## Requirements
 
-In addition to those, you will need to have:
-
-- [PyPATools](https://github.com/DanielWinklehner/PyPATools)
-- [py_electrodes](https://github.com/DanielWinklehner/py_electrodes)
-
-As of May 2019, two solvers can be used to calculate fields. You only need one installed to be able to utilize the features in the spyral_inflector modules.
-- [bempp-cl](https://github.com/bempp/bempp-cl)
-- [FEniCS](https://fenicsproject.org/)
-
-_Note: At present, the FEniCS solver does not fully work. Fixing this is high on
-our priority list!_
-
-### Installation using [Anaconda3](https://www.anaconda.com/)
-[PyPATools](https://github.com/DanielWinklehner/PyPATools) comes with an 
-_environment.yml_ file that can be used to directly create a conda environment
-in both Windows and Ubuntu 18 (other Linux distributions may well work, but
-haven't been tested yet). 
-
-The PyPATools conda environment is meant to include everything needed to run
-programs in the 
-[Python Particle Accelerator Tools](https://github.com/users/DanielWinklehner/projects/1) 
-project and includes installation of py_electrodes and bempp-cl through pip+git.
-
-_Note: Bempp-cl requires OpenCL drivers._ This is a bit tricky in the WSL2. We have not found a way to get GPU support (though supposedly there is an older NVIDIA driver that exposes opencl to the WSL2). CPU support in anaconda works by installing the intel ocl drivers:
-```bash
-conda install -c conda-forge intel-opencl-rt
-```
-and then either manually deleting the pocl.icd file in
-```bash
-$HOME/anaconda3/envs/<env_name>/etc/OpenCL/vendors/
-```
-or pointing the code to the intel device in the beginning of the python script. We are working on automating this.
-
-### Installing the module
-```bash
-git clone https://github.com/DanielWinklehner/spyral_inflector.git
-cd spyral_inflector
-```
-
-The module can be installed through pip (or pip3):
-```bash
-pip install .
-```
-
-or directly from git:
+- Python 3.10+, numpy, scipy, matplotlib
+- [PyPATools](https://github.com/DanielWinklehner/PyPATools) (ions, particle
+  distributions, fields, pushers, trackers)
+- [py_electrodes](https://github.com/DanielWinklehner/py_electrodes), branch
+  `step-import-via-gmsh` or later (gmsh meshing, STEP import/export with
+  transformations, collision detection)
+- [bempp-cl](https://github.com/bempp/bempp-cl) with an OpenCL driver; optional
+  `cupy` for the GPU GMRES, optional `dfols` for the trust-region optimizer
 
 ```bash
-pip install git+https://github.com/DanielWinklehner/spyral_inflector.git
+pip install -e .
 ```
 
-The git installation works without cloning the repository first. Examples can be
-directly downloaded from the
-[examples](https://github.com/DanielWinklehner/spyral_inflector/tree/master/Examples) 
-folder.
+## Quick start
 
-_Note: If you are not using a separate environment (conda or env), we recommend using
-the ``--user`` option with pip to install modules locally._
-
-## Generating an analytical model
-
-Required Parameters:
-```
-"ion": Ion species (object from dans_pymodules)
-"volt": Voltage difference applied to the electrodes
-"gap": Distance between the electrodes (assuming they are parallel)
-"tilt": Tilt angle of the exit electrodes
-"dx": Thickness of the electrodes
-"ns": Number of steps in the analytical solution
-```
-Optional Parameters:
-```
-"b_lim": Range of values for the b angle.
-"rotation": Axial rotation of the spiral inflector
-"debug": Default is false
-```
-The analytical model of the spiral inflector is the simplest one the code can create. It only depends on the listed parameters above and takes very little time to create. The geometry is created by calculating the central trajectory through the spiral inflector using the equations of motion that describe the system.
-
-**Simplest possible example:**
-
-First start by importing the spyral_inflector module, which will include imports of dans_pymodules, numpy, matplotlib, and bempp.
 ```python
 from spyral_inflector import *
-```
+from PyPATools.beam import ParticleDistribution
+from PyPATools.species import IonSpecies
+from PyPATools.field import Field
 
-The next step is to define the IonSpecies from dans_pymodules, which will contain all of the information about the ion that's being injected into the spiral inflector.
-```python
-h2p = IonSpecies("H2_1+", 0.035)
-h2p.calculate_from_energy_mev(0.07 / h2p.a())
-```
+ion = ParticleDistribution(species=IonSpecies("H2_1+"))
+ion.set_mean_energy_z_mev(0.070)
 
-The spiral inflector object itself is only instantiated with a few parameters, and others (for BEMPP, optimization, etc.) are set through another method (see the numerical inflector section).
-```python
-si = SpiralInflector(ion=h2p,
-                     method="analytical",
-                     solver="bempp",    # Can be either "bempp" or "fenics"
-                     volt=12000,        # Electrode voltages
-                     gap=18e-3,         # Electrode gap distance
-                     tilt=0,            # Tilt angle
-                     dx=10e-3,          # Electrode thickness
-                     sigma=0,           # v-shape parameter
-                     ns=60,             # Number of trajectory points
-                     debug=False)
-```
+si = SpiralInflector(ion=ion, method="numerical", solver="bempp",
+                     volt=12000.0,        # +V on the anode, -V on the cathode
+                     gap=0.019,           # electrode gap [m]
+                     tilt=31.0,           # k' tilt of the exit [deg]
+                     dx=0.010,            # electrode thickness [m]
+                     sigma=0.0022,        # V-shape depth [m], 0 for flat faces
+                     vee_shape="parabolic",
+                     ns=100,              # points along the design orbit
+                     aspect_ratio=2.4,    # electrode width / gap
+                     gammaAng=5.0,        # exit wedge cut [deg]
+                     anglingAng=11.0)     # inner face angling [deg]
 
-The magnetic field of the cyclotron can be defined in a few different ways, but for this situation we are only concerned with a constant magnetic field pointing in the negative z direction. This is done with the field object from dans_pymodules.
-```python
-si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
-```
-
-The spiral inflector can now be initialized. The purpose of initializing is to perform some of the basic calculations for variables used in other methods (i.e. rotations) and to check if required parameters are missing. After initializing, the analytical geometry of the spiral inflector can be generated. In the geometry generation, the method for calculating the central trajectory is called internally and used to calculate the edge geometry of the electrodes.
-```python
-si.initialize()
-si.generate_geometry()
-```
-Lastly, all this information is used to create a macro that can be used in AutoDesk Inventor that creates a full solid model of the spiral inflector generated by the code.
-**(Note: soon this will be replaced with exports from OpenCASCADE)**
-```python
-export_electrode_geometry(si, fname='electrode_macro.ivb') 
-```
-
-## Generating a numerical model
-Generating the numerically solved spiral inflector is a significantly more computationally intensive process than creating the analytical model. The idea is to create a meshed model of the spiral inflector using the information about the analytical model and perform an electrostatic finite element analysis to calculate the electric fields. These electric fields are then used the calculate the true trajectory of an ion being injected straight into the inflector. However, fringing electric fields at the entrance and exit of the inflector will cause this ion to deviate from a "central trajectory". To mediate this, segments of the entrance and exit can be "cut off". The optimization routine repeats this process until the ion leaves the inflector on the mid/median plane of the cyclotron.
-
-**Example:**
-
-The process for creating the numerical model starts similar to that of the analytical model. The only main difference is that the method is now "numerical".
-```python
-from spyral_inflector import *
-
-h2p = IonSpecies("H2_1+", 0.035)
-h2p.calculate_from_energy_mev(0.07 / h2p.a())
-
-si = SpiralInflector(ion=h2p,
-                     method="numerical",
-                     solver="bempp",
-                     volt=12000,
-                     gap=18e-3,
-                     tilt=27.0,
-                     dx=10e-3,
-                     sigma=1.5E-3,
-                     ns=60,
-                     debug=False)
-
-si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -1.04}))
-
+# Beam travels in +z from negative z to the median plane at z = 0; Bz is negative there.
+si.load_bfield(bfield=Field(dim=0, field={"x": 0.0, "y": 0.0, "z": -0.901}))
 si.initialize()
 
-si.generate_geometry()
-```
-
-Now, the parameters that will be used in the meshing and finite element analysis need to be set. The first parameter is "h" which is a characteristic length used by the meshing program (gmsh) to create the full meshed model. The smaller the h, the more fine of a model you will generate. Warning: it is very easy to set this parameter too small and the finite element analysis will never finish.
-
-```python
-si.set_parameter(key="h", value=0.005)
-```
-
-To create an even more realistic model of the spiral inflector system as a whole, you can add apertures at the entrance and exit of the device to reduce fringe field effects. Additionally, a cylindrical boundary may be created to simulate a housing for the electrodes. At the end, the apertures can be exported as an Inventor macro in the same way the inflector electrodes are.
-
-```python
+si.set_parameter(key="h", value=0.005)                  # surface mesh size [m]
 si.set_parameter(key="make_aperture", value=True)
-si.set_parameter(key="aperture_params", value={"thickness": 4e-3,
-                                               "radius": 50e-3,
-                                               "length": 45e-3,
-                                               "width": 18e-3,
-                                               "top_distance": 5e-3,
-                                               "bottom_distance": 10e-3,
-                                               "voltage": 0.0})
-si.set_parameter(key="make_cylinder", value=True)
-si.set_parameter(key="cylinder_params", value={"radius": 120e-3,
-                                               "zmin": -150e-3,
-                                               "zmax": 80e-3,
-                                               "voltage": 0.0})
+si.set_parameter(key="aperture_params", value={"thickness": 4e-3, "radius": 50e-3,
+                                               "length": 40e-3, "width": 15e-3,
+                                               "top_distance": 5e-3, "bottom_distance": 10e-3,
+                                               "hole_type": "rectangle", "voltage": 0.0})
+si.set_parameter(key="make_housing", value=True)
+si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True,
+                                              "gap": 6e-3, "thickness": 4e-3, "voltage": 0.0,
+                                              "experimental": True})
+si.generate_geometry()
+
+# Full-trajectory fringe correction: entrance/exit truncation, axial shift and the
+# electrode voltage are set so that one test particle exits flat, centred and on the
+# median plane. Rebuilds and re-solves the BEM model as needed.
+result = si.optimize_trajectory(maxiter=15, res=0.005)
+
+si.calculate_potential(res=0.0025, limits=((-0.1, 0.1), (-0.1, 0.1), (-0.29, 0.06)),
+                       domain_decomp=(4, 4, 4))
+si.calculate_efield()                                    # -> si.numerical_variables["ef_itp"]
+
+r, v = si.fast_track(r_start=[0.0, 0.0, -0.15], v_start=[0.0, 0.0, ion.v_mean_m_per_s],
+                     nsteps=2000, dt=1e-10)
+
+for i, e in enumerate(si.numerical_variables["objects"].electrodes.values()):
+    e.export("{:03d}_{}.step".format(i, e.name))        # transformations included
 ```
 
-Now, the numerical model can be meshed and the optimization routine can begin. maxiter sets the maximum number of iterations allowed if the exit angle does fall between the tolerance bounds. The optimization will automatically regenerate the meshed model after it finishes.
+## Parameters
 
-```python
-generate_meshed_model(si)
-optimize_fringe(si, maxiter=5, tol=0.02, res=0.005)
-```
+Constructor: `ion`, `method` (`"analytical"` or `"numerical"`), `solver` (`"bempp"`),
+`volt`, `gap`, `tilt`, `dx`, `sigma`, `vee_shape`, `ns`, `aspect_ratio`, `rotation`,
+`gammaAng`, `anglingAng`, `b_lim`, `debug`.
 
-With the optimized geometry ready, the next thing to do is get the electric field and central trajectory.
+`set_parameter(key=..., value=...)`: `h`; `make_aperture` / `aperture_params`;
+`make_housing` / `housing_params`; `make_cylinder` / `cylinder_params`;
+`make_quadrupoles` / `quadrupole_params` (`a`, `b` hyperbola vertex radii, `radius`,
+`z_starts`, `lengths`, `voltages`, `aper_rad` = hole diameter of the grounded
+apertures). Quadrupole electrodes are named `D0..D3` (quad 1) and `D4..D7`
+(quad 2); `D0, D1` sit on the x axis and get `+V`, `D2, D3` on the y axis get `-V`.
 
-```python
-calculate_efield(si, res=0.002,
-                     limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                     domain_decomp=(7, 7, 7))
+`optimize_trajectory(maxiter, solver="auto"|"dfols"|"broyden", res, vary_voltage=True,
+exclude_quadrupoles=True, fixed={knob: value}, bounds, tol_angle, tol_offset,
+tol_width, ...)`: knobs 0 entrance truncation [deg], 1 exit truncation [deg], 2 axial
+shift dz [m], 3 voltage scale. Returns a dict (`db_entrance`, `db_exit`, `dz`,
+`voltage`, `residual_final`, `history`, `measurements`) and leaves the object at the
+best point with the full assembly solved. `optimize_fringe` is the older entrance/exit
+angle iteration and is kept for compatibility.
 
-track(si, r_start=np.array([0.0, 0.0, -0.15]),
-          v_start=np.array([0.0, 0.0, h2p.v_m_per_s()]),
-          nsteps=15000,
-          dt=1e-11)
-```
+## Conventions
 
-The electric field may be handy if you need to import it into another program (in that case, don't use the domain decomposition). Now, the process is nearly complete, and all that needs to be done is exporting the electrode and aperture geometries.
+- Units are SI (m, V, T); energies in MeV where the argument name says so.
+- Field maps are `PyPATools.field.Field` objects (`Field.from_file`, `Field.from_arrays`,
+  or `Field(dim=0, field={...})` for a uniform field). The map must cover the bore at
+  negative z with the median plane at z = 0.
+- The BEM solution is linear in the electrode voltages: fields for other voltage
+  settings can be superposed from basis solves without re-solving.
 
-```python
-draw_geometry(si, show=True, filename='auto')
-export_electrode_geometry(si, fname='electrode_macro.ivb')
-export_aperture_geometry(si, fname='aperture_macro.ivb')
-```
+## Examples
+
+- `Examples/hchc60_deck.py`: the IsoDAR HCHC-60 deck (apertures, housing, quadrupole
+  doublet, field map, optimizer, STEP export) with comments where it differs from
+  the earlier generation script.
+- `Examples/optimize_trajectory_minimal.py`: the optimizer on a uniform field, with a
+  knob held fixed.
+- `Examples/track_bunch_from_step.py`: reload exported STEP files with voltages,
+  solve, and track a bunch with collision detection.
+- `Examples/analytical_test.py`, `bempp_test.py`, `bempp_test_jm.py`: older tests.
