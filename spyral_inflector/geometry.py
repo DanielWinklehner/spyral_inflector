@@ -1236,8 +1236,11 @@ class SIHousing(PyElectrode):
 
         dz = self._aperture_params["thickness"]
         r = self._aperture_params["radius"]
-        a = self._aperture_params["length"]
-        b = self._aperture_params["width"]
+        # The housing exit opening defaults to the entrance-aperture hole (length x width), rotated
+        # with the exit electrodes; "exit_length" / "exit_width" override it so the exit can be
+        # opened wider than the entrance slot without changing the entrance aperture.
+        a = self._aperture_params.get("exit_length") or self._aperture_params["length"]
+        b = self._aperture_params.get("exit_width") or self._aperture_params["width"]
         t_gap = self._aperture_params["top_distance"]
         b_gap = self._aperture_params["bottom_distance"]
 
