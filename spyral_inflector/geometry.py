@@ -2051,8 +2051,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         aper_rad   = numerical_pars["quadrupole_params"]["aper_rad"]
 
         pi     = 3.14159265358
-        aper_t = 0.005
-        gap    = 0.001
+        # Grounded aperture plates at both ends of each quadrupole: thickness and the axial gap
+        # between a plate and the pole ends. The old fixed 1 mm gap put 10 kV across 1 mm and
+        # shorted the fringe field; both are now quadrupole_params entries, defaults unchanged.
+        aper_t = numerical_pars["quadrupole_params"].get("plate_thickness", 0.005)
+        gap    = numerical_pars["quadrupole_params"].get("plate_gap", 0.001)
 
         # Mesh size for the quadrupole electrodes. These used to be hardcoded
         # (0.005 for the apertures, 0.01 for the dipoles) and so ignored the "h"
