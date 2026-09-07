@@ -2061,6 +2061,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # z_starts[k-1] + lengths[k-1] + 2 * gap + plate_thickness so the shared plate (the
         # previous quad's "ext" plate) sits one gap in front of it.
         shared = numerical_pars["quadrupole_params"].get("shared_plates", False)
+        # hole diameter of the very first plate (the one facing the RFQ exit); default = aper_rad
+        ent_rad = numerical_pars["quadrupole_params"].get("entrance_aper_rad", aper_rad)
 
         # Mesh size for the quadrupole electrodes. These used to be hardcoded
         # (0.005 for the apertures, 0.01 for the dipoles) and so ignored the "h"
@@ -2073,7 +2075,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
             if pole == 0 or not shared:
                 A1 = SIAperture(name="ent%i"%(4*pole),voltage=0.0)
-                A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
+                _hole = ent_rad if pole == 0 else aper_rad
+                A1.create_geo_str(r=r, dz=aper_t, a=_hole, b=_hole, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
                 A1.color="BLACK"
                 assy.add_electrode(A1)
             
