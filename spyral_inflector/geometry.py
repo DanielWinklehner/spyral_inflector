@@ -2056,6 +2056,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # shorted the fringe field; both are now quadrupole_params entries, defaults unchanged.
         aper_t = numerical_pars["quadrupole_params"].get("plate_thickness", 0.005)
         gap    = numerical_pars["quadrupole_params"].get("plate_gap", 0.001)
+        # shared_plates: one grounded plate between consecutive quadrupoles instead of an exit
+        # plate of one and an entrance plate of the next. The caller places quad k at
+        # z_starts[k-1] + lengths[k-1] + 2 * gap + plate_thickness so the shared plate (the
+        # previous quad's "ext" plate) sits one gap in front of it.
+        shared = numerical_pars["quadrupole_params"].get("shared_plates", False)
 
         # Mesh size for the quadrupole electrodes. These used to be hardcoded
         # (0.005 for the apertures, 0.01 for the dipoles) and so ignored the "h"
@@ -2066,10 +2071,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         for pole in range(nquads):
 
-            A1 = SIAperture(name="ent%i"%(4*pole),voltage=0.0)
-            A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
-            A1.color="BLACK"
-            assy.add_electrode(A1)
+            if pole == 0 or not shared:
+                A1 = SIAperture(name="ent%i"%(4*pole),voltage=0.0)
+                A1.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
+                A1.color="BLACK"
+                assy.add_electrode(A1)
             
             A2 = SIAperture(name="ext%i"%(4*pole),voltage=0.0)
             A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=quad_h, load=True,header=True)
