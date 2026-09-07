@@ -115,3 +115,15 @@ angle iteration and is kept for compatibility.
 - `Examples/track_bunch_from_step.py`: reload exported STEP files with voltages,
   solve, and track a bunch with collision detection.
 - `Examples/analytical_test.py`, `bempp_test.py`, `bempp_test_jm.py`: older tests.
+
+## Bunch tracking through an exported geometry (`spyral_inflector.tracking`)
+
+The HCHC-60 study's tracking pipeline lives in the package: `build_geometry` (knobs ->
+optimized design particle -> STEP files + design state), `solve_step_assembly` (bempp field
+of the STEP assembly at the final voltages, quads optionally rotated), `track_bunch` (the RFQ
+bunch through the geometry, optional PyAMG space charge, openPMD hand-off files for the
+central region), `exit_metrics`, the geometry/trajectory plots, and `run_final`, which
+chains solve + bunch runs + metrics + figures + report for one geometry. Each stage is also a
+CLI (`python -m spyral_inflector.tracking.bunch --help`). `Examples/hchc60_pg5L_final.py` runs
+the whole thing for the pg5L geometry and needs only the B-field map and the RFQ particle
+file besides the three packages.
