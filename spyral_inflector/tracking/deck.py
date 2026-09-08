@@ -72,21 +72,7 @@ def load_state(state):
 
 
 # ---------------------------------------------------------------- particles
-def read_dst(path):
-    """TraceWin .dst (little-endian): 2 dummy bytes, int32 N, float64 current [mA], float64
-    RF frequency [MHz], 1 dummy byte, N x 6 float64 (x [cm], x' [rad], y [cm], y' [rad],
-    phase [rad], kinetic energy [MeV]), then the rest mass [MeV/c^2]."""
-    with open(path, "rb") as fh:
-        np.fromfile(fh, dtype=np.uint8, count=2)
-        n = int(np.fromfile(fh, dtype=np.int32, count=1)[0])
-        current = float(np.fromfile(fh, dtype=np.float64, count=1)[0])
-        freq = float(np.fromfile(fh, dtype=np.float64, count=1)[0])
-        np.fromfile(fh, dtype=np.uint8, count=1)
-        data = np.fromfile(fh, dtype=np.float64, count=6 * n).reshape(n, 6)
-        mass = float(np.fromfile(fh, dtype=np.float64, count=1)[0])
-    return {"n": n, "current_mA": current, "freq_MHz": freq, "mass_MeV": mass,
-            "x": 1e-2 * data[:, 0], "xp": data[:, 1], "y": 1e-2 * data[:, 2], "yp": data[:, 3],
-            "phase_rad": data[:, 4], "energy_MeV": data[:, 5]}
+from PyPATools.particles_src.particle_io import read_tracewin_dst as read_dst  # noqa: E402  (the reader lives in PyPATools)
 
 
 def dst_rows(path, core=True):
