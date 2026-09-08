@@ -1,0 +1,46 @@
+# Ubuntu (x86_64) environment for the HCHC-60 spiral-inflector study: the same package set as
+# environment-windows.yml with the Windows-only runtimes removed. Derived from the Windows
+# export, NOT yet tested on Linux -- expect to adjust the OpenCL and CUDA lines to the machine:
+#   * bempp-cl (BEM solve) needs an OpenCL platform: `pocl` (CPU) is listed; with an NVIDIA
+#     driver its OpenCL ICD is picked up through `ocl-icd-system` and is much faster.
+#   * cupy (PyAMG space-charge solver on the GPU) and warp-lang (collision kernels) need an
+#     NVIDIA driver supporting CUDA 12; without a GPU the pipeline runs on the CPU, slowly.
+# Afterwards install the three project packages editable from their clones:
+#   pip install -e ../PyPATools -e ../py_electrodes -e .
+# (py_electrodes builds a compiled extension; see its README.)
+name: accel-dev-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - scipy
+  - matplotlib
+  - h5py
+  - numba
+  - cython
+  - tqdm
+  - rtree
+  - trimesh
+  - meshio
+  - pyamg
+  - mpi4py
+  - gmsh
+  - python-gmsh
+  - occt
+  - pythonocc-core
+  - pyopencl
+  - ocl-icd-system
+  - pocl
+  - cupy
+  - cuda-version=12.6
+  - vtk
+  - lxml
+  - defusedxml
+  - pip
+  - pip:
+      - bempp-cl==0.4.2
+      - dfo-ls==1.6.5
+      - openpmd-beamphysics==0.16.0
+      - numpy-quaternion==2024.0.13
+      - warp-lang==1.12.0

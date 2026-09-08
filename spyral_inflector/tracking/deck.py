@@ -72,17 +72,67 @@ def load_state(state):
 
 
 # ---------------------------------------------------------------- particles
-def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES):
-    """Read an RFQ output file (columns x(mm) x'(mrad) y(mm) y'(mrad) z(mm) z'(mrad)
-    Phase(deg) Time(s) Energy(MeV) Loss) and draw n particles from the unlost ones
-    (without replacement when n <= file size, with replacement above).
+def read_dst(path):
+    """TraceWin .dst (little-endian): 2 dummy bytes, int32 N, float64 current [mA], float64
+    RF frequency [MHz], 1 dummy byte, N x 6 float64 (x [cm], x' [rad], y [cm], y' [rad],
+    phase [rad], kinetic energy [MeV]), then the rest mass [MeV/c^2]."""
+    with open(path, "rb") as fh:
+        np.fromfile(fh, dtype=np.uint8, count=2)
+        n = int(np.fromfile(fh, dtype=np.int32, count=1)[0])
+        current = float(np.fromfile(fh, dtype=np.float64, count=1)[0])
+        freq = float(np.fromfile(fh, dtype=np.float64, count=1)[0])
+        np.fromfile(fh, dtype=np.uint8, count=1)
+        data = np.fromfile(fh, dtype=np.float64, count=6 * n).reshape(n, 6)
+        mass = float(np.fromfile(fh, dtype=np.float64, count=1)[0])
+    return {"n": n, "current_mA": current, "freq_MHz": freq, "mass_MeV": mass,
+            "x": 1e-2 * data[:, 0], "xp": data[:, 1], "y": 1e-2 * data[:, 2], "yp": data[:, 3],
+            "phase_rad": data[:, 4], "energy_MeV": data[:, 5]}
+
+
+def dst_rows(path, core=True):
+    """A TraceWin .dst as rows of the text format (x(mm) x'(mrad) y(mm) y'(mrad) z(mm)
+    z'(mrad) Phase(deg) Time(s) Energy(MeV) Loss). TraceWin's phase is omega*t relative to
+    the reference particle, so a late particle gets a negative z = -phase * beta*lambda / 2pi.
+    core=True keeps the bunch core only: |phase| <= 180 deg and energy >= half the median
+    (drops the unaccelerated stragglers), which is how the Bevatech core file was made."""
+    b = read_dst(path)
+    e, m = b["energy_MeV"], b["mass_MeV"]
+    gamma = 1.0 + e / m
+    beta = np.sqrt(1.0 - 1.0 / gamma ** 2)
+    bl = beta * CLIGHT / (b["freq_MHz"] * 1e6)
+    z = -b["phase_rad"] / (2.0 * np.pi) * bl
+    p = gamma * beta
+    dpp = p / np.median(p) - 1.0
+    rows = np.column_stack([1e3 * b["x"], 1e3 * b["xp"], 1e3 * b["y"], 1e3 * b["yp"], 1e3 * z, 1e3 * dpp,
+                            np.degrees(b["phase_rad"]), np.zeros(b["n"]), e, np.zeros(b["n"])])
+    if core:
+        keep = (np.abs(np.degrees(b["phase_rad"])) <= 180.0) & (e >= 0.5 * np.median(e))
+        rows = rows[keep]
+    return rows
+
+
+def particle_rows(path, core=True):
+    """Unlost particles of an RFQ file as text-format rows: a .dst is read directly
+    (core selection as above), anything else is the 10-column text file."""
+    if path.lower().endswith(".dst"):
+        return dst_rows(path, core=core)
+    data = np.loadtxt(path, skiprows=1)
+    return data[data[:, 9] == 0]
+
+
+def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES, core=True):
+    """Read an RFQ output file (TraceWin .dst, or the text format x(mm) x'(mrad) y(mm)
+    y'(mrad) z(mm) z'(mrad) Phase(deg) Time(s) Energy(MeV) Loss) and draw n particles from
+    the unlost ones without replacement; n at or above the file size takes every particle once.
 
     Returns r (n, 3) [m], v (n, 3) [m/s], the IonSpecies and the raw rows drawn. The
     bunch starts at z_start with the file's z as the longitudinal spread."""
-    data = np.loadtxt(path, skiprows=1)
-    data = data[data[:, 9] == 0]
+    data = particle_rows(path, core=core)
     rng = np.random.default_rng(seed)
-    idx = rng.integers(0, len(data), size=n) if n > len(data) else rng.choice(len(data), size=n, replace=False)
+    if n >= len(data):
+        idx = rng.permutation(len(data))          # every particle exactly once (n is capped at the file size)
+    else:
+        idx = rng.choice(len(data), size=n, replace=False)
     data = data[idx]
     ion = IonSpecies(species)
     x, xp, y, yp, z = (data[:, i] * 1e-3 for i in range(5))      # m, rad
@@ -108,11 +158,9 @@ def orient_beam(r, v, phi_deg=0.0, swap_xy=False):
     return r, v
 
 
-def mean_energy_mev(path):
-    """Mean kinetic energy of the unlost particles of an RFQ file [MeV] (the design energy)."""
-    data = np.loadtxt(path, skiprows=1)
-    data = data[data[:, 9] == 0]
-    return float(np.mean(data[:, 8]))
+def mean_energy_mev(path, core=True):
+    """Mean kinetic energy of the unlost particles of an RFQ file (.dst or text) [MeV]: the design energy."""
+    return float(np.mean(particle_rows(path, core=core)[:, 8]))
 
 
 # ---------------------------------------------------------------- geometry
