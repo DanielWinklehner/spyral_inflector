@@ -37,7 +37,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 sc=False, current_ma=8.0, rf_mhz=32.8, h=2.0e-3, pad=0.01, xy_max=None, resolve_every=8, tol=1e-5, gpu=True,
                 nsteps=1900, dt=1.0e-10, coast=300, asym_steps=120, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
-                save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean",
+                save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
                 seed=20260905, reference=None, plot=True, log=None):
     """Track n particles of the RFQ file through the geometry; returns the summary dict
     and writes bunch_<out_tag>.json / .npz / .png into out_dir (default: reload_dir).
@@ -46,8 +46,10 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     superpose=(q1, a1, q2, a2) the vacuum field is instead summed from the basis solves
     of basis_dir (default reload_dir) and tag only names the design state. sc=True adds
     PyAMG space charge (cell size h, current_ma at rf_mhz). save_openpmd writes the
-    hand-off file(s) at handoff_distance of design path past the exit (save_mode plane,
-    lab6d or both). reference: a vacuum run's bunch json for the comparison plot.
+    hand-off file(s) at handoff_distance of design path past the exit (0 = the electrode
+    exit plane itself; save_mode plane, lab6d or both), in the deck frame or mirrored into
+    the machine frame (handoff_frame). reference: a vacuum run's bunch json for the
+    comparison plot.
     """
     log = log or (lambda m: print(m, flush=True))
     out_dir = out_dir or reload_dir
@@ -224,8 +226,8 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                  "n_tracked": int(len(r0)), "space_charge": bool(sc), "beam_rotation_deg": float(phi), "swap_xy": bool(swap_xy)}
         if save_mode in ("plane", "both"):
             info = save_handoff_openpmd(save_openpmd, handoff, crossed, ion, rf_mhz * 1e6, current_ma, trj, vdes,
-                                        handoff_distance, phase_reference, extra_meta=extra)
-            summary["handoff_openpmd"] = dict(info, path=save_openpmd, handoff_distance_m=handoff_distance)
+                                        handoff_distance, phase_reference, extra_meta=extra, frame=handoff_frame)
+            summary["handoff_openpmd"] = dict(info, path=save_openpmd, handoff_distance_m=handoff_distance, frame=handoff_frame)
             log("  hand-off plane {:.0f} mm past the exit: {:,d} particles written to {} (phase rms {:.1f} deg, u/v rms {:.2f}/{:.2f} mm)".format(
                 1e3 * handoff_distance, info["n"], save_openpmd, info["phase_rms_deg"], info["u_rms_mm"], info["v_rms_mm"]))
         if save_mode in ("lab6d", "both") and snapshot is not None and snapshot.snapshots:
@@ -233,8 +235,9 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
             k_mean = float(np.mean(handoff.step[sel6])) if sel6.any() else nsteps - 1
             k = min(snapshot.snapshots, key=lambda kk: abs(kk - k_mean))
             p6 = save_openpmd if save_mode == "lab6d" else os.path.splitext(save_openpmd)[0] + "_lab6d.h5"
-            info6 = save_snapshot_openpmd(p6, snapshot.snapshots[k], crossed, ion, rf_mhz * 1e6, current_ma, extra_meta=dict(extra, snapshot_step=int(k)))
-            summary["lab6d_openpmd"] = dict(info6, path=p6, step=int(k))
+            info6 = save_snapshot_openpmd(p6, snapshot.snapshots[k], crossed, ion, rf_mhz * 1e6, current_ma, extra_meta=dict(extra, snapshot_step=int(k)),
+                                          frame=handoff_frame)
+            summary["lab6d_openpmd"] = dict(info6, path=p6, step=int(k), frame=handoff_frame)
             log("  6-D snapshot at step {} ({:.1f} ns): {:,d} particles written to {}".format(k, 1e9 * info6["t_s"], info6["n"], p6))
 
     with open(os.path.join(out_dir, "bunch_{}.json".format(out_tag)), "w") as fh:
@@ -379,6 +382,7 @@ def main(argv=None):
     p.add_argument("--save-mode", choices=["plane", "lab6d", "both"], default="plane")
     p.add_argument("--handoff-distance", type=float, default=0.030)
     p.add_argument("--phase-reference", choices=["mean", "median"], default="mean")
+    p.add_argument("--handoff-frame", choices=["deck", "machine"], default="deck", help="machine: mirrored through the median plane (z -> -z)")
     p.add_argument("--seed", type=int, default=20260905)
     p.add_argument("--reference", default=None, help="bunch json of a vacuum run for the comparison plot")
     p.add_argument("--no-plot", action="store_true")
@@ -390,7 +394,7 @@ def main(argv=None):
                        coast=a.coast, asym_steps=a.asym_steps, post_exit_steps=a.post_exit_steps, record=a.record,
                        exclude=[s.strip() for s in a.exclude.split(",") if s.strip()], superpose=a.superpose, vscale=a.vscale,
                        basis_dir=a.basis_dir, unit=a.unit, save_openpmd=a.save_openpmd, save_mode=a.save_mode,
-                       handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, seed=a.seed,
+                       handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame, seed=a.seed,
                        reference=a.reference, plot=not a.no_plot)
 
 

@@ -328,6 +328,8 @@ def continue_design(ion, efield, bfield, r_exit, v_exit, dt, path_m):
     by ~35 deg over 30 mm in the cyclotron field, so the exit direction is the wrong normal)."""
     r0 = np.asarray(r_exit, dtype=float).reshape(1, 3)
     v0 = np.asarray(v_exit, dtype=float).reshape(1, 3)
+    if path_m <= 0.0:                                   # hand-off at the electrode exit itself
+        return r0[0].copy(), v0[0] / np.linalg.norm(v0[0])
     n_steps = int(1.5 * path_m / (float(np.linalg.norm(v0)) * dt)) + 20
     snap = SnapshotRecorder(range(0, n_steps))
     Tracker(Pusher(ion, algorithm="rk4_rel"), efield, bfield, terminators=[], recorders=[snap]).run(

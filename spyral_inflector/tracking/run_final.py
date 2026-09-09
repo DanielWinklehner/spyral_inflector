@@ -40,10 +40,13 @@ def _wait(jobs):
 
 def run_final(step_dir, voltages, state, out, q1, q2, rotate_quads=(0.0, 0.0), spiral_voltage=None, particles=None, bfield=None,
               phi=90.0, n=43969, res=0.0025, sc=False, h=1.5e-3, current_ma=8.0, rf_mhz=32.8, handoff=True, n_traj=300,
-              tag="final", python=None):
+              tag="final", python=None, handoff_distance=0.030, handoff_frame="deck", export_machine=False):
     """Solve + track + report for one geometry. voltages/state: the geometry build's
     voltages.csv and state.pickle (the spiral voltage defaults to the csv's anode voltage).
-    Returns {"metrics": {run: exit metrics}, "report": path, ...}."""
+    handoff_distance 0 records the particles at the electrode exit plane; handoff_frame
+    "machine" mirrors them into the machine frame; export_machine also writes the E-field
+    map and the STEP solids mirrored into the machine frame (out/machine_frame/) for the
+    central region. Returns {"metrics": {run: exit metrics}, "report": path, ...}."""
     from .metrics import exit_metrics
     from .plots import electrode_meshes, plot_geometry_trajectories, plot_side_view
 
@@ -68,10 +71,20 @@ def run_final(step_dir, voltages, state, out, q1, q2, rotate_quads=(0.0, 0.0), s
         if p.returncode != 0:
             raise RuntimeError("BEM solve failed (exit {}), see log_solve.txt".format(p.returncode))
 
+    # 1b. machine-frame exports of the field and the solids for the central region
+    if export_machine:
+        from .export import field_to_machine_frame, steps_to_machine_frame
+        mdir = os.path.join(out, "machine_frame")
+        os.makedirs(mdir, exist_ok=True)
+        field_to_machine_frame(os.path.join(out, "ef_itp_{}.pickle".format(tag)), os.path.join(mdir, "efield_{}_machine.pickle".format(tag)))
+        steps_to_machine_frame(step_dir, os.path.join(mdir, "steps_machine"))
+        _stamp("machine-frame exports written to {}".format(mdir))
+
     # 2. the core beam without and (optionally) with space charge, in parallel
     base = [python, "-m", "spyral_inflector.tracking.bunch", "--tag", tag, "--reload-dir", out, "--step-dir", step_dir, "--out-dir", out,
             "--particles", particles, "--bfield", bfield, "--phi", str(phi), "--n", str(n), "--current-ma", str(current_ma),
-            "--rf-mhz", str(rf_mhz), "--record", str(max(n_traj, 1000))]
+            "--rf-mhz", str(rf_mhz), "--record", str(max(n_traj, 1000)), "--handoff-distance", str(handoff_distance),
+            "--handoff-frame", handoff_frame]
     jobs = []
     if not os.path.exists(os.path.join(out, "bunch_e_nosc.json")):
         cmd = base + ["--out-tag", "e_nosc"] + (["--save-openpmd", os.path.join(out, "handoff_nosc.h5"), "--save-mode", "both"] if handoff else [])
@@ -147,10 +160,14 @@ def main(argv=None):
     p.add_argument("--no-handoff", action="store_true")
     p.add_argument("--n-traj", type=int, default=300)
     p.add_argument("--tag", default="final")
+    p.add_argument("--handoff-distance", type=float, default=0.030, help="design path past the electrode end [m]; 0 = the exit plane")
+    p.add_argument("--handoff-frame", choices=["deck", "machine"], default="deck")
+    p.add_argument("--export-machine", action="store_true", help="also write the E-field map and the STEP solids in the machine frame")
     a = p.parse_args(argv)
     return run_final(a.step_dir, a.voltages, a.state, a.out, a.q1, a.q2, rotate_quads=tuple(a.rotate_quads), spiral_voltage=a.spiral_voltage,
                      particles=a.particles, bfield=a.bfield, phi=a.phi, n=a.n, res=a.res, sc=a.sc, h=a.h, current_ma=a.current_ma,
-                     rf_mhz=a.rf_mhz, handoff=not a.no_handoff, n_traj=a.n_traj, tag=a.tag)
+                     rf_mhz=a.rf_mhz, handoff=not a.no_handoff, n_traj=a.n_traj, tag=a.tag, handoff_distance=a.handoff_distance,
+                     handoff_frame=a.handoff_frame, export_machine=a.export_machine)
 
 
 if __name__ == "__main__":
