@@ -77,6 +77,9 @@ parser.add_argument("--slot-width", type=float, default=0.015, help="inflector e
 parser.add_argument("--slot-length", type=float, default=0.040, help="inflector entrance aperture slot length [m]")
 parser.add_argument("--exit-opening", type=float, nargs=2, default=None, metavar=("ACROSS", "ALONG"),
                     help="housing exit opening [m]: across the tilted gap direction (default = slot width) and along it (default = slot length)")
+parser.add_argument("--housing-gap", type=float, default=0.006, help="clearance between the electrodes' hull and the housing wall [m]")
+parser.add_argument("--housing-thickness", type=float, default=0.004, help="housing wall thickness [m]")
+parser.add_argument("--rotation", type=float, default=0.0, help="rotation of the whole inflector about the axis [deg] (rotate quads and beam by the same angle yourself)")
 args = parser.parse_args()
 if args.quad_len2 is None:
     args.quad_len2 = args.quad_len
@@ -90,7 +93,7 @@ os.makedirs(args.steps_root, exist_ok=True)
 t_start = time.time()
 knobs = {k: getattr(args, k) for k in ("volt", "gap", "tilt", "dx", "sigma", "aspect", "gamma", "angling",
                                         "quad_bore", "quad_z1", "quad_z2", "quad_len", "aper_hole", "slot_width", "slot_length", "exit_opening",
-                                        "plate_gap", "plate_thickness", "quad_len2", "shared_plates", "entrance_hole")}
+                                        "plate_gap", "plate_thickness", "quad_len2", "shared_plates", "entrance_hole", "housing_gap", "housing_thickness", "rotation")}
 print("=" * 78)
 print("GEOMETRY POINT '{}': {}".format(args.name, knobs))
 print("  beam rotation {:.1f} deg, quad rotations {} deg".format(args.phi, args.rotate_quads))
@@ -121,7 +124,7 @@ summary["energy_mev"] = args.energy_mev
 print("  design energy {:.5f} MeV".format(args.energy_mev), flush=True)
 si = SpiralInflector(ion=H2P, method="numerical", solver="bempp",
                      volt=args.volt, gap=args.gap, tilt=args.tilt, dx=args.dx, sigma=args.sigma,
-                     vee_shape="parabolic", ns=100, aspect_ratio=args.aspect, rotation=0.0,
+                     vee_shape="parabolic", ns=100, aspect_ratio=args.aspect, rotation=args.rotation,
                      debug=False, gammaAng=args.gamma, anglingAng=args.angling)
 si.load_bfield(bfield=args.bfield)
 si.initialize()
@@ -133,8 +136,8 @@ si.set_parameter(key="aperture_params", value={"thickness": 4e-3, "radius": 50e-
                                                **({"exit_width": args.exit_opening[0], "exit_length": args.exit_opening[1]}
                                                   if args.exit_opening else {})})
 si.set_parameter(key="make_housing", value=True)
-si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True, "gap": 6e-3,
-                                              "thickness": 4e-3, "voltage": 0.0, "experimental": True})
+si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True, "gap": args.housing_gap,
+                                              "thickness": args.housing_thickness, "voltage": 0.0, "experimental": True})
 si.set_parameter(key="make_quadrupoles", value=True)
 si.set_parameter(key="quadrupole_params", value={"a": args.quad_bore, "b": args.quad_bore, "radius": 0.04,
                                                  "z_starts": [args.quad_z1, args.quad_z2],

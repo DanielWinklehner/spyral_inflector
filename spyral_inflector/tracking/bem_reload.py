@@ -43,6 +43,43 @@ def _outside(r, v, s, i_exit):
     return float(np.mean(np.degrees(np.arcsin(v[w, 2] / vn)))), float(np.mean(r[w, 2]))
 
 
+def surface_field_stats(n_fun_coeff, mesh, domain_names):
+    """Field on the conductor surfaces from the BEM solution, per electrode.
+
+    The Neumann trace of the potential on the piecewise-constant space is the normal
+    derivative per triangle, i.e. the surface field |E| (the tangential field vanishes on
+    a conductor). Corner and edge triangles carry mesh-dependent spikes, so besides the
+    maximum the area-weighted 99th and 99.9th percentiles and the mean over the 1 % of the
+    surface with the highest field are returned; those are the numbers to compare between
+    geometries. Values in kV/cm."""
+    verts = np.asarray(mesh["verts"], dtype=float)
+    elems = np.asarray(mesh["elems"], dtype=int)
+    domns = np.asarray(mesh["domns"], dtype=int).ravel()
+    if verts.shape[0] == 3 and verts.shape[1] != 3:
+        verts = verts.T
+    if elems.shape[0] == 3 and elems.shape[1] != 3:
+        elems = elems.T
+    e_n = np.abs(np.asarray(n_fun_coeff, dtype=float)) * 1e-5          # V/m -> kV/cm
+    tri = verts[elems]
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    out = {}
+    for dom in np.unique(domns):
+        m = domns == dom
+        e, a = e_n[m], area[m]
+        order = np.argsort(e)
+        e, a = e[order], a[order]
+        cum = np.cumsum(a) / a.sum()
+        p99 = float(e[np.searchsorted(cum, 0.99)]) if len(e) else float("nan")
+        p999 = float(e[np.searchsorted(cum, 0.999)]) if len(e) else float("nan")
+        top = cum >= 0.99
+        top_mean = float(np.average(e[top], weights=a[top])) if top.any() else float("nan")
+        out[domain_names.get(int(dom), "domain_{}".format(dom))] = {
+            "max_kv_cm": float(e.max()) if len(e) else float("nan"), "p999_kv_cm": p999, "p99_kv_cm": p99,
+            "top1pct_mean_kv_cm": top_mean, "mean_kv_cm": float(np.average(e, weights=a)) if len(e) else float("nan"),
+            "n_elements": int(m.sum()), "area_cm2": float(1e4 * a.sum())}
+    return out
+
+
 def _compare_mesh(assembly, state, log):
     """Distance of every reloaded STEP vertex to the surface the optimizer solved on."""
     from ..optimization import _surface_distance
@@ -143,6 +180,10 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     ef_fn = os.path.join(out_dir, "ef_itp_{}.pickle".format(tag))
     efield.save(ef_fn)
     electrode_voltages = {e.name: e.voltage for e in assembly.electrodes.values()}
+    surface = surface_field_stats(si.numerical_variables["n_fun_coeff"], mesh, {int(e.bempp_domain): e.name for e in assembly.electrodes.values()})
+    for name, st in sorted(surface.items(), key=lambda kv: -kv[1]["p99_kv_cm"])[:5]:
+        log("surface field {:<20s} p99 {:.1f} kV/cm, top-1%-area mean {:.1f}, p99.9 {:.1f}, max {:.1f} (mesh h {:.0f} mm, {} elements)".format(
+            name, st["p99_kv_cm"], st["top1pct_mean_kv_cm"], st["p999_kv_cm"], st["max_kv_cm"], 1e3 * h, st["n_elements"]))
     with open(os.path.join(out_dir, "si_state_{}.pickle".format(tag)), "wb") as fh:
         pickle.dump({"trj_design": state["trj_design"], "v_design": state["v_design"], "voltage": state.get("voltage"),
                      "electrode_voltages": electrode_voltages}, fh)
@@ -150,7 +191,7 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     quad_check = _quad_field_check(efield, state, volts, log)
     summary = {"tag": tag, "step_dir": step_dir, "voltages": electrode_voltages, "rotate_quads": list(rotate) if rotate else [0.0, 0.0],
                "n_triangles": int(mesh["elems"].shape[1]), "res_m": res, "h_m": h, "solve_s": t_solve, "potential_s": t_pot,
-               "mesh_comparison_mm": mesh_cmp, "quad_field_check": quad_check}
+               "mesh_comparison_mm": mesh_cmp, "quad_field_check": quad_check, "surface_field": surface}
     if not test_particle or "track_r" not in state:
         with open(os.path.join(out_dir, "reload_{}.json".format(tag)), "w") as fh:
             json.dump(summary, fh, indent=2)

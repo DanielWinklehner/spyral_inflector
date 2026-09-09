@@ -7,7 +7,9 @@ from .deck import CLIGHT
 from .hooks import plane_axes
 
 FRAME = ("spyral_inflector deck frame: origin on the cyclotron axis in the median plane, z along the axis "
-         "(beam travels +z, Bz < 0 at the centre), x/y of the deck; SI units, momenta in eV/c")
+         "(beam travels +z, Bz < 0 at the centre), x/y of the deck; SI units, momenta in eV/c. "
+         "Machine frame (+z up, beam from the top, orbits counter-clockwise from above, +x = theta 0 on a hill): "
+         "the mirror image through the median plane, z -> -z and pz -> -pz, x/y/azimuths unchanged")
 
 # openPMD-beamphysics only knows a few species names; map the PyPATools names onto them so
 # ParticleGroup(h5=...) can compute energies (the exact PyPATools mass is stored alongside)

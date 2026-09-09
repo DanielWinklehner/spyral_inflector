@@ -19,6 +19,7 @@ DEFAULT_KNOBS = dict(
     quad_bore=0.013, quad_z1=-0.27, quad_z2=-0.19, quad_len=0.045, quad_len2=None, shared_plates=False,
     aper_hole=0.0125, entrance_hole=None, plate_gap=0.001, plate_thickness=0.005,
     slot_width=0.015, slot_length=0.040, exit_opening=None,
+    housing_gap=0.006, housing_thickness=0.004, top_distance=0.005, bottom_distance=0.010, rotation=0.0,
 )
 KNOB_HELP = {
     "volt": "nominal spiral electrode voltage [V] (the optimizer scales it)", "gap": "electrode gap [m]",
@@ -31,6 +32,10 @@ KNOB_HELP = {
     "plate_gap": "axial gap between a quad's aperture plates and its pole ends [m]", "plate_thickness": "quad aperture plate thickness [m]",
     "slot_width": "inflector entrance slot width (gap direction) [m]", "slot_length": "inflector entrance slot length [m]",
     "exit_opening": "housing exit opening (across, along the tilted gap) [m] (default: the entrance slot)",
+    "housing_gap": "clearance between the electrodes' convex hull and the housing's inner wall [m]",
+    "housing_thickness": "housing wall thickness [m]", "top_distance": "entrance plate height above the electrodes [m]",
+    "bottom_distance": "distance of the housing exit opening past the electrode end [m]",
+    "rotation": "rotation of the whole inflector (electrodes, housing, apertures) about the axis [deg]; rotate the quads and the beam by the same angle",
 }
 
 
@@ -70,19 +75,20 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     ion.set_mean_energy_z_mev(energy_mev)
     si = SpiralInflector(ion=ion, method="numerical", solver="bempp",
                          volt=k["volt"], gap=k["gap"], tilt=k["tilt"], dx=k["dx"], sigma=k["sigma"],
-                         vee_shape="parabolic", ns=100, aspect_ratio=k["aspect"], rotation=0.0,
+                         vee_shape="parabolic", ns=100, aspect_ratio=k["aspect"], rotation=k["rotation"],
                          debug=False, gammaAng=k["gamma"], anglingAng=k["angling"])
     si.load_bfield(bfield=bfield)
     si.initialize()
     si.set_parameter(key="h", value=h)
     si.set_parameter(key="make_aperture", value=True)
     si.set_parameter(key="aperture_params", value={"thickness": 4e-3, "radius": 50e-3, "length": k["slot_length"], "width": k["slot_width"],
-                                                   "top_distance": 5e-3, "bottom_distance": 10e-3, "hole_type": "rectangle", "voltage": 0.0,
+                                                   "top_distance": k["top_distance"], "bottom_distance": k["bottom_distance"],
+                                                   "hole_type": "rectangle", "voltage": 0.0,
                                                    **({"exit_width": k["exit_opening"][0], "exit_length": k["exit_opening"][1]}
                                                       if k["exit_opening"] else {})})
     si.set_parameter(key="make_housing", value=True)
-    si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True, "gap": 6e-3, "thickness": 4e-3,
-                                                  "voltage": 0.0, "experimental": True})
+    si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True, "gap": k["housing_gap"],
+                                                  "thickness": k["housing_thickness"], "voltage": 0.0, "experimental": True})
     si.set_parameter(key="make_quadrupoles", value=True)
     si.set_parameter(key="quadrupole_params", value={"a": k["quad_bore"], "b": k["quad_bore"], "radius": 0.04,
                                                      "z_starts": [k["quad_z1"], k["quad_z2"]], "lengths": [k["quad_len"], k["quad_len2"]],
@@ -149,9 +155,20 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
         if electrode.export(os.path.join(steps_dir, "{:03d}_{}.step".format(i, names[i]))) != 0:
             raise RuntimeError("STEP export failed for {}".format(electrode.name))
     log("  exported {} STEP files -> {}".format(len(names), steps_dir))
+    # surface field of the last BEM solve (the optimized voltage), per electrode
+    from .bem_reload import surface_field_stats
+    try:
+        sf = surface_field_stats(si.numerical_variables["n_fun_coeff"], mesh, {int(e.bempp_domain): names[i] for i, e in enumerate(assembly.electrodes.values())})
+        for name, st in sorted(sf.items(), key=lambda kv: -kv[1]["p99_kv_cm"])[:4]:
+            log("  surface field {:<20s} p99 {:.1f} kV/cm, top-1%-area mean {:.1f}, max {:.1f} (mesh h {:.0f} mm)".format(
+                name, st["p99_kv_cm"], st["top1pct_mean_kv_cm"], st["max_kv_cm"], 1e3 * h))
+    except Exception as exc:  # noqa: BLE001
+        log("  surface field statistics failed: {}".format(exc))
+        sf = {}
     out = {"steps_dir": steps_dir, "voltages_csv": volt_fn, "state_pickle": state_fn, "knobs": k, "energy_mev": energy_mev,
            "fixed_truncations_deg": list(fix_truncations), "fix_dz_m": fix_dz, "res_m": res, "optimizer": optimizer,
-           "voltage": result["voltage"], "dz_mm": 1e3 * result["dz"], "wall_s": time.time() - t_start}
+           "voltage": result["voltage"], "dz_mm": 1e3 * result["dz"], "surface_field": sf, "surface_mesh_h_m": h,
+           "wall_s": time.time() - t_start}
     with open(os.path.join(out_dir, "summary.json"), "w") as fh:
         json.dump(out, fh, indent=2)
     del si
