@@ -8,8 +8,9 @@ RFQ bunch (I / f_RF) tracked in isolation. Both fields superpose exactly (Compos
 
 Transmission counts particles that cross the design exit plane outward near the design
 exit point AND clear the housing exit opening on the way out. Transmitted particles coast
-on for `coast` steps (trajectory plots, the asymptotic state 120 steps = ~31 mm past the
-crossing, and the hand-off plane crossing for the openPMD files).
+on for `coast` steps (trajectory plots, the asymptotic state 210 steps = ~55 mm past the
+crossing where the electric fringe is done but the magnetic off-plane bending has not
+started, and the hand-off plane crossing for the openPMD files).
 
     python -m spyral_inflector.tracking.bunch --tag final --reload-dir OUT --step-dir STEPS --particles core.txt \\
         --bfield B.pickle --phi 90 --n 43969 [--sc --h 0.0015 --current-ma 8] [--save-openpmd handoff.h5 --save-mode both]
@@ -35,7 +36,7 @@ from .handoff import save_handoff_openpmd, save_snapshot_openpmd
 
 def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_tag=None, n=10000, phi=0.0, swap_xy=False,
                 sc=False, current_ma=8.0, rf_mhz=32.8, h=2.0e-3, pad=0.01, xy_max=None, resolve_every=8, tol=1e-5, gpu=True,
-                nsteps=1900, dt=1.0e-10, coast=300, asym_steps=120, post_exit_steps=100, record=1000, exclude=(),
+                nsteps=1900, dt=1.0e-10, coast=300, asym_steps=210, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
                 seed=20260905, reference=None, plot=True, log=None):
@@ -370,7 +371,7 @@ def main(argv=None):
     p.add_argument("--nsteps", type=int, default=1900)
     p.add_argument("--dt", type=float, default=1.0e-10)
     p.add_argument("--coast", type=int, default=300)
-    p.add_argument("--asym-steps", type=int, default=120)
+    p.add_argument("--asym-steps", type=int, default=210, help="steps after the exit crossing for the asymptotic state (210 = ~55 mm: electric fringe done, magnetic off-plane bending not yet)")
     p.add_argument("--post-exit-steps", type=int, default=100)
     p.add_argument("--record", type=int, default=1000)
     p.add_argument("--exclude", default="", help="comma-separated electrode names to drop")

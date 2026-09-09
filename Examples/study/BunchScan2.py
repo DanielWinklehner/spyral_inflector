@@ -59,6 +59,8 @@ parser.add_argument("--nsteps", type=int, default=1750)
 parser.add_argument("--post-exit-steps", type=int, default=100,
                     help="steps after the exit-plane crossing during which particles are still checked against the housing "
                          "(its exit opening clips the beam); transmission counts particles through the housing. 0 = exit plane only")
+parser.add_argument("--coast", type=int, default=300, help="steps a transmitted particle is followed past the exit plane")
+parser.add_argument("--asym-steps", type=int, default=210, help="steps after the crossing for the asymptotic state (~55 mm)")
 parser.add_argument("--dt", type=float, default=1.0e-10)
 parser.add_argument("--seed", type=int, default=20260906)
 parser.add_argument("--tag", default="scan2")
@@ -145,8 +147,8 @@ def run_point(q1, q2, a1, a2, s, phi):
     efield = combined_field(q1, q2, a1, a2, s)
     rr, vv = rotated_beam(phi)
     collision = ti.ElectrodeCollision(assembly)
-    exit_plane = ti.ExitPlane(r_exit, point=trj[-1], normal=vdes[-1], coast_steps=args.post_exit_steps,
-                              asym_steps=min(100, args.post_exit_steps))
+    exit_plane = ti.ExitPlane(r_exit, point=trj[-1], normal=vdes[-1], coast_steps=max(args.coast, args.post_exit_steps),
+                              asym_steps=min(args.asym_steps, max(args.coast, args.post_exit_steps)))
     collision.skip = exit_plane
     collision.post_exit_electrodes = housing_electrodes
     collision.post_exit_steps = args.post_exit_steps
