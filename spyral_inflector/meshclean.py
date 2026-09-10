@@ -13,12 +13,16 @@ Mesh layout as py_electrodes delivers it: verts (3, N), elems (3, M), domns (M,)
 import numpy as np
 
 
-def clean_surface_mesh(mesh, merge_tol=1e-7, min_area=1e-10, max_aspect=1000.0, log=None):
+def clean_surface_mesh(mesh, merge_tol=1e-7, min_area=1e-8, max_aspect=100.0, min_edge=1e-4, log=None):
     """Return a cleaned copy of {"verts", "elems", "domns"} and a dict describing what changed.
 
-    merge_tol: vertices closer than this [m] are one vertex. min_area [m^2] and max_aspect
-    (longest edge squared over area; an equilateral triangle has 2.3) drop degenerate
-    triangles. Unreferenced vertices are removed and the indices compacted."""
+    merge_tol: vertices closer than this [m] are one vertex. min_area [m^2], max_aspect
+    (longest edge squared over area; an equilateral triangle has 2.3) and min_edge [m] drop
+    degenerate triangles. On a 5 mm mesh a typical element has 10 mm2; the 0.4 mm vee edge
+    of the electrodes meshes at ~1 mm2 and aspect ~25, so 0.01 mm2 / 100 / 0.1 mm keep every
+    real feature and remove only needles and specks -- and it is the specks, elements
+    thousands of times smaller than their neighbours, that stall GMRES, not the aspect
+    ratio alone. Unreferenced vertices are removed and the indices compacted."""
     V = np.asarray(mesh["verts"], dtype=float)
     T = np.asarray(mesh["elems"], dtype=np.int64)
     D = np.asarray(mesh["domns"])
@@ -42,7 +46,8 @@ def clean_surface_mesh(mesh, merge_tol=1e-7, min_area=1e-10, max_aspect=1000.0, 
     emax2 = np.maximum(np.maximum(((B - A) ** 2).sum(1), ((C - B) ** 2).sum(1)), ((A - C) ** 2).sum(1))
     aspect = emax2 / np.maximum(area, 1e-300)
     n_collapsed = int((~ok).sum())
-    ok &= (area >= min_area) & (aspect <= max_aspect)
+    emin2 = np.minimum(np.minimum(((B - A) ** 2).sum(1), ((C - B) ** 2).sum(1)), ((A - C) ** 2).sum(1))
+    ok &= (area >= min_area) & (aspect <= max_aspect) & (emin2 >= min_edge ** 2)
     n_sliver = n_t0 - n_collapsed - int(ok.sum())
     area_dropped = float(area[~ok & (area > 0)].sum())
     T, D = T[ok], D[ok]
