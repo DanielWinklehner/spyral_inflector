@@ -47,8 +47,9 @@ p.add_argument("--bfield", default=None, help="an existing field pickle instead 
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--gap-azimuth", type=float, default=34.0)
 p.add_argument("--half-gap", type=float, default=0.005, help="[m] along the exit face normal")
-p.add_argument("--no-q2-exit-plate", action="store_true", help="quad 2 terminated by the inflector entrance plate")
-p.add_argument("--quad-len2", type=float, default=None, help="override quad 2 length [m] (e.g. 0.0705 with --no-q2-exit-plate)")
+p.add_argument("--no-q2-exit-plate", action="store_true",
+               help="quad 2 terminated by the inflector entrance plate; its length is then derived at build time to end one plate_gap before it")
+p.add_argument("--quad-len2", type=float, default=None, help="override quad 2 length [m] (ignored with --no-q2-exit-plate)")
 p.add_argument("--fix-truncations", type=float, nargs=2, default=[0.34, 0.77])
 p.add_argument("--res", type=float, default=0.0025, help="basis-field resolution [m]")
 p.add_argument("--geo-res", type=float, default=0.005, help="resolution of the design-orbit optimizer [m]")

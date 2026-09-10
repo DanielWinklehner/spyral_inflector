@@ -2152,6 +2152,16 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # last_exit_plate=False: no exit plate on the last quad -- the inflector's entrance
         # aperture terminates it instead (lengthen that quad to reach it, less plate_gap)
         last_exit_plate = numerical_pars["quadrupole_params"].get("last_exit_plate", True)
+        if not last_exit_plate:
+            # the last quad then runs up to one plate_gap before the inflector entrance plate
+            # (its quad-facing face); the lab-frame shift moves quads and inflector alike, so
+            # the spacing set here survives the optimizer
+            _ap = numerical_pars["aperture_params"]
+            _z_face = trj[0][2] - _ap["top_distance"] - _ap["thickness"]
+            quad_lens = list(quad_lens)
+            quad_lens[-1] = _z_face - gap - z_starts[-1]
+            print("Quad {}: no exit plate; length {:.2f} mm, ending {:.1f} mm before the entrance plate face at z = {:+.2f} mm".format(
+                len(quad_lens) - 1, 1e3 * quad_lens[-1], 1e3 * gap, 1e3 * _z_face))
 
         # Mesh size for the quadrupole electrodes. These used to be hardcoded
         # (0.005 for the apertures, 0.01 for the dipoles) and so ignored the "h"
