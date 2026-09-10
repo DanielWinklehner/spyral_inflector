@@ -1227,7 +1227,8 @@ class SIHousing(PyElectrode):
 
         return np.array(new_points)
 
-    def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True, header=True):
+    def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True, header=True,
+                       zmin_override=None):
         # TODO: Doc string -PW
 
         offset = self._offset
@@ -1247,12 +1248,17 @@ class SIHousing(PyElectrode):
         if span:
             zmin = np.min(geo[:, :, 2])
             zmax = np.max(geo[:, :, 2])
+        if zmin_override is not None:
+            # the entrance end is covered by the cylinder; start exactly where it stops
+            zmin = zmin_override
 
         norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
+        # z follows the design orbit like x and y do; pinning it to the median plane put the
+        # opening trj[-1][2] off the beam (the entrance aperture already tracks trj[0][2]).
         translate = np.array([trj[-1][0] + norm_vec[0] * b_gap * 0.99,
                               trj[-1][1] + norm_vec[1] * b_gap * 0.99,
-                              0.0])
+                              trj[-1][2]])
 
         hole_type = self._aperture_params["hole_type"]
 
@@ -1357,11 +1363,74 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
 
         geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate[0],
                                                                                translate[1],
-                                                                               0.0,
+                                                                               translate[2],
                                                                                sub_tool)
 
         geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
             50 + offset, sub_tool)
+
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+
+        return geo_str
+
+
+class SIHousingCylinder(PyElectrode):
+    """The straight tube running from the entrance aperture towards the spiral electrodes.
+
+    Same wall thickness as the housing and the same outer diameter as the entrance aperture
+    plate; it stops at the first z where the electrodes would come closer than `gap` to its
+    inner wall, and the housing then starts exactly there."""
+
+    def __init__(self, parent=None, name="Housing Cylinder", voltage=0, offset=0):
+        super().__init__(name=name, voltage=voltage)
+        self._parent = parent
+        self._offset = offset
+
+    @staticmethod
+    def z_extent(geo, trj, r_outer, thickness, gap, t_gap):
+        """(z_start, z_end): from the entrance aperture's inner face to the furthest z at
+        which the electrodes still clear the tube's inner wall by `gap`.
+
+        The electrode radius is only sampled on the geo curves, so the running maximum of rho
+        against z is used as an envelope and its crossing with the clearance limit is
+        interpolated. Stopping at the first sample that already violates the limit would eat
+        into the clearance by up to one sample spacing."""
+        z_start = float(trj[0][2] - t_gap)
+        r_clear = r_outer - thickness - gap
+        rho = np.hypot(geo[:9, :, 0], geo[:9, :, 1]).ravel()
+        zz = geo[:9, :, 2].ravel()
+        order = np.argsort(zz)
+        zs, env = zz[order], np.maximum.accumulate(rho[order])
+        above = np.nonzero((env > r_clear) & (zs > z_start))[0]
+        if above.size == 0:
+            return z_start, float(np.max(geo[:, :, 2]))
+        i = above[0]
+        if i == 0 or env[i] <= env[i - 1]:
+            return z_start, float(max(zs[i], z_start))
+        z_end = zs[i - 1] + (r_clear - env[i - 1]) * (zs[i] - zs[i - 1]) / (env[i] - env[i - 1])
+        return z_start, float(max(z_end, z_start))
+
+    def create_geo_str(self, z_start, z_end, r_outer, thickness, h=0.005, load=True, header=True):
+        offset = self._offset
+        length = z_end - z_start
+        r_inner = r_outer - thickness
+        eps = 0.1 * thickness
+
+        if header:
+            geo_str = """SetFactory("OpenCASCADE");
+Mesh.CharacteristicLengthMax = {};  // maximum mesh size
+""".format(h)
+        else:
+            geo_str = "Geometry.ToleranceBoolean = 1E-5;\n"
+
+        geo_str += "// Outer and inner cylinder; the difference is the tube\n"
+        geo_str += "Cylinder({}) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n".format(
+            1 + offset, z_start, length, r_outer)
+        geo_str += "Cylinder({}) = {{ 0, 0, {}, 0, 0, {}, {}, 2 * Pi }};\n".format(
+            2 + offset, z_start - eps, length + 2.0 * eps, r_inner)
+        geo_str += "BooleanDifference({}) = {{ Volume{{ {} }}; Delete; }}{{ Volume{{ {} }}; Delete; }};\n".format(
+            3 + offset, 1 + offset, 2 + offset)
 
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
@@ -1880,6 +1949,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     entrance_offset = 3000
     exit_offset = 5000
     housing_offset = 5000
+    cylinder_offset = 7000
 
     anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
     _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng, vee_shape=vee_shape)
@@ -1911,6 +1981,12 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         housing.set_aperture_params(numerical_pars["aperture_params"])
         housing.set_aperture_rot_angles(angles)
 
+        # The entrance end is a straight tube of the aperture outer diameter; the shaped
+        # housing picks up exactly where that tube has to stop for clearance.
+        ap_pars = numerical_pars["aperture_params"]
+        z_cyl_start, z_cyl_end = SIHousingCylinder.z_extent(geo, trj, ap_pars["radius"], thickness,
+                                                            gap, ap_pars["top_distance"])
+
         # translate = np.array([0.0, 0.0, zmin])
         # housing.set_translation(translate, absolute=True)
         s = housing.create_geo_str(geo=geo,
@@ -1922,7 +1998,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                                    thickness=thickness,
                                    h=h * 3,
                                    load=True,
-                                   header=True)
+                                   header=True,
+                                   zmin_override=z_cyl_end)
 
         # with open('housing_geo_str.geo', 'w') as f:
         #     f.write(s)
@@ -1930,6 +2007,14 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         housing.color = "GREEN"
 
         assy.add_electrode(housing)
+
+        cylinder = SIHousingCylinder(parent=si, name="Housing Cylinder", voltage=voltage,
+                                     offset=cylinder_offset)
+        cylinder.create_geo_str(z_start=z_cyl_start, z_end=z_cyl_end, r_outer=ap_pars["radius"],
+                                thickness=thickness, h=h * 3, load=True, header=True)
+        cylinder.color = "GREEN"
+
+        assy.add_electrode(cylinder)
 
     if si.numerical_parameters["make_aperture"]:
         # Base aperture parameters:
@@ -1999,9 +2084,10 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
             #norm_vec = Vector(trj[-1] - trj[-2]).normalized()
 
+            # z follows the design orbit (see the housing opening above)
             translation = np.array([trj[-1][0] + norm_vec[0] * b_gap,
                                     trj[-1][1] + norm_vec[1] * b_gap,
-                                    0.0])
+                                    trj[-1][2]])
 
             rotation = np.array([np.deg2rad(90.0),
                                  tilt_angle,

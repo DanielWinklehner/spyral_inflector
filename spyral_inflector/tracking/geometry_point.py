@@ -81,7 +81,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     si.initialize()
     si.set_parameter(key="h", value=h)
     si.set_parameter(key="make_aperture", value=True)
-    si.set_parameter(key="aperture_params", value={"thickness": 4e-3, "radius": 50e-3, "length": k["slot_length"], "width": k["slot_width"],
+    si.set_parameter(key="aperture_params", value={"thickness": 4e-3, "radius": 47e-3, "length": k["slot_length"], "width": k["slot_width"],
                                                    "top_distance": k["top_distance"], "bottom_distance": k["bottom_distance"],
                                                    "hole_type": "rectangle", "voltage": 0.0,
                                                    **({"exit_width": k["exit_opening"][0], "exit_length": k["exit_opening"][1]}

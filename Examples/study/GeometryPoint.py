@@ -130,7 +130,7 @@ si.load_bfield(bfield=args.bfield)
 si.initialize()
 si.set_parameter(key="h", value=0.005)
 si.set_parameter(key="make_aperture", value=True)
-si.set_parameter(key="aperture_params", value={"thickness": 4e-3, "radius": 50e-3, "length": args.slot_length, "width": args.slot_width,
+si.set_parameter(key="aperture_params", value={"thickness": 4e-3, "radius": 47e-3, "length": args.slot_length, "width": args.slot_width,
                                                "top_distance": 5e-3, "bottom_distance": 10e-3,
                                                "hole_type": "rectangle", "voltage": 0.0,
                                                **({"exit_width": args.exit_opening[0], "exit_length": args.exit_opening[1]}
