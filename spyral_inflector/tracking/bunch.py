@@ -28,7 +28,7 @@ from PyPATools.pusher import Pusher
 from PyPATools.trackers import Tracker
 
 from .deck import (load_particles, orient_beam, load_step_assembly, mesh_assembly, drop_electrodes, load_bfield,
-                   load_state, superpose_basis)
+                   load_state, superpose_basis, rotate_assembly)
 from .hooks import (ElectrodeCollision, ExitPlane, PlaneCrossing, TrajectoryRecorder, SnapshotRecorder, Envelope,
                     SpaceCharge, continue_design, _PD)
 from .handoff import save_handoff_openpmd, save_snapshot_openpmd
@@ -72,7 +72,15 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("  mean energy    : {:.6f} MeV, start centroid {} m, z range {:+.4f}..{:+.4f} m".format(
         raw[:, 8].mean(), np.round(r0.mean(axis=0), 5), r0[:, 2].min(), r0[:, 2].max()))
 
+    # a rigidly rotated system (bem_reload --rotate-all) records its angle in the design state;
+    # the collision geometry and the Poisson boundary have to turn with the field.
+    rot_all = float(load_state(state_fn).get("rotation_deg", 0.0) or 0.0)
+
     assembly = load_step_assembly(step_dir)
+    if rot_all:
+        rotate_assembly(assembly, rot_all)
+        log("  rigid rotation : assembly rotated {:+.1f} deg about z (from {})".format(
+            rot_all, os.path.basename(state_fn)))
     if exclude:
         drop_electrodes(assembly, exclude)
         log("  EXCLUDED from collisions and the Poisson boundary: {}".format(sorted(exclude)))
@@ -188,6 +196,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         "mean_exit_step": float(np.mean(exit_plane.step[crossed])) if crossed.any() else None,
         "exit_offset_mean_m": float(np.nanmean(exit_plane.offset[crossed])) if crossed.any() else None,
         "voltages": state["electrode_voltages"], "efield": efield_fn, "particles": particles, "step_dir": step_dir,
+        "assembly_rotation_deg": rot_all,
         "phi_deg": phi, "swap_xy": bool(swap_xy), "nsteps": nsteps, "dt": dt, "wall_time_s": wall,
     }
     if superpose:

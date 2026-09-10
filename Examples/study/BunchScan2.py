@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import track_inflector as ti  # noqa: E402
+from spyral_inflector.tracking.deck import rotate_assembly  # noqa: E402
 from PyPATools.field import Field  # noqa: E402
 from PyPATools.pusher import Pusher  # noqa: E402
 from PyPATools.trackers import Tracker  # noqa: E402
@@ -108,6 +109,12 @@ print("scan '{}': {:,d} particles per point from {}{}, B-field {}".format(
 assembly = ti.load_assembly()
 for uuid in [u for u, e in assembly.electrodes.items() if "assembly" in e.name.lower()]:
     assembly.electrodes.pop(uuid)
+# a rigidly rotated system (bem_reload --rotate-all) records its angle in the design state;
+# the collision geometry has to turn with the field.
+rot_all = float(state.get("rotation_deg", 0.0) or 0.0)
+if rot_all:
+    rotate_assembly(assembly, rot_all)
+    print("  assembly rotated {:+.1f} deg about z (rigid system rotation)".format(rot_all), flush=True)
 for e in assembly.electrodes.values():
     if e.generate_mesh() != 0:
         raise RuntimeError("failed to mesh {}".format(e.name))
@@ -235,7 +242,7 @@ for name in ("SI_Anode", "SI_Cathode"):
 with open(os.path.join(out_dir, "si_state_{}_best.pickle".format(args.tag)), "wb") as fh:
     pickle.dump({"trj_design": trj, "v_design": vdes, "voltage": best["vscale"] * state["voltage"],
                  "electrode_voltages": volts, "quad_rotation_deg": [best["alpha1"], best["alpha2"]],
-                 "beam_rotation_deg": best["phi"]}, fh)
+                 "beam_rotation_deg": best["phi"], "rotation_deg": rot_all}, fh)
 print("wrote scan2_{0}.json, ef_itp_{0}_best.pickle, si_state_{0}_best.pickle".format(args.tag), flush=True)
 
 # ------------------------------------------------------------------ plot: best transmission per combination

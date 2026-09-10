@@ -176,6 +176,15 @@ def rotate_quads(assembly, alpha1_deg, alpha2_deg):
     return assembly
 
 
+def rotate_assembly(assembly, deg):
+    """Rigidly rotate every electrode about the z axis [deg] -- the whole inflector system
+    turned in the magnet. Must be called before the meshes are generated."""
+    if deg:
+        for e in assembly.electrodes.values():
+            e.set_rotation_angle_axis(float(np.radians(deg)), np.array([0.0, 0.0, 1.0]), absolute=False)
+    return assembly
+
+
 def mesh_assembly(assembly, h=None):
     """Force the surface meshes (collisions and the Poisson conductor lookup build from
     them lazily); returns the triangle count."""

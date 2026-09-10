@@ -19,7 +19,7 @@ import time
 import numpy as np
 
 from .deck import (SPECIES, Z_START, read_voltages, set_quad_voltages, set_spiral_voltage, load_state,
-                   load_step_assembly, rotate_quads, mesh_assembly)
+                   load_step_assembly, rotate_quads, rotate_assembly, mesh_assembly)
 
 DEFAULT_BOX = (-0.10, 0.10, -0.10, 0.10, -0.29, 0.06)
 
@@ -120,15 +120,42 @@ def _quad_field_check(efield, state, volts, log):
     return out
 
 
+def _rotz(deg):
+    c, s = np.cos(np.radians(deg)), np.sin(np.radians(deg))
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+def rotate_state(state, deg):
+    """The geometry build's state with every trajectory, velocity and mesh vertex rotated
+    about the z axis by deg (counter-clockwise viewed from +z)."""
+    R = _rotz(deg)
+    out = dict(state)
+    for key in ("trj_design", "v_design", "trj_design_full", "v_design_full", "track_r", "track_v"):
+        if key in out and out[key] is not None:
+            out[key] = np.asarray(out[key], dtype=float) @ R.T
+    for key in ("shift", "shift_lab"):
+        if key in out and out[key] is not None:
+            out[key] = R @ np.asarray(out[key], dtype=float)
+    if "mesh" in out and out["mesh"] is not None:
+        m = dict(out["mesh"])
+        v = np.asarray(m["verts"], dtype=float)
+        m["verts"] = (R @ v) if v.shape[0] == 3 else (v @ R.T)
+        out["mesh"] = m
+    out["rotation_deg"] = float(out.get("rotation_deg", 0.0) + deg)
+    return out
+
+
 def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0025, h=0.005,
                         quad_voltages=None, spiral_voltage=None, rotate=None, box=DEFAULT_BOX, domain_decomp=(4, 4, 4),
-                        test_particle=True, nsteps_axis=2400, energy_mev=0.069337, log=print):
+                        test_particle=True, nsteps_axis=2400, energy_mev=0.069337, rotate_all=0.0, log=print):
     """Solve the STEP assembly with bempp and save the field and the design state.
 
     voltages: dict or voltages.csv of the geometry build; quad_voltages=(q1, q2) and
     spiral_voltage override it (D0,D1 = +q1, D2,D3 = -q1, D4,D5 = +q2, D6,D7 = -q2; anode +V,
-    cathode -V); rotate=(a1, a2) rotates the quads about z [deg]. state: the geometry
-    build's state.pickle (design orbit). Returns the summary written to reload_<tag>.json.
+    cathode -V); rotate=(a1, a2) rotates the quads about z [deg]; rotate_all rotates the
+    WHOLE assembly (every electrode, and the design orbit of the state) about z by that
+    angle first, i.e. a rigid rotation of the inflector system in the magnet. state: the
+    geometry build's state.pickle (design orbit). Returns the summary of reload_<tag>.json.
     """
     from PyPATools.particles import ParticleDistribution
     from PyPATools.species import IonSpecies
@@ -136,6 +163,8 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
 
     os.makedirs(out_dir, exist_ok=True)
     state = load_state(state)
+    if rotate_all:
+        state = rotate_state(state, rotate_all)
     volts = read_voltages(voltages)
     if quad_voltages is not None:
         set_quad_voltages(volts, *quad_voltages)
@@ -145,6 +174,9 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     t0 = time.time()
     assembly = load_step_assembly(step_dir, volts, name="{} from STEP".format(tag))
     log("loaded {} electrodes from {} in {:.1f} s".format(len(assembly.electrodes), step_dir, time.time() - t0))
+    if rotate_all:
+        rotate_assembly(assembly, rotate_all)
+        log("   whole assembly rotated about z by {} deg".format(rotate_all))
     if rotate is not None and any(a != 0.0 for a in rotate):
         rotate_quads(assembly, *rotate)
         log("   quadrupoles rotated about z by {} / {} deg".format(*rotate))
@@ -186,10 +218,11 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
             name, st["p99_kv_cm"], st["top1pct_mean_kv_cm"], st["p999_kv_cm"], st["max_kv_cm"], 1e3 * h, st["n_elements"]))
     with open(os.path.join(out_dir, "si_state_{}.pickle".format(tag)), "wb") as fh:
         pickle.dump({"trj_design": state["trj_design"], "v_design": state["v_design"], "voltage": state.get("voltage"),
-                     "electrode_voltages": electrode_voltages}, fh)
+                     "electrode_voltages": electrode_voltages, "rotation_deg": float(rotate_all or 0.0)}, fh)
     log("wrote {} and si_state_{}.pickle".format(ef_fn, tag))
     quad_check = _quad_field_check(efield, state, volts, log)
     summary = {"tag": tag, "step_dir": step_dir, "voltages": electrode_voltages, "rotate_quads": list(rotate) if rotate else [0.0, 0.0],
+               "rotate_all_deg": float(rotate_all or 0.0),
                "n_triangles": int(mesh["elems"].shape[1]), "res_m": res, "h_m": h, "solve_s": t_solve, "potential_s": t_pot,
                "mesh_comparison_mm": mesh_cmp, "quad_field_check": quad_check, "surface_field": surface}
     if not test_particle or "track_r" not in state:
@@ -257,6 +290,7 @@ def main(argv=None):
     p.add_argument("--quad-voltages", type=float, nargs=2, default=None, metavar=("Q1", "Q2"))
     p.add_argument("--spiral-voltage", type=float, default=None, help="anode +V, cathode -V; 0 for a quad-only basis field")
     p.add_argument("--rotate-quads", type=float, nargs=2, default=None, metavar=("A1", "A2"), help="45 deg = skew basis")
+    p.add_argument("--rotate-all", type=float, default=0.0, help="rigid rotation of the whole assembly and the design orbit about z [deg]")
     p.add_argument("--no-test", action="store_true", help="skip the test particle (basis fields without the spiral field)")
     p.add_argument("--box", type=float, nargs=6, default=list(DEFAULT_BOX), metavar=("XMIN", "XMAX", "YMIN", "YMAX", "ZMIN", "ZMAX"))
     p.add_argument("--domain-decomp", type=int, nargs=3, default=[4, 4, 4])
@@ -266,7 +300,7 @@ def main(argv=None):
     return solve_step_assembly(a.step_dir, a.voltages, a.state, a.out_dir, a.tag, a.bfield, res=a.res, h=a.h,
                                quad_voltages=a.quad_voltages, spiral_voltage=a.spiral_voltage, rotate=a.rotate_quads,
                                box=tuple(a.box), domain_decomp=tuple(a.domain_decomp), test_particle=not a.no_test,
-                               nsteps_axis=a.nsteps_axis, energy_mev=a.energy_mev,
+                               nsteps_axis=a.nsteps_axis, energy_mev=a.energy_mev, rotate_all=a.rotate_all,
                                log=lambda m: print(m, flush=True))
 
 
