@@ -27,10 +27,10 @@ from PyPATools.field import Field, CompositeField
 from PyPATools.pusher import Pusher
 from PyPATools.trackers import Tracker
 
-from .deck import (load_particles, orient_beam, load_step_assembly, mesh_assembly, drop_electrodes, load_bfield,
-                   load_state, superpose_basis, rotate_assembly)
+from .deck import (load_particles, load_particles_with_tail, orient_beam, load_step_assembly, mesh_assembly,
+                   drop_electrodes, load_bfield, load_state, superpose_basis, rotate_assembly)
 from .hooks import (ElectrodeCollision, ExitPlane, PlaneCrossing, TrajectoryRecorder, SnapshotRecorder, Envelope,
-                    SpaceCharge, continue_design, _PD)
+                    SpaceCharge, DelayedInjection, continue_design, _PD)
 from .handoff import save_handoff_openpmd, save_snapshot_openpmd
 
 
@@ -39,6 +39,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 nsteps=1900, dt=1.0e-10, coast=300, asym_steps=210, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
+                stragglers=False, sc_min_particles=0,
                 seed=20260905, reference=None, plot=True, log=None):
     """Track n particles of the RFQ file through the geometry; returns the summary dict
     and writes bunch_<out_tag>.json / .npz / .png into out_dir (default: reload_dir).
@@ -50,7 +51,10 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     hand-off file(s) at handoff_distance of design path past the exit (0 = the electrode
     exit plane itself; save_mode plane, lab6d or both), in the deck frame or mirrored into
     the machine frame (handoff_frame). reference: a vacuum run's bunch json for the
-    comparison plot.
+    comparison plot. stragglers=True tracks every particle of the file: the core as a
+    spatial bunch and the unaccelerated tail injected at the start plane at its own
+    arrival time (DelayedInjection), so where the tail terminates is recorded too;
+    sc_min_particles stops re-solving the space charge once fewer particles deposit.
     """
     log = log or (lambda m: print(m, flush=True))
     out_dir = out_dir or reload_dir
@@ -63,11 +67,24 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("BUNCH TRACKING {}, tag '{}' -> '{}'".format(
         "WITH SPACE CHARGE ({:g} mA at {:g} MHz)".format(current_ma, rf_mhz) if sc else "(no space charge)", tag, out_tag))
     log("=" * 78)
-    r0, v0, ion, raw = load_particles(particles, n, seed=seed)
+    if stragglers:
+        r0, v0, ion, raw, t_inject, is_tail = load_particles_with_tail(particles, n, seed=seed, rf_mhz=rf_mhz)
+    else:
+        r0, v0, ion, raw = load_particles(particles, n, seed=seed)
+        t_inject, is_tail = np.zeros(len(r0)), np.zeros(len(r0), dtype=bool)
     r0, v0 = orient_beam(r0, v0, phi, swap_xy)
+    k_inject = np.rint(t_inject / dt).astype(int)
+    injector = DelayedInjection(k_inject, r0, v0) if is_tail.any() else None
+    alive0 = injector.alive0 if injector is not None else np.ones(len(r0), dtype=bool)
     log("  particles      : {:,d} (file has {:,d} unlost) from {}{}{}".format(
         len(r0), len(raw), os.path.basename(particles), ", x and y swapped" if swap_xy else "",
         ", rotated {:+.1f} deg".format(phi) if phi else ""))
+    if injector is not None:
+        log("  RFQ tail       : {:,d} unaccelerated particles ({:.1f}..{:.1f} keV) injected at z = {:+.3f} m at their arrival, "
+            "{:.1f}..{:.1f} ns after the core (steps {:,d}..{:,d}); {:,d} core particles placed as a bunch".format(
+                int(is_tail.sum()), 1e3 * raw[is_tail, 8].min(), 1e3 * raw[is_tail, 8].max(), r0[is_tail, 2].mean(),
+                1e9 * t_inject[is_tail].min(), 1e9 * t_inject[is_tail].max(), int(k_inject[is_tail].min()),
+                int(k_inject[is_tail].max()), int((~is_tail).sum())))
     log("  B-field        : {}".format(os.path.basename(bfield)))
     log("  mean energy    : {:.6f} MeV, start centroid {} m, z range {:+.4f}..{:+.4f} m".format(
         raw[:, 8].mean(), np.round(r0.mean(axis=0), 5), r0[:, 2].min(), r0[:, 2].max()))
@@ -135,8 +152,8 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         q_bunch = current_ma * 1e-3 / (rf_mhz * 1e6)
         charges = np.full(len(r0), q_bunch / len(r0))
         log("  bunch charge   : {:.4e} C = {:.4e} C per macro-particle".format(q_bunch, charges[0]))
-        sc_obj = SpaceCharge(solver, e_total, charges, resolve_every)
-        sc_obj.solve_now(r0, np.ones(len(r0), dtype=bool), 0, verbose=True)   # field for the first steps
+        sc_obj = SpaceCharge(solver, e_total, charges, resolve_every, min_particles=sc_min_particles)
+        sc_obj.solve_now(r0, alive0.copy(), 0, verbose=True)   # field for the first steps (the tail is not there yet)
         interactions.append(sc_obj)
         sc_info = {"current_mA": current_ma, "rf_MHz": rf_mhz, "bunch_charge_C": q_bunch, "h_m": h, "cells": list(cells),
                    "box_lo_m": lo.tolist(), "box_hi_m": hi.tolist(), "n_conductor_cells": n_cond, "n_boundary_cells": n_bnd,
@@ -156,14 +173,25 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     snapshot = SnapshotRecorder(range(1000, nsteps, 20)) if save_mode in ("lab6d", "both") else None
     if sc_obj:
         sc_obj.exclude = exit_plane
+    if injector is not None:
+        interactions.insert(0, injector)          # inject before the space-charge solve of the step
     envelope = Envelope()
     trajectories = TrajectoryRecorder(len(r0), n_record=record)
     tracker = Tracker(Pusher(ion, algorithm="rk4_rel"), e_total, b_field, interactions=interactions,
                       terminators=[exit_plane, collision, handoff],
                       recorders=[envelope, trajectories] + ([snapshot] if snapshot is not None else []))
-    log("  tracking {:,d} steps of {:.1e} s{} ...".format(nsteps, dt, ", Poisson solve every {} steps".format(resolve_every) if sc else ""))
+    n_run = nsteps
+    if injector is not None:
+        # the run has to outlive the last injection plus the slowest tail particle's transit
+        slowest = float(np.linalg.norm(v0[is_tail], axis=1).min() / np.linalg.norm(v0[~is_tail], axis=1).mean())
+        n_run = int(k_inject.max() + np.ceil(nsteps / max(slowest, 0.2)))
+        log("  run length     : {:,d} steps ({:,d} for the core alone; last injection at step {:,d}, slowest tail particle "
+            "at {:.2f} of the core speed)".format(n_run, nsteps, int(k_inject.max()), slowest))
+    log("  tracking {:,d} steps of {:.1e} s{} ...".format(n_run, dt, ", Poisson solve every {} steps".format(resolve_every) if sc else ""))
     t0 = time.time()
-    result = tracker.run(_PD(r0, v0), dt, nsteps, show_progress=False, sync_back=False)
+    pd = _PD(r0, v0)
+    pd.alive = alive0.copy()
+    result = tracker.run(pd, dt, n_run, show_progress=False, sync_back=False, stop_on_all_lost=injector is None)
     wall = time.time() - t0
     log("  done in {:.1f} s{}".format(wall, " ({} Poisson solves, {:.1f} s)".format(sc_obj.n_solves, sc_obj.solve_time) if sc_obj else ""))
 
@@ -179,6 +207,23 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         int(post_exit.sum()), int(crossed_plane.sum()), 100.0 * post_exit.sum() / len(r0)))
     n_lost = int((collision.hit_electrode >= 0).sum())
     n_neither = int(len(r0) - crossed.sum() - n_lost)
+    tail_info = None
+    if injector is not None:
+        tl = is_tail
+        tail_losses = {name: int(((collision.hit_electrode == i) & tl).sum())
+                       for i, name in ((i, assembly.electrodes[u].name) for i, u in index_map.items())}
+        tail_info = {"n_core": int((~tl).sum()), "n_tail": int(tl.sum()),
+                     "core_transmission": float(crossed[~tl].mean()) if (~tl).any() else None,
+                     "tail_transmission": float(crossed[tl].mean()) if tl.any() else None,
+                     "tail_lost": int(((collision.hit_electrode >= 0) & tl).sum()),
+                     "tail_losses_by_electrode": {kk: vv for kk, vv in tail_losses.items() if vv},
+                     "tail_loss_z_mean_by_electrode": {name: float(np.mean(collision.hit_point[(collision.hit_electrode == i) & tl, 2]))
+                                                       for i, name in ((i, assembly.electrodes[u].name) for i, u in index_map.items())
+                                                       if ((collision.hit_electrode == i) & tl).any()},
+                     "tail_never_injected": int(injector.pending.sum()),
+                     "tail_inject_ns": [float(1e9 * t_inject[tl].min()), float(1e9 * t_inject[tl].max())],
+                     "tail_energy_kev": [float(1e3 * raw[tl, 8].min()), float(1e3 * raw[tl, 8].max())],
+                     "n_run_steps": int(n_run), "sc_solves_skipped": int(sc_obj.n_skipped) if sc_obj else 0}
     z_exit = exit_plane.state[crossed, 2]
     env = np.array(envelope.rows)
     hit_z = collision.hit_point[:, 2]
@@ -198,6 +243,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         "voltages": state["electrode_voltages"], "efield": efield_fn, "particles": particles, "step_dir": step_dir,
         "assembly_rotation_deg": rot_all,
         "phi_deg": phi, "swap_xy": bool(swap_xy), "nsteps": nsteps, "dt": dt, "wall_time_s": wall,
+        "tail": tail_info,
     }
     if superpose:
         summary["superpose"] = {"q1": q1v, "alpha1": a1, "q2": q2v, "alpha2": a2, "vscale": vscale, "unit": unit, "basis_dir": basis_dir or reload_dir}
@@ -215,6 +261,14 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         "   [reference run: {:.2f} %]".format(100 * ref["transmission"]) if ref else ""))
     log("  intercepted     : {:,d}  ({:.2f} %)".format(n_lost, 100 * summary["loss_fraction"]))
     log("  neither         : {:,d}  (still inside when tracking ended)".format(n_neither))
+    if tail_info:
+        log("  RFQ core        : {:,d} particles, {:.2f} % transmitted".format(tail_info["n_core"], 100 * tail_info["core_transmission"]))
+        log("  RFQ tail        : {:,d} particles, {:.2f} % transmitted, {:,d} intercepted{}".format(
+            tail_info["n_tail"], 100 * tail_info["tail_transmission"], tail_info["tail_lost"],
+            ", {} never injected".format(tail_info["tail_never_injected"]) if tail_info["tail_never_injected"] else ""))
+        for name, count in sorted(tail_info["tail_losses_by_electrode"].items(), key=lambda kv: -kv[1]):
+            log("      tail on {:<17s} {:>6,d}  ({:5.2f} % of the tail)   z = {:+.3f} m".format(
+                name, count, 100.0 * count / tail_info["n_tail"], tail_info["tail_loss_z_mean_by_electrode"].get(name, float("nan"))))
     if z_exit.size:
         log("  exit z          : mean {:+.3f} mm, rms {:.3f} mm, 5-95 % {:+.2f}..{:+.2f} mm".format(
             1e3 * summary["z_exit_mean_m"], 1e3 * summary["z_exit_rms_m"], 1e3 * summary["z_exit_p5_p95_m"][0], 1e3 * summary["z_exit_p5_p95_m"][1]))
@@ -259,6 +313,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                         r0=r0, v0=v0, sc_log=np.array(sc_obj.log) if sc_obj else np.zeros((0, 7)),
                         traj=trajectories.data, traj_idx=trajectories.idx, traj_every=trajectories.every,
                         asym_state=exit_plane.asym_state, asym_steps=exit_plane.asym_steps, dt=dt,
+                        is_tail=is_tail, t_inject=t_inject,
                         handoff_state=(handoff.state if handoff.state is not None else np.full((len(r0), 6), np.nan)),
                         handoff_time=(handoff.time if handoff.time is not None else np.full(len(r0), np.nan)),
                         post_exit_hit=post_exit,
@@ -393,6 +448,9 @@ def main(argv=None):
     p.add_argument("--handoff-distance", type=float, default=0.030)
     p.add_argument("--phase-reference", choices=["mean", "median"], default="mean")
     p.add_argument("--handoff-frame", choices=["deck", "machine"], default="deck", help="machine: mirrored through the median plane (z -> -z)")
+    p.add_argument("--stragglers", action="store_true",
+                   help="track every particle of the file: the unaccelerated tail is injected at its own arrival time")
+    p.add_argument("--sc-min-particles", type=int, default=0, help="skip the space-charge solve below this many depositing particles")
     p.add_argument("--seed", type=int, default=20260905)
     p.add_argument("--reference", default=None, help="bunch json of a vacuum run for the comparison plot")
     p.add_argument("--no-plot", action="store_true")
@@ -404,7 +462,8 @@ def main(argv=None):
                        coast=a.coast, asym_steps=a.asym_steps, post_exit_steps=a.post_exit_steps, record=a.record,
                        exclude=[s.strip() for s in a.exclude.split(",") if s.strip()], superpose=a.superpose, vscale=a.vscale,
                        basis_dir=a.basis_dir, unit=a.unit, save_openpmd=a.save_openpmd, save_mode=a.save_mode,
-                       handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame, seed=a.seed,
+                       handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame,
+                       stragglers=a.stragglers, sc_min_particles=a.sc_min_particles, seed=a.seed,
                        reference=a.reference, plot=not a.no_plot)
 
 

@@ -382,7 +382,8 @@ class SpiralInflector(object):
 
         elif isinstance(bfield, Field):
 
-            self._params_analytic["bf_itp"] = bfield
+            from .tracking.frames import to_deck_frame
+            self._params_analytic["bf_itp"] = to_deck_frame(bfield)
 
         if bfield is None:
 
@@ -403,6 +404,10 @@ class SpiralInflector(object):
             _bf = Field.from_file(bfield,
                                   label="Cyclotron B-Field",
                                   units=spatial_unit)
+            # a map delivered in the machine (Baseline) frame is mirrored into the deck
+            # frame here; the frame is read off the z-range (see tracking/frames.py)
+            from .tracking.frames import to_deck_frame
+            _bf = to_deck_frame(_bf)
 
             # A .pickle restores the scaling that was saved with it, so bf_scale
             # has to be applied after loading rather than passed to the ctor.

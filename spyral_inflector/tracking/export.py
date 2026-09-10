@@ -87,6 +87,69 @@ def state_to_machine_frame(r, v=None):
     return r2, v2
 
 
+def steps_to_baseline_mm(steps_dir, out_dir, rotation_deg=0.0, quad_rotation=(0.0, 0.0), source_unit="m",
+                         combined="assembly_baseline_mm.step", log=print):
+    """Every NNN_<Name>.step of steps_dir rotated about z by rotation_deg (quad 1 / quad 2 by
+    their extra angles on top), mirrored into the machine (Baseline) frame and written in
+    MILLIMETRES with a matching unit declaration: one file per electrode plus one combined
+    compound. The deck's own STEP exports carry metre-valued coordinates under a
+    millimetre unit header (CAD imports them 1000x too small); source_unit="m" scales
+    them by 1000 here so the files import at true size. Returns the written file names."""
+    from OCC.Core.STEPControl import STEPControl_Reader, STEPControl_Writer, STEPControl_AsIs
+    from OCC.Core.IFSelect import IFSelect_RetDone
+    from OCC.Core.Interface import Interface_Static
+    from OCC.Core.gp import gp_Trsf, gp_Ax1, gp_Ax2, gp_Pnt, gp_Dir
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCC.Core.BRep import BRep_Builder
+    from OCC.Core.TopoDS import TopoDS_Compound
+    from .deck import QUAD1, QUAD2
+
+    scale = {"m": 1000.0, "mm": 1.0}[source_unit]
+    os.makedirs(out_dir, exist_ok=True)
+    zax = gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1))
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    done = []
+    for fn in sorted(os.listdir(steps_dir)):
+        if not fn.lower().endswith(".step") or "assembly" in fn.lower():
+            continue
+        name = os.path.splitext(fn)[0].split("_", 1)[1]
+        ang = rotation_deg + (quad_rotation[0] if name in QUAD1 else quad_rotation[1] if name in QUAD2 else 0.0)
+        rd = STEPControl_Reader()
+        if rd.ReadFile(os.path.join(steps_dir, fn)) != IFSelect_RetDone:
+            raise RuntimeError("cannot read " + fn)
+        rd.TransferRoots()
+        t_rot = gp_Trsf()
+        t_rot.SetRotation(zax, np.radians(ang))
+        t_mir = gp_Trsf()
+        t_mir.SetMirror(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)))
+        t_scl = gp_Trsf()
+        t_scl.SetScale(gp_Pnt(0, 0, 0), scale)
+        shp = BRepBuilderAPI_Transform(rd.OneShape(), t_scl.Multiplied(t_mir.Multiplied(t_rot)), True).Shape()
+        builder.Add(compound, shp)
+        Interface_Static.SetCVal("write.step.unit", "MM")
+        w = STEPControl_Writer()
+        w.Transfer(shp, STEPControl_AsIs)
+        if w.Write(os.path.join(out_dir, fn)) != IFSelect_RetDone:
+            raise RuntimeError("cannot write " + fn)
+        done.append(fn)
+        log("  {:22s} rotated {:+8.3f} deg -> {}".format(name, ang, fn))
+    if combined:
+        Interface_Static.SetCVal("write.step.unit", "MM")
+        w = STEPControl_Writer()
+        w.Transfer(compound, STEPControl_AsIs)
+        if w.Write(os.path.join(out_dir, combined)) != IFSelect_RetDone:
+            raise RuntimeError("cannot write the combined assembly")
+        done.append(combined)
+    with open(os.path.join(out_dir, "FRAME.txt"), "w", encoding="utf-8") as fh:
+        fh.write(MACHINE_FRAME_NOTE + "\nUnits: MILLIMETRES (coordinates and STEP header).\nSource: {}\n"
+                 "Transform: rotation about z by {:+.4f} deg (quads {:+.2f} / {:+.2f} deg on top), mirror through "
+                 "z = 0, scale x{:g}.\nFiles: {}\n".format(steps_dir, rotation_deg, quad_rotation[0], quad_rotation[1],
+                                                           scale, ", ".join(done)))
+    return done
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="machine-frame exports (z mirrored) for the central region")
     p.add_argument("--field", default=None, help="deck-frame E-field pickle (ef_itp_<tag>.pickle)")

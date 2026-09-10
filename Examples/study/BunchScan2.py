@@ -120,7 +120,8 @@ for e in assembly.electrodes.values():
         raise RuntimeError("failed to mesh {}".format(e.name))
 index_map = {i: uuid for i, uuid in enumerate(assembly.electrodes.keys())}
 housing_electrodes = [(i, e) for i, e in enumerate(assembly.electrodes.values()) if "housing" in e.name.lower()]
-bfield = ti.with_fast_interpolator(Field.from_file(ti.BFIELD), "B-field")
+from spyral_inflector.tracking.deck import load_bfield as _load_bfield  # noqa: E402
+bfield = _load_bfield(ti.BFIELD)
 
 
 def quad_field(c, key_n, key_s, volt, alpha_deg):

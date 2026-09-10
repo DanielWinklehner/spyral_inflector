@@ -2149,6 +2149,9 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         shared = numerical_pars["quadrupole_params"].get("shared_plates", False)
         # hole diameter of the very first plate (the one facing the RFQ exit); default = aper_rad
         ent_rad = numerical_pars["quadrupole_params"].get("entrance_aper_rad", aper_rad)
+        # last_exit_plate=False: no exit plate on the last quad -- the inflector's entrance
+        # aperture terminates it instead (lengthen that quad to reach it, less plate_gap)
+        last_exit_plate = numerical_pars["quadrupole_params"].get("last_exit_plate", True)
 
         # Mesh size for the quadrupole electrodes. These used to be hardcoded
         # (0.005 for the apertures, 0.01 for the dipoles) and so ignored the "h"
@@ -2166,10 +2169,11 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                 A1.color="BLACK"
                 assy.add_electrode(A1)
             
-            A2 = SIAperture(name="ext%i"%(4*pole),voltage=0.0)
-            A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=quad_h, load=True,header=True)
-            A2.color="BLACK"
-            assy.add_electrode(A2)
+            if last_exit_plate or pole < nquads - 1:
+                A2 = SIAperture(name="ext%i"%(4*pole),voltage=0.0)
+                A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=quad_h, load=True,header=True)
+                A2.color="BLACK"
+                assy.add_electrode(A2)
 
             
             D1 = SIHyperbolicDipole(name="D%i"%(4*pole), voltage=quad_volts[pole])

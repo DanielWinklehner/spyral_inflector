@@ -20,6 +20,7 @@ DEFAULT_KNOBS = dict(
     aper_hole=0.0125, entrance_hole=None, plate_gap=0.001, plate_thickness=0.005,
     slot_width=0.015, slot_length=0.040, exit_opening=None,
     housing_gap=0.006, housing_thickness=0.004, top_distance=0.005, bottom_distance=0.010, rotation=0.0,
+    q2_exit_plate=True,
 )
 KNOB_HELP = {
     "volt": "nominal spiral electrode voltage [V] (the optimizer scales it)", "gap": "electrode gap [m]",
@@ -36,6 +37,7 @@ KNOB_HELP = {
     "housing_thickness": "housing wall thickness [m]", "top_distance": "entrance plate height above the electrodes [m]",
     "bottom_distance": "distance of the housing exit opening past the electrode end [m]",
     "rotation": "rotation of the whole inflector (electrodes, housing, apertures) about the axis [deg]; rotate the quads and the beam by the same angle",
+    "q2_exit_plate": "False: no exit plate on quad 2, the inflector entrance aperture terminates it (set quad_len2 to reach it)",
 }
 
 
@@ -95,6 +97,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
                                                      "voltages": [3500, 3500], "aper_rad": 2.0 * k["aper_hole"],
                                                      "plate_gap": k["plate_gap"], "plate_thickness": k["plate_thickness"],
                                                      "shared_plates": bool(k["shared_plates"]),
+                                                     "last_exit_plate": bool(k["q2_exit_plate"]),
                                                      "entrance_aper_rad": 2.0 * (k["entrance_hole"] if k["entrance_hole"] else k["aper_hole"])})
     si.generate_geometry()
     log("  geometry generated ({:.0f} s)".format(time.time() - t_start))

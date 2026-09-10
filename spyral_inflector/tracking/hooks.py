@@ -260,11 +260,15 @@ class SpaceCharge:
     """Re-solve the space-charge field of the live particles every n steps and swap it
     into slot 1 of the CompositeField [vacuum, space charge]."""
 
-    def __init__(self, solver, composite, charges, every):
+    def __init__(self, solver, composite, charges, every, min_particles=0):
         self.solver = solver
         self.composite = composite
         self.charges = charges
         self.every = every
+        # below this many depositing particles the field is not re-solved (the last
+        # stragglers alone carry no space charge worth a Poisson solve)
+        self.min_particles = int(min_particles)
+        self.n_skipped = 0
         self.n_solves = 0
         self.solve_time = 0.0
         self.log = []
@@ -275,6 +279,9 @@ class SpaceCharge:
         if self.exclude is not None and self.exclude.crossed is not None:
             active = active & ~self.exclude.crossed
         if not np.any(active):
+            return
+        if active.sum() < self.min_particles:
+            self.n_skipped += 1
             return
         phi, e_sc = self.solver.solve(r[active], self.charges[active])
         self.composite.fields[1] = e_sc
@@ -294,6 +301,44 @@ class SpaceCharge:
         # called after the push of `step`; the new field serves the next `every` steps
         if (step + 1) % self.every == 0 and np.any(active):
             self.solve_now(r, active, step + 1)
+        return r, v, active
+
+
+class DelayedInjection:
+    """Inject particles at their own arrival times.
+
+    The RFQ's unaccelerated tail arrives at the entrance plane up to many RF periods
+    after the core, so it cannot be placed as a spatial bunch: its particles start with
+    alive False, parked at their injection state, and are switched on at their injection
+    step. In the static inflector fields the delay only matters through space charge,
+    which is exactly where it has to be right. Pair with
+    Tracker.run(stop_on_all_lost=False), so the run outlives the core."""
+
+    def __init__(self, inject_step, r_inject, v_inject):
+        self.k = np.asarray(inject_step, dtype=int)
+        self.r_inject = np.asarray(r_inject, dtype=float)
+        self.v_inject = np.asarray(v_inject, dtype=float)
+        self.pending = self.k > 0
+        self.injected_step = np.where(self.pending, -1, 0)
+
+    @property
+    def alive0(self):
+        """The initial alive mask: everything that is not waiting to be injected."""
+        return ~self.pending
+
+    def apply(self, step, r_prev, v_prev, r, v, active, t, dt):
+        # placed during step k-1 (after that step's push), so the first push of step k moves
+        # the particle from exactly its injection time k * dt
+        due = self.pending & (self.k <= step + 1)
+        if due.any():
+            r[due] = self.r_inject[due]
+            v[due] = self.v_inject[due]
+            r_prev[due] = self.r_inject[due]      # no phantom segment for the collision check
+            v_prev[due] = self.v_inject[due]
+            active = active.copy()
+            active[due] = True
+            self.pending[due] = False
+            self.injected_step[due] = step
         return r, v, active
 
 

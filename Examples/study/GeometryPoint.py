@@ -79,6 +79,8 @@ parser.add_argument("--exit-opening", type=float, nargs=2, default=None, metavar
                     help="housing exit opening [m]: across the tilted gap direction (default = slot width) and along it (default = slot length)")
 parser.add_argument("--housing-gap", type=float, default=0.006, help="clearance between the electrodes' hull and the housing wall [m]")
 parser.add_argument("--housing-thickness", type=float, default=0.004, help="housing wall thickness [m]")
+parser.add_argument("--no-q2-exit-plate", action="store_true",
+                    help="no exit plate on quad 2: the inflector entrance aperture terminates it (set --quad-len2 to reach it)")
 parser.add_argument("--rotation", type=float, default=0.0, help="rotation of the whole inflector about the axis [deg] (rotate quads and beam by the same angle yourself)")
 args = parser.parse_args()
 if args.quad_len2 is None:
