@@ -18,6 +18,7 @@ import time
 
 import numpy as np
 
+from ..meshclean import clean_surface_mesh
 from .deck import (SPECIES, Z_START, read_voltages, set_quad_voltages, set_spiral_voltage, load_state,
                    load_step_assembly, rotate_quads, rotate_assembly, mesh_assembly)
 
@@ -185,6 +186,7 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     t0 = time.time()
     mesh_assembly(assembly, h)
     mesh = assembly.get_bempp_mesh(brep_h=h)
+    mesh, mesh_clean = clean_surface_mesh(mesh, log=log)          # duplicate vertices, sliver triangles
     log("meshed: {} triangles in {:.1f} s".format(mesh["elems"].shape[1], time.time() - t0))
     mesh_cmp = _compare_mesh(assembly, state, log) if "mesh" in state else {}
 
@@ -222,6 +224,7 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     log("wrote {} and si_state_{}.pickle".format(ef_fn, tag))
     quad_check = _quad_field_check(efield, state, volts, log)
     summary = {"tag": tag, "step_dir": step_dir, "voltages": electrode_voltages, "rotate_quads": list(rotate) if rotate else [0.0, 0.0],
+               "mesh_clean": mesh_clean,
                "rotate_all_deg": float(rotate_all or 0.0),
                "n_triangles": int(mesh["elems"].shape[1]), "res_m": res, "h_m": h, "solve_s": t_solve, "potential_s": t_pot,
                "mesh_comparison_mm": mesh_cmp, "quad_field_check": quad_check, "surface_field": surface}

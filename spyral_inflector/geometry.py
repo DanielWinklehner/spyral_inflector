@@ -1136,13 +1136,18 @@ class SIHousing(PyElectrode):
     def set_aperture_rot_angles(self, angles):
         self._tilt_angle, self._face_angle = angles
 
-    def gen_convex_hull(self, geo, gap, thickness):
+    def gen_convex_hull(self, geo, gap, thickness, solid_points=None):
         from scipy.spatial import ConvexHull
 
         geo_list = []
         for i in range(9):
             geo_list.append(geo[i, :, :2])
         points = np.concatenate(geo_list)
+        if solid_points is not None:
+            # the meshed electrode solids reach 1-2 mm beyond the analytic curves; the
+            # clearance has to hold for them (a 0.8 mm anode-housing gap at the cylinder
+            # junction stalled the BEM solve at 770 GMRES iterations)
+            points = np.vstack([points, np.asarray(solid_points, dtype=float)[:, :2]])
 
         hull = ConvexHull(points)
         hull_pts = points[hull.vertices, :]
@@ -1157,7 +1162,7 @@ class SIHousing(PyElectrode):
 
         total_pts = []
         circle_pts = []
-        circle_res = 8
+        circle_res = 32   # 8 directions only guaranteed gap * cos(22.5 deg) = 92 % of the clearance
         for i in range(circle_res):
             circle_pts.append(gap * np.array([np.cos(i * 2 * np.pi / circle_res),
                                               np.sin(i * 2 * np.pi / circle_res)]))
@@ -1173,7 +1178,7 @@ class SIHousing(PyElectrode):
 
         total_pts = []
         circle_pts = []
-        circle_res = 8
+        circle_res = 32   # 8 directions only guaranteed gap * cos(22.5 deg) = 92 % of the clearance
         for i in range(circle_res):
             circle_pts.append((gap + thickness) * np.array([np.cos(i * 2 * np.pi / circle_res),
                                                             np.sin(i * 2 * np.pi / circle_res)]))
@@ -1206,6 +1211,14 @@ class SIHousing(PyElectrode):
             # new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_a_out])
             new_hull_pts_outer = np.vstack([new_hull_pts_outer, new_point_b_out])
 
+            # The appended point has to be re-hulled: sorting an INTERIOR point into the
+            # polygon by angle splices two edges through the inside of the hull (a notch
+            # 5-20 mm deep across the 120-180 deg sector when the exit face moves, which
+            # put the housing wall through the electrodes and stalled the BEM solve at the
+            # GMRES cap). Re-hulling keeps the extension only where it actually extends.
+            new_hull_pts_inner = new_hull_pts_inner[ConvexHull(new_hull_pts_inner).vertices]
+            new_hull_pts_outer = new_hull_pts_outer[ConvexHull(new_hull_pts_outer).vertices]
+
         pts_in = self.sort_points_by_angle(new_hull_pts_inner)
         pts_out = self.sort_points_by_angle(new_hull_pts_outer)
 
@@ -1228,12 +1241,12 @@ class SIHousing(PyElectrode):
         return np.array(new_points)
 
     def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True, header=True,
-                       zmin_override=None):
+                       zmin_override=None, solid_points=None):
         # TODO: Doc string -PW
 
         offset = self._offset
 
-        pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness)
+        pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness, solid_points=solid_points)
 
         dz = self._aperture_params["thickness"]
         r = self._aperture_params["radius"]
@@ -1388,7 +1401,7 @@ class SIHousingCylinder(PyElectrode):
         self._offset = offset
 
     @staticmethod
-    def z_extent(geo, trj, r_outer, thickness, gap, t_gap):
+    def z_extent(geo, trj, r_outer, thickness, gap, t_gap, solid_points=None):
         """(z_start, z_end): from the entrance aperture's inner face to the furthest z at
         which the electrodes still clear the tube's inner wall by `gap`.
 
@@ -1400,6 +1413,10 @@ class SIHousingCylinder(PyElectrode):
         r_clear = r_outer - thickness - gap
         rho = np.hypot(geo[:9, :, 0], geo[:9, :, 1]).ravel()
         zz = geo[:9, :, 2].ravel()
+        if solid_points is not None:                      # the meshed solids, see gen_convex_hull
+            sp = np.asarray(solid_points, dtype=float)
+            rho = np.concatenate([rho, np.hypot(sp[:, 0], sp[:, 1])])
+            zz = np.concatenate([zz, sp[:, 2]])
         order = np.argsort(zz)
         zs, env = zz[order], np.maximum.accumulate(rho[order])
         above = np.nonzero((env > r_clear) & (zs > z_start))[0]
@@ -1984,8 +2001,17 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # The entrance end is a straight tube of the aperture outer diameter; the shaped
         # housing picks up exactly where that tube has to stop for clearance.
         ap_pars = numerical_pars["aperture_params"]
+        # the housing clearance is taken from the meshed electrode solids, not only the analytic
+        # curves; the meshes are dropped again so the BEM re-meshes after the centering shift
+        solid_pts = []
+        for _e in (anode, cathode):
+            if _e.generate_mesh() != 0:
+                raise RuntimeError("could not mesh {} for the housing clearance".format(_e.name))
+            solid_pts.append(np.asarray(_e._gmsh_msh["vertices"], dtype=float))
+            _e._gmsh_msh = None
+        solid_pts = np.vstack(solid_pts)
         z_cyl_start, z_cyl_end = SIHousingCylinder.z_extent(geo, trj, ap_pars["radius"], thickness,
-                                                            gap, ap_pars["top_distance"])
+                                                            gap, ap_pars["top_distance"], solid_points=solid_pts)
 
         # translate = np.array([0.0, 0.0, zmin])
         # housing.set_translation(translate, absolute=True)
@@ -1999,7 +2025,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                                    h=h * 3,
                                    load=True,
                                    header=True,
-                                   zmin_override=z_cyl_end)
+                                   zmin_override=(z_cyl_end if numerical_pars["housing_params"].get("truncate_at_cylinder", True) else None),
+                                   solid_points=solid_pts)
 
         # with open('housing_geo_str.geo', 'w') as f:
         #     f.write(s)
@@ -2270,6 +2297,10 @@ def generate_meshed_model(si, apertures=None, cylinder=None):
         numerical_vars["full mesh"] = {"verts": leaf_view["verts"],
                                        "elems": leaf_view["elems"],
                                        "domns": leaf_view["domns"]}
+        # duplicate vertices and sliver triangles from the electrode surfaces wreck the BEM
+        # conditioning (GMRES at the iteration cap); see meshclean.py
+        from .meshclean import clean_surface_mesh
+        numerical_vars["full mesh"], _mesh_clean_info = clean_surface_mesh(numerical_vars["full mesh"], log=print)
 
         if si.debug:
             _full_mesh = BemppGrid(leaf_view["verts"],
