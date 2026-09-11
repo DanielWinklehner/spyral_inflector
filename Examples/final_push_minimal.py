@@ -68,7 +68,7 @@ p.add_argument("--gap-azimuth", type=float, default=34.0)
 p.add_argument("--half-gap", type=float, default=0.005, help="[m] along the exit face normal")
 p.add_argument("--r-tol", type=float, default=1.0, help="stop re-optimizing when R moves by less than this [deg]")
 p.add_argument("--current-ma", type=float, default=8.0)
-p.add_argument("--flutter", type=float, default=0.08, help="4-fold azimuthal field variation at r = 70 mm (fraction)")
+p.add_argument("--flutter", type=float, default=0.08, help="3-fold azimuthal field variation at r = 70 mm (fraction)")
 p.add_argument("--seed", type=int, default=1)
 args = p.parse_args()
 lo, hi = (args.phases.split("-") + [args.phases])[:2]
