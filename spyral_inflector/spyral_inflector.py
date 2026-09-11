@@ -354,7 +354,13 @@ class SpiralInflector(object):
         if self._debug:
             print(self)
 
-    def load_bfield(self, bfield=None, bf_scale=1.0, spatial_unit="cm"):
+    def load_bfield(self, bfield=None, bf_scale=1.0, spatial_unit="m"):
+        # spatial_unit is handed straight to Field(units=...). PyPATools grids
+        # are in meters and `units` is never applied to coordinates or values,
+        # so "m" is the only truthful value here -- the old "cm" default was a
+        # silent no-op, and PyPATools now raises NotImplementedError for any
+        # unit that implies a conversion. Nothing changes numerically. For a
+        # field-strength factor use bf_scale, which IS applied.
 
         bf_load_from_file = False
 
