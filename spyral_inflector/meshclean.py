@@ -10,6 +10,8 @@ degenerate triangles removes a negligible amount of surface and restores the con
 
 Mesh layout as py_electrodes delivers it: verts (3, N), elems (3, M), domns (M,).
 """
+import os
+
 import numpy as np
 
 
@@ -23,6 +25,9 @@ def clean_surface_mesh(mesh, merge_tol=1e-7, min_area=1e-8, max_aspect=100.0, mi
     real feature and remove only needles and specks -- and it is the specks, elements
     thousands of times smaller than their neighbours, that stall GMRES, not the aspect
     ratio alone. Unreferenced vertices are removed and the indices compacted."""
+    # diagnostic switch: SI_MESHCLEAN_MODE=merge merges duplicate vertices but drops nothing
+    if os.environ.get("SI_MESHCLEAN_MODE", "").lower() == "merge":
+        min_area, max_aspect, min_edge = 0.0, float("inf"), 0.0
     V = np.asarray(mesh["verts"], dtype=float)
     T = np.asarray(mesh["elems"], dtype=np.int64)
     D = np.asarray(mesh["domns"])

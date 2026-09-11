@@ -23,9 +23,14 @@ HOUSING_COLOR = ("#bbbbbb", 0.04)
 OK_COLOR, LOST_COLOR, OTHER_COLOR = "#2ca02c", "#d62728", "#555555"
 
 
-def electrode_meshes(step_dir, h=0.005):
-    """[(name, vertices (n,3), faces (m,3))] of every electrode in the STEP folder."""
+def electrode_meshes(step_dir, h=0.005, rotation_deg=0.0):
+    """[(name, vertices (n,3), faces (m,3))] of every electrode in the STEP folder, the
+    assembly rigidly rotated about z by rotation_deg first (the system rotation R of a
+    run whose tracks were made with rotate_assembly; the STEP files stay unrotated)."""
     assembly = load_step_assembly(step_dir)
+    if rotation_deg:
+        from .deck import rotate_assembly
+        rotate_assembly(assembly, float(rotation_deg))
     out = []
     for e in assembly.electrodes.values():
         if e.generate_mesh(brep_h=h) != 0:
@@ -205,13 +210,22 @@ def main(argv=None):
     p.add_argument("--elev", type=float, default=35.264)
     p.add_argument("--azim", type=float, default=135)
     p.add_argument("--side-azim", type=float, default=None, help="default: perpendicular to the design exit velocity")
+    p.add_argument("--rotate", type=float, default=None,
+                   help="rigid rotation of the STEP assembly about z [deg] to match tracks made with a rotated system; "
+                        "default: the assembly_rotation_deg recorded in the npz's json summary, else 0")
     a = p.parse_args(argv)
     js = os.path.splitext(a.npz)[0] + ".json"
     title = a.title
     if title is None and os.path.exists(js):
         s = json.load(open(js))
         title = "{}: {:,d} particles, transmission {:.1f} %".format(os.path.basename(a.npz), s["n_particles"], 100 * s["transmission"])
-    meshes = electrode_meshes(a.step_dir)
+    rotation = a.rotate
+    if rotation is None and os.path.exists(js):
+        _s = json.load(open(js))
+        rotation = float(_s.get("assembly_rotation_deg", _s.get("rotation_deg", 0.0)) or 0.0)
+    if rotation:
+        print("assembly rotated by {:+.4f} deg about z to match the tracks".format(rotation))
+    meshes = electrode_meshes(a.step_dir, rotation_deg=rotation or 0.0)
     n_ok, n_lost = plot_geometry_trajectories(a.npz, a.step_dir, a.out, title=title, n_traj=a.n_traj, show_housing=a.housing,
                                               meshes=meshes, elev=a.elev, azim=a.azim)
     print("wrote {} ({} transmitted, {} lost trajectories drawn)".format(a.out, n_ok, n_lost))

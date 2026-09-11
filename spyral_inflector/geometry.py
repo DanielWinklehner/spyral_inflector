@@ -548,6 +548,18 @@ class SIElectrode(PyElectrode):
     # Match the intent of the old "last 10 of 100 slices" guard without
     # making the physical cut depth depend on the geometry resolution.
     _GAMMA_TERMINAL_FRACTION = 0.10
+    # How the gamma (exit tilt) plane is applied:
+    #   "wire"    -- the loft stops at the last section that stays clear of the plane and
+    #                is closed by a section whose vertices lie on the plane (the vertex
+    #                tracks intersected with it). No Boolean: no faces tapering to zero
+    #                width along the cut, hence no needle triangles in the surface mesh.
+    #   "boolean" -- the lofted solid is cut by a bounded half-space (previous behaviour;
+    #                leaves hairline faces wherever the plane grazes a section wire).
+    _GAMMA_CUT_MODE = "wire"
+    # "wire" mode: the closing wires are spaced about one section apart along each vertex
+    # track; the closing region starts at the latest section for which no strip between
+    # closing wires gets thinner than this fraction of the shortest track's own spacing.
+    _GAMMA_MIN_STRIP = 0.5
 
     def __init__(self, parent=None, name="New Spiral Electrode", voltage=10000, offset=0):
         super().__init__(name=name, voltage=voltage)
@@ -694,6 +706,122 @@ class SIElectrode(PyElectrode):
             np.dot(gamma_normal, plane_point),
         ]
 
+    def _gamma_tail_start(self, raw_geo):
+        """Index of the first loft section in the electrode's terminal region (the last
+        _GAMMA_TERMINAL_FRACTION of the path length) and the section spacings."""
+        upper_centers = np.mean(raw_geo[0:4, :, :], axis=0)
+        segment_lengths = np.linalg.norm(
+            np.diff(upper_centers, axis=0),
+            axis=1,
+        )
+        path_length = np.sum(segment_lengths)
+        if path_length <= 1.0e-14:
+            raise ValueError(
+                "Cannot bound the gamma cut on a zero-length electrode"
+            )
+
+        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length
+        tail_start = raw_geo.shape[1] - 1
+        accumulated_length = 0.0
+        while tail_start > 0 and accumulated_length < target_tail_length:
+            tail_start -= 1
+            accumulated_length += segment_lengths[tail_start]
+        return tail_start, segment_lengths
+
+    def _gamma_end_wire(self, sections, raw_geo, plane):
+        """Close the loft on the gamma plane.
+
+        The five vertex tracks (the polylines through the same vertex of successive
+        sections) meet the plane at very different angles, so the region between the last
+        fully clear section and the plane is a wedge: short along the grazing track, long
+        along the steep one. It is closed by wires whose vertices lie on the tracks, spaced
+        about one section apart along the longest track (so the electrode keeps its
+        curvature); the last wire lies on the plane. The region starts at the latest
+        section for which the strips along the shortest track stay wider than
+        _GAMMA_MIN_STRIP of that track's own spacing (no hairline faces, no needle
+        triangles). Only the terminal region (see _gamma_tail_start, with two sections of
+        margin) is considered: the spiral may pass through the plane's extension elsewhere.
+
+        Returns (n_loft, closing): loft sections[:n_loft], then the closing wires; or
+        (len(sections), None) when the plane does not reach the terminal region.
+        """
+        normal = np.asarray(plane[0], dtype=float)
+        point = np.asarray(plane[1], dtype=float)
+        S = np.asarray(sections, dtype=float)                 # (n, 5, 3)
+        D = (S - point) @ normal                              # signed; > 0 on the kept side
+        n = len(sections)
+        tail_start, segment_lengths = self._gamma_tail_start(raw_geo)
+        pitch = np.concatenate([segment_lengths, segment_lengths[-1:]])
+
+        # the first section with a vertex (nearly) on the plane or beyond it
+        j_first = None
+        for j in range(max(1, tail_start - 2), n):
+            if D[j].min() < 0.1 * pitch[j]:
+                j_first = j
+                break
+        if j_first is None:
+            return n, None
+
+        def tracks_from(j_end):
+            tracks = []
+            for i in range(5):
+                pts = [S[j_end - 1, i]]
+                for j in range(j_end - 1, n - 1):
+                    d0, d1 = D[j, i], D[j + 1, i]
+                    if d0 > 0.0 >= d1:
+                        t = d0 / (d0 - d1)
+                        pts.append(S[j, i] + t * (S[j + 1, i] - S[j, i]))
+                        break
+                    pts.append(S[j + 1, i])       # never reaches the plane: ends with the electrode
+                tracks.append(np.asarray(pts))
+            lengths = np.array([np.sum(np.linalg.norm(np.diff(tr, axis=0), axis=1)) for tr in tracks])
+            own = []
+            for tr in tracks:
+                seg = np.linalg.norm(np.diff(tr, axis=0), axis=1)
+                own.append(float(np.mean(seg[:-1])) if len(seg) > 1 else (float(seg[0]) if len(seg) else 0.0))
+            return tracks, lengths, np.asarray(own)
+
+        # the latest start that keeps every strip wide enough; else the earliest candidate
+        chosen = None
+        fallback = None
+        for j_end in range(j_first, max(1, j_first - 8) - 1, -1):
+            if D[j_end - 1].min() <= 0.0:
+                continue
+            tracks, lengths, own = tracks_from(j_end)
+            ok = own > 0.0
+            if not ok.any():
+                continue
+            n_max = max(1, int(round((lengths[ok] / own[ok]).max())))
+            n_cap = int((lengths[ok] / (self._GAMMA_MIN_STRIP * own[ok])).min())
+            fallback = (j_end, tracks, lengths, max(1, min(n_max, n_cap)))
+            if n_cap >= n_max:
+                chosen = (j_end, tracks, lengths, n_max)
+                break
+        if chosen is None:
+            if fallback is None:
+                print("SIElectrode: no loft section clear of the gamma plane; the electrode is left uncut")
+                return n, None
+            chosen = fallback
+        j_end, tracks, lengths, n_div = chosen
+
+        closing = []
+        for m in range(1, n_div + 1):
+            frac = m / n_div
+            wire = []
+            for tr, L in zip(tracks, lengths):
+                if m == n_div or L <= 0.0:
+                    wire.append(tr[-1])
+                    continue
+                seg = np.linalg.norm(np.diff(tr, axis=0), axis=1)
+                cum = np.concatenate([[0.0], np.cumsum(seg)])
+                target = frac * L
+                a = int(np.searchsorted(cum, target, side="right") - 1)
+                a = min(max(a, 0), len(seg) - 1)
+                u = 0.0 if seg[a] <= 0.0 else (target - cum[a]) / seg[a]
+                wire.append(tr[a] + u * (tr[a + 1] - tr[a]))
+            closing.append(np.asarray(wire))
+        return j_end, closing
+
     def _gamma_boolean_geo_str(
             self, electrode_volume, cutter_volume, raw_geo,
             angle_at_segment, gamma_normal, plane_point):
@@ -747,23 +875,7 @@ class SIElectrode(PyElectrode):
         # physical terminus. A slab bounded only along the exit normal is not
         # sufficient for a curved inflector: the distant entrance can curl
         # back into that same slab.
-        upper_centers = np.mean(raw_geo[0:4, :, :], axis=0)
-        segment_lengths = np.linalg.norm(
-            np.diff(upper_centers, axis=0),
-            axis=1,
-        )
-        path_length = np.sum(segment_lengths)
-        if path_length <= 1.0e-14:
-            raise ValueError(
-                "Cannot bound the gamma cut on a zero-length electrode"
-            )
-
-        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length
-        tail_start = raw_geo.shape[1] - 1
-        accumulated_length = 0.0
-        while tail_start > 0 and accumulated_length < target_tail_length:
-            tail_start -= 1
-            accumulated_length += segment_lengths[tail_start]
+        tail_start, segment_lengths = self._gamma_tail_start(raw_geo)
 
         terminal_sections = []
         for section_index in range(tail_start, raw_geo.shape[1]):
@@ -906,11 +1018,26 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         else:
             boolean_gamma_plane = [None, None, None]
 
-        for j in range(num_sections):
-            section_points = self._transformed_section_points(
-                raw_geo[k:k + 5, j, :],
-                angle_at_segment[j],
-            )
+        # The loft sections with the plate angling applied. In "wire" mode the gamma
+        # plane closes the loft: sections[:n_loft] are lofted as they are, then one
+        # section on the plane.
+        sections = [
+            self._transformed_section_points(raw_geo[k:k + 5, j, :], angle_at_segment[j])
+            for j in range(num_sections)
+        ]
+        n_loft, closing = num_sections, None
+        if apply_boolean_gamma and self._GAMMA_CUT_MODE == "wire":
+            n_loft, closing = self._gamma_end_wire(sections, raw_geo, boolean_gamma_plane)
+        loft_sections = [(j, sections[j]) for j in range(n_loft)]
+        if closing is not None:
+            loft_sections.extend((n_loft + m, wire) for m, wire in enumerate(closing))
+            _wires = [sections[n_loft - 1]] + list(closing)
+            _steps = 1e3 * np.array([np.linalg.norm(_wires[m + 1] - _wires[m], axis=1) for m in range(len(closing))])
+            print("SIElectrode {}: loft closed on the gamma plane after section {} of {} with {} closing "
+                  "wire(s); strips {:.2f}..{:.2f} mm wide".format(elec_type, n_loft, num_sections, len(closing),
+                                                                  _steps.min(), _steps.max()))
+
+        for j, section_points in loft_sections:
             W1, W2, W3, W4, W5 = section_points
 
             for point in section_points:
@@ -1018,7 +1145,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             new_loop - 1 + f,
         )
 
-        if apply_boolean_gamma:
+        if apply_boolean_gamma and self._GAMMA_CUT_MODE == "boolean":
             gamma_normal = np.asarray(boolean_gamma_plane[0], dtype=float)
             plane_point = np.asarray(boolean_gamma_plane[1], dtype=float)
             cutter_volume = 9_000_000 + f
