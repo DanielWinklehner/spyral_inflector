@@ -100,8 +100,35 @@ angle iteration and is kept for compatibility.
 
 - Units are SI (m, V, T); energies in MeV where the argument name says so.
 - Field maps are `PyPATools.field.Field` objects (`Field.from_file`, `Field.from_arrays`,
-  or `Field(dim=0, field={...})` for a uniform field). The map must cover the bore at
-  negative z with the median plane at z = 0.
+  or `Field(dim=0, field={...})` for a uniform field), with the median plane at z = 0 and
+  Bz < 0 there (positive ions circulate counter-clockwise seen from +z). Two frames are
+  accepted, see below; a map is used as it comes.
+- The gamma (exit tilt) plane is applied by closing the electrode loft with a section that
+  lies on the plane (`SIElectrode._GAMMA_CUT_MODE = "wire"`, the default). The previous
+  Boolean cut (`"boolean"`) left hairline faces along the cut that meshed into needle
+  triangles and stalled the BEM solve; `spyral_inflector.meshclean` still drops such
+  triangles from any surface mesh before a solve.
+
+## Frames
+
+The deck frame is what `SpiralInflector` integrates in: the beam comes from negative z
+towards the median plane at z = 0. The Baseline (machine) frame of the cyclotron is its
+mirror image through the median plane: +z up, the beam enters from +z, azimuth
+counter-clockwise from above, Bz < 0. B is a pseudovector, so the mirror flips Bx and By
+and keeps Bz; for a median-plane-symmetric magnet the two maps are the same numbers.
+
+- `load_bfield` detects the frame of a gridded map from its z-range (bore at +z means
+  Baseline) and mirrors a Baseline map in memory (`tracking.frames.to_deck_frame`); a deck
+  map is left alone. Nothing else needs to change.
+- Everything that leaves the package for the central-region model goes out in the Baseline
+  frame: `tracking.export.steps_to_baseline_mm` (STEP files in millimetres, the system
+  rotation applied), `field_to_machine_frame` (E-field grid), the openPMD hand-off files
+  (`--handoff-frame machine`) and the exit-plane spec.
+- The whole inflector is turned in the magnet by a rigid rotation R about z:
+  `tracking.deck.rotate_assembly` for the electrodes (recorded as `assembly_rotation_deg`
+  in the run summaries; the STEP files stay unrotated), `tracking.frames.rotate_bfield_z`
+  for optimizing a geometry in place in the field a rotated system sees, and
+  `tracking.exit_plane` for solving R from where the housing's exit plate has to sit.
 - The BEM solution is linear in the electrode voltages: fields for other voltage
   settings can be superposed from basis solves without re-solving.
 
@@ -114,6 +141,10 @@ angle iteration and is kept for compatibility.
   knob held fixed.
 - `Examples/track_bunch_from_step.py`: reload exported STEP files with voltages,
   solve, and track a bunch with collision detection.
+- `Examples/final_push_minimal.py`: the whole final-push pipeline (field intake, geometry,
+  exit-plane rotation, basis solves, quad retune, vacuum and space-charge runs with the RFQ
+  tail injected by phase, Baseline-frame exports, plots, report) on a synthetic field map
+  and a synthetic RFQ file, so it runs without the deck's data. About an hour on a GPU machine.
 - `Examples/analytical_test.py`, `bempp_test.py`, `bempp_test_jm.py`: older tests.
 
 ## Bunch tracking through an exported geometry (`spyral_inflector.tracking`)
@@ -127,3 +158,13 @@ chains solve + bunch runs + metrics + figures + report for one geometry. Each st
 CLI (`python -m spyral_inflector.tracking.bunch --help`). `Examples/hchc60_pg5L_final.py` runs
 the whole thing for the pg5L geometry and needs only the B-field map and the RFQ particle
 file besides the three packages.
+
+Added for the Baseline-frame final push: `frames` (frame detection, mirror, rotation of a
+map), `exit_plane` (the exit plate's outer face and the rotation that places it half an
+accelerating gap before the first gap), `export` (mm STEP and E-field in the Baseline
+frame), `bem_reload --rotate-all` (basis solves of the rigidly rotated system), the mesh
+cleanup, and in `bunch --stragglers` the RFQ file's unaccelerated tail: the core is placed
+as a bunch, the tail particles are injected at the start plane at their own arrival time
+(`hooks.DelayedInjection`), so the run also says where they end up. `deck.py` holds the
+particle-file readers (TraceWin .dst or the 10-column text file) and the STEP loader.
+`Examples/final_push_minimal.py` exercises all of it on synthetic inputs.

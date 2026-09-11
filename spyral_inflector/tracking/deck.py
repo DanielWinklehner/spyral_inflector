@@ -97,13 +97,22 @@ def dst_rows(path, core=True):
     return rows
 
 
+def core_selection(rows):
+    """The bunch core of text-format rows: |phase| <= 180 deg and energy at least half the
+    median (drops the RFQ's unaccelerated stragglers)."""
+    phase, ekin = rows[:, 6], rows[:, 8]
+    return (np.abs(phase) <= 180.0) & (ekin >= 0.5 * np.median(ekin))
+
+
 def particle_rows(path, core=True):
-    """Unlost particles of an RFQ file as text-format rows: a .dst is read directly
-    (core selection as above), anything else is the 10-column text file."""
+    """Unlost particles of an RFQ file as text-format rows: a .dst is read directly,
+    anything else is the 10-column text file. core=True keeps the bunch core only (the
+    same selection for both formats; a text file that is already the core is unchanged)."""
     if path.lower().endswith(".dst"):
         return dst_rows(path, core=core)
     data = np.loadtxt(path, skiprows=1)
-    return data[data[:, 9] == 0]
+    data = data[data[:, 9] == 0]
+    return data[core_selection(data)] if core else data
 
 
 def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES, core=True):
@@ -143,8 +152,8 @@ def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SP
     rng = np.random.default_rng(seed)
     if n < len(data):
         data = data[rng.choice(len(data), size=n, replace=False)]
+    is_tail = ~core_selection(data)
     phase, ekin = data[:, 6], data[:, 8]
-    is_tail = ~((np.abs(phase) <= 180.0) & (ekin >= 0.5 * np.median(ekin)))
     ion = IonSpecies(species)
     x, xp, y, yp, z = (data[:, i] * 1e-3 for i in range(5))
     gamma = 1.0 + ekin / ion.mass_mev
