@@ -22,5 +22,5 @@ New-Item -ItemType Directory -Force (Join-Path $Deck "Results\triplet") | Out-Nu
 $log = Join-Path $Deck "Results\triplet\log_$Name.txt"
 "[$(Get-Date -Format HH:mm:ss)] TripletScan --name $Name $Extra (package $repo, pid $PID)" | Out-File -Append -Encoding ascii $log
 $cmd = "python -u TripletScan.py --name $Name $Extra"
-Invoke-Expression "$cmd >> `"$log`" 2>&1"
+Invoke-Expression "$cmd 2>&1 | Out-File -Append -Encoding utf8 `"$log`""
 "[$(Get-Date -Format HH:mm:ss)] RunTriplet.ps1 finished (exit $LASTEXITCODE)" | Out-File -Append -Encoding ascii $log
