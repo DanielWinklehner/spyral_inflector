@@ -39,7 +39,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 nsteps=1900, dt=1.0e-10, coast=300, asym_steps=210, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
-                stragglers=False, sc_min_particles=0,
+                stragglers=False, sc_min_particles=0, shift_z=0.0,
                 seed=20260905, reference=None, plot=True, log=None):
     """Track n particles of the RFQ file through the geometry; returns the summary dict
     and writes bunch_<out_tag>.json / .npz / .png into out_dir (default: reload_dir).
@@ -101,9 +101,10 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         rotate_assembly(assembly, rot_all)
         log("  rigid rotation : assembly rotated {:+.1f} deg about z (from {})".format(
             rot_all, os.path.basename(state_fn)))
-    if shift_all:
-        shift_assembly(assembly, shift_all)
-        log("  axial shift    : assembly shifted {:+.2f} mm along z (from {})".format(1e3 * shift_all, os.path.basename(state_fn)))
+    if shift_all or shift_z:
+        shift_assembly(assembly, shift_all + shift_z)
+        log("  axial shift    : assembly shifted {:+.2f} mm along z ({:+.2f} from {}, {:+.2f} shift_z)".format(
+            1e3 * (shift_all + shift_z), 1e3 * shift_all, os.path.basename(state_fn), 1e3 * shift_z))
     if any(a != 0.0 for a in quad_rot):
         rotate_quads(assembly, *quad_rot)
         log("  quad rotation  : collision geometry of the quads rotated by {} deg (from {})".format(
@@ -125,6 +126,17 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     else:
         e_vac = Field.from_file(efield_fn)
     state = load_state(state_fn)
+    if shift_z:
+        # the whole system moved by shift_z: its field is the same field translated (exact:
+        # the grid moves), the design orbit and the collision geometry move with it
+        from .bem_reload import shift_state
+        state = shift_state(state, shift_z)
+        g = e_vac.grid
+        e_vac = Field.from_arrays(grid={"x": np.asarray(g["x"], dtype=float), "y": np.asarray(g["y"], dtype=float),
+                                        "z": np.asarray(g["z"], dtype=float) + shift_z},
+                                  values=e_vac.grid_values, dim=3, units="m",
+                                  label="{} shifted {:+.2f} mm".format(getattr(e_vac, "label", "E-field"), 1e3 * shift_z))
+        efield_fn = "{} (assembly shifted {:+.2f} mm along z)".format(efield_fn, 1e3 * shift_z)
     trj, vdes = state["trj_design"], state["v_design"]
     r_exit = float(np.linalg.norm(trj[-1][:2]))
     log("  E-field        : {}".format(efield_fn))
@@ -252,7 +264,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         "mean_exit_step": float(np.mean(exit_plane.step[crossed])) if crossed.any() else None,
         "exit_offset_mean_m": float(np.nanmean(exit_plane.offset[crossed])) if crossed.any() else None,
         "voltages": state["electrode_voltages"], "efield": efield_fn, "particles": particles, "step_dir": step_dir,
-        "assembly_rotation_deg": rot_all,
+        "assembly_rotation_deg": rot_all, "shift_z_m": shift_z, "vscale": vscale,
         "phi_deg": phi, "swap_xy": bool(swap_xy), "nsteps": nsteps, "dt": dt, "wall_time_s": wall,
         "tail": tail_info,
     }
@@ -464,6 +476,7 @@ def main(argv=None):
     p.add_argument("--stragglers", action="store_true",
                    help="track every particle of the file: the unaccelerated tail is injected at its own arrival time")
     p.add_argument("--sc-min-particles", type=int, default=0, help="skip the space-charge solve below this many depositing particles")
+    p.add_argument("--shift-z", type=float, default=0.0, help="axial shift of the whole assembly at tracking time [m] (field translated exactly)")
     p.add_argument("--seed", type=int, default=20260905)
     p.add_argument("--reference", default=None, help="bunch json of a vacuum run for the comparison plot")
     p.add_argument("--no-plot", action="store_true")
@@ -476,7 +489,7 @@ def main(argv=None):
                        exclude=[s.strip() for s in a.exclude.split(",") if s.strip()], superpose=a.superpose, vscale=a.vscale,
                        basis_dir=a.basis_dir, unit=a.unit, save_openpmd=a.save_openpmd, save_mode=a.save_mode,
                        handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame,
-                       stragglers=a.stragglers, sc_min_particles=a.sc_min_particles, seed=a.seed,
+                       stragglers=a.stragglers, sc_min_particles=a.sc_min_particles, shift_z=a.shift_z, seed=a.seed,
                        reference=a.reference, plot=not a.no_plot)
 
 

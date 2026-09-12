@@ -43,8 +43,7 @@ parser.add_argument("--reload-dir", default=os.path.join(DECK, "Results", "reloa
 parser.add_argument("--out-dir", default=None, help="default: the reload dir")
 parser.add_argument("--step-dir", default=os.path.join(DECK, "Geometry", "final_steps"))
 parser.add_argument("--bfield", default=None, help="B-field pickle (default: track_inflector.BFIELD)")
-parser.add_argument("--basis", nargs="+", default=["quads_off", "q1unit", "q1skew", "q2unit", "q2skew"],
-                    metavar=("SPIRAL", "Q1N", "Q1S", "Q2N", "Q2S"))
+parser.add_argument("--basis", nargs="+", default=["quads_off", "q1unit", "q1skew", "q2unit", "q2skew"], metavar="NAME")
 parser.add_argument("--unit", type=float, default=3500.0, help="quad voltage of the basis fields [V]")
 parser.add_argument("--q1", type=float, nargs=3, default=[-9000, 9000, 7], metavar=("MIN", "MAX", "N"))
 parser.add_argument("--q2", type=float, nargs=3, default=[-9000, 9000, 7], metavar=("MIN", "MAX", "N"))

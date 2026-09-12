@@ -1013,6 +1013,9 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
     elif maxiter <= 0:
         status = "starting point evaluated only (maxiter = 0)"
 
+    elif len(free) == 0:
+        status = "no free knobs: starting point evaluated only"
+
     elif solver == "dfols":
         import dfols
 
