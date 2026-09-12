@@ -5,7 +5,13 @@
 param([string]$Name = "triplet1",
       [string]$Deck = "D:\MIT Dropbox\Daniel Winklehner\Projects\IsoDAR\60 MeV Cyclotron\Spiral_inflector",
       [string]$Extra = "")
-& "C:\Users\Daniel\anaconda3\shell\condabin\conda-hook.ps1"
+# conda: the first hook found (CONDA_EXE, or anaconda3 / miniconda3 in the usual places)
+$hooks = @("$env:USERPROFILE\anaconda3\shell\condabin\conda-hook.ps1", "$env:USERPROFILE\miniconda3\shell\condabin\conda-hook.ps1",
+           "$env:LOCALAPPDATA\anaconda3\shell\condabin\conda-hook.ps1", "C:\ProgramData\anaconda3\shell\condabin\conda-hook.ps1")
+if ($env:CONDA_EXE) { $hooks = @((Join-Path (Split-Path -Parent (Split-Path -Parent $env:CONDA_EXE)) "shell\condabin\conda-hook.ps1")) + $hooks }
+$hook = $hooks | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $hook) { throw "conda-hook.ps1 not found; edit RunTriplet.ps1" }
+& $hook
 conda activate accel-dev-env
 $study = $PSScriptRoot
 $repo = Split-Path -Parent (Split-Path -Parent $study)
