@@ -20,11 +20,27 @@ SPECIES = "H2_1+"
 CLIGHT = 299792458.0
 RF_FREQ_HZ = 32.8e6         # cyclotron RF: one bunch carries I / f_RF of charge
 
-QUAD1 = ("D0", "D1", "D2", "D3")
-QUAD2 = ("D4", "D5", "D6", "D7")
-QUAD_SIGN = {"D0": +1, "D1": +1, "D2": -1, "D3": -1, "D4": +1, "D5": +1, "D6": -1, "D7": -1}
+MAX_QUADS = 4               # the generator names the poles of quad i D<4i>..D<4i+3>
+
+
+def quad_names(i):
+    """The four pole electrodes of quadrupole i (0-based): D<4i>, D<4i+1> at +V, D<4i+2>, D<4i+3> at -V."""
+    return tuple("D{}".format(4 * i + j) for j in range(4))
+
+
+QUADS = [quad_names(i) for i in range(MAX_QUADS)]
+QUAD1, QUAD2 = QUADS[0], QUADS[1]
+QUAD_SIGN = {name: (+1 if j < 2 else -1) for q in QUADS for j, name in enumerate(q)}
 SPIRAL_NAMES = {"SI_Anode", "SI_Cathode"}
-QUAD_NAMES = set(QUAD1) | set(QUAD2)
+QUAD_NAMES = set(QUAD_SIGN)
+
+
+def quad_index(name):
+    """0-based quadrupole index of a pole electrode name, or None."""
+    for i, q in enumerate(QUADS):
+        if name in q:
+            return i
+    return None
 
 
 # ---------------------------------------------------------------- voltages
@@ -50,10 +66,12 @@ def write_voltages(path, volts):
             w.writerow([name, "{:.3f}".format(volt)])
 
 
-def set_quad_voltages(volts, q1, q2):
-    """D0,D1 = +q1, D2,D3 = -q1, D4,D5 = +q2, D6,D7 = -q2 (in place, returned)."""
-    for name, sgn in QUAD_SIGN.items():
-        volts[name] = sgn * (q1 if name in QUAD1 else q2)
+def set_quad_voltages(volts, *qs):
+    """Quad i: D<4i>,D<4i+1> = +q_i, D<4i+2>,D<4i+3> = -q_i for every voltage given (in place,
+    returned); quads beyond the given voltages are left as they are."""
+    for i, q in enumerate(qs):
+        for j, name in enumerate(quad_names(i)):
+            volts[name] = (+1 if j < 2 else -1) * float(q)
     return volts
 
 
@@ -200,13 +218,22 @@ def load_step_assembly(step_dir, voltages=None, name="spiral inflector from STEP
     return assembly
 
 
-def rotate_quads(assembly, alpha1_deg, alpha2_deg):
-    """Rotate quad 1 (D0-D3) and quad 2 (D4-D7) about the z axis (45 deg = skew quad)."""
+def rotate_quads(assembly, *alphas_deg):
+    """Rotate quad i about the z axis by alphas_deg[i] (45 deg = skew quad); quads beyond the
+    given angles are not rotated."""
     for e in assembly.electrodes.values():
-        if e.name in QUAD1 and alpha1_deg != 0.0:
-            e.set_rotation_angle_axis(float(np.radians(alpha1_deg)), np.array([0.0, 0.0, 1.0]), absolute=False)
-        elif e.name in QUAD2 and alpha2_deg != 0.0:
-            e.set_rotation_angle_axis(float(np.radians(alpha2_deg)), np.array([0.0, 0.0, 1.0]), absolute=False)
+        i = quad_index(e.name)
+        if i is not None and i < len(alphas_deg) and alphas_deg[i] != 0.0:
+            e.set_rotation_angle_axis(float(np.radians(alphas_deg[i])), np.array([0.0, 0.0, 1.0]), absolute=False)
+    return assembly
+
+
+def shift_assembly(assembly, dz):
+    """Translate every electrode along z by dz [m] (the whole inflector system moved axially).
+    Must be called before the meshes are generated."""
+    if dz:
+        for e in assembly.electrodes.values():
+            e.set_translation(np.array([0.0, 0.0, float(dz)]), absolute=False)
     return assembly
 
 
@@ -257,11 +284,16 @@ def load_bfield(path, frame="auto"):
     return with_fast_interpolator(to_deck_frame(Field.from_file(path), frame=frame), "B-field")
 
 
-def superpose_basis(basis_dir, q1, alpha1, q2, alpha2, vscale=1.0, unit=3500.0):
+def superpose_basis(basis_dir, *quads, vscale=1.0, unit=3500.0):
     """Vacuum field summed on the grid from the basis solves ef_itp_spiral/q1/q1skew/q2/
-    q2skew.pickle of basis_dir: a quad rotated by alpha is cos(2 alpha) normal +
-    sin(2 alpha) skew (exact for the quadrupole term), voltages scale linearly."""
-    need = ["spiral", "q1", "q2"] + (["q1skew"] if alpha1 != 0.0 else []) + (["q2skew"] if alpha2 != 0.0 else [])
+    q2skew[/q3/q3skew].pickle of basis_dir: quads = (q1, alpha1, q2, alpha2[, q3, alpha3]);
+    a quad rotated by alpha is cos(2 alpha) normal + sin(2 alpha) skew (exact for the
+    quadrupole term), voltages scale linearly."""
+    if len(quads) % 2:
+        raise ValueError("superpose_basis needs (voltage, angle) pairs, got {}".format(quads))
+    pairs = [(float(quads[2 * i]), float(quads[2 * i + 1])) for i in range(len(quads) // 2)]
+    need = ["spiral"] + ["q{}".format(i + 1) for i in range(len(pairs))] + \
+           ["q{}skew".format(i + 1) for i, (_, a) in enumerate(pairs) if a != 0.0]
     basis = {k: Field.from_file(os.path.join(basis_dir, "ef_itp_{}.pickle".format(k))) for k in need}
     for k in need[1:]:
         for c in "xyz":
@@ -275,6 +307,11 @@ def superpose_basis(basis_dir, q1, alpha1, q2, alpha2, vscale=1.0, unit=3500.0):
             v = v + np.sin(2 * a) * basis[key + "skew"].grid_values[c]
         return volt / unit * v
 
-    values = {c: vscale * basis["spiral"].grid_values[c] + quad(c, "q1", q1, alpha1) + quad(c, "q2", q2, alpha2) for c in "xyz"}
-    label = "superposed spiral x{:.4f} q1={:.0f}@{:.0f} q2={:.0f}@{:.0f}".format(vscale, q1, alpha1, q2, alpha2)
+    values = {}
+    for c in "xyz":
+        v = vscale * basis["spiral"].grid_values[c]
+        for i, (q, a) in enumerate(pairs):
+            v = v + quad(c, "q{}".format(i + 1), q, a)
+        values[c] = v
+    label = "superposed spiral x{:.4f} ".format(vscale) + " ".join("q{}={:.0f}@{:.0f}".format(i + 1, q, a) for i, (q, a) in enumerate(pairs))
     return Field.from_arrays(grid=basis["spiral"].grid, values=values, dim=3, units="m", label=label)

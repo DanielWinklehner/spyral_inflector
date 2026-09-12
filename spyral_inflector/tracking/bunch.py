@@ -28,7 +28,7 @@ from PyPATools.pusher import Pusher
 from PyPATools.trackers import Tracker
 
 from .deck import (load_particles, load_particles_with_tail, orient_beam, load_step_assembly, mesh_assembly,
-                   drop_electrodes, load_bfield, load_state, superpose_basis, rotate_assembly)
+                   drop_electrodes, load_bfield, load_state, superpose_basis, rotate_assembly, rotate_quads, shift_assembly)
 from .hooks import (ElectrodeCollision, ExitPlane, PlaneCrossing, TrajectoryRecorder, SnapshotRecorder, Envelope,
                     SpaceCharge, DelayedInjection, continue_design, _PD)
 from .handoff import save_handoff_openpmd, save_snapshot_openpmd
@@ -91,13 +91,23 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
 
     # a rigidly rotated system (bem_reload --rotate-all) records its angle in the design state;
     # the collision geometry and the Poisson boundary have to turn with the field.
-    rot_all = float(load_state(state_fn).get("rotation_deg", 0.0) or 0.0)
+    _st0 = load_state(state_fn)
+    rot_all = float(_st0.get("rotation_deg", 0.0) or 0.0)
+    shift_all = float(_st0.get("shift_all_m", 0.0) or 0.0)
+    quad_rot = [float(a) for a in (_st0.get("quad_rotation_deg") or [])]
 
     assembly = load_step_assembly(step_dir)
     if rot_all:
         rotate_assembly(assembly, rot_all)
         log("  rigid rotation : assembly rotated {:+.1f} deg about z (from {})".format(
             rot_all, os.path.basename(state_fn)))
+    if shift_all:
+        shift_assembly(assembly, shift_all)
+        log("  axial shift    : assembly shifted {:+.2f} mm along z (from {})".format(1e3 * shift_all, os.path.basename(state_fn)))
+    if any(a != 0.0 for a in quad_rot):
+        rotate_quads(assembly, *quad_rot)
+        log("  quad rotation  : collision geometry of the quads rotated by {} deg (from {})".format(
+            " / ".join("{:g}".format(a) for a in quad_rot), os.path.basename(state_fn)))
     if exclude:
         drop_electrodes(assembly, exclude)
         log("  EXCLUDED from collisions and the Poisson boundary: {}".format(sorted(exclude)))
@@ -106,11 +116,12 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
 
     b_field = load_bfield(bfield)
     if superpose:
-        q1v, a1, q2v, a2 = superpose
+        if len(superpose) % 2 or len(superpose) < 4:
+            raise ValueError("superpose needs (q1, a1, q2, a2[, q3, a3]), got {}".format(superpose))
         bdir = basis_dir or reload_dir
-        e_vac = superpose_basis(bdir, q1v, a1, q2v, a2, vscale=vscale, unit=unit)
-        efield_fn = "superposed from {}: spiral x{:.4f}, q1 {:+.0f} V at {:.0f} deg, q2 {:+.0f} V at {:.0f} deg".format(
-            bdir, vscale, q1v, a1, q2v, a2)
+        e_vac = superpose_basis(bdir, *superpose, vscale=vscale, unit=unit)
+        efield_fn = "superposed from {}: spiral x{:.4f}, ".format(bdir, vscale) + ", ".join(
+            "q{} {:+.0f} V at {:.0f} deg".format(i + 1, superpose[2 * i], superpose[2 * i + 1]) for i in range(len(superpose) // 2))
     else:
         e_vac = Field.from_file(efield_fn)
     state = load_state(state_fn)
@@ -246,7 +257,9 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         "tail": tail_info,
     }
     if superpose:
-        summary["superpose"] = {"q1": q1v, "alpha1": a1, "q2": q2v, "alpha2": a2, "vscale": vscale, "unit": unit, "basis_dir": basis_dir or reload_dir}
+        summary["superpose"] = {"q1": superpose[0], "alpha1": superpose[1], "q2": superpose[2], "alpha2": superpose[3],
+                                "quads": [[superpose[2 * i], superpose[2 * i + 1]] for i in range(len(superpose) // 2)],
+                                "vscale": vscale, "unit": unit, "basis_dir": basis_dir or reload_dir}
     if sc_obj:
         sc_info.update({"n_solves": sc_obj.n_solves, "solve_time_s": sc_obj.solve_time,
                         "phi_min_V": float(min(r[2] for r in sc_obj.log)), "phi_max_V": float(max(r[3] for r in sc_obj.log)),
@@ -439,7 +452,7 @@ def main(argv=None):
     p.add_argument("--post-exit-steps", type=int, default=100)
     p.add_argument("--record", type=int, default=1000)
     p.add_argument("--exclude", default="", help="comma-separated electrode names to drop")
-    p.add_argument("--superpose", type=float, nargs=4, default=None, metavar=("Q1", "A1", "Q2", "A2"))
+    p.add_argument("--superpose", type=float, nargs="+", default=None, metavar="X", help="Q1 A1 Q2 A2 [Q3 A3]: voltage and rotation per quad")
     p.add_argument("--vscale", type=float, default=1.0)
     p.add_argument("--basis-dir", default=None)
     p.add_argument("--unit", type=float, default=3500.0)
