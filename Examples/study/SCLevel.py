@@ -52,7 +52,7 @@ p.add_argument("--max-ddz", type=float, default=0.003)
 p.add_argument("--iters", type=int, default=3)
 p.add_argument("--tol-z", type=float, default=0.3e-3, help="[m]")
 p.add_argument("--tol-zp", type=float, default=2.0e-3, help="[rad]")
-p.add_argument("--res", type=float, default=0.005, help="basis-field resolution of the re-solved spiral field [m]")
+p.add_argument("--res", type=float, default=None, help="resolution of the re-solved spiral basis [m]; default: the run's basis grid (and its box)")
 p.add_argument("--geo-h", type=float, default=0.005)
 p.add_argument("--final", action="store_true")
 p.add_argument("--final-h", type=float, default=0.002)
@@ -111,12 +111,17 @@ best = jload(bj if os.path.isabs(bj) else os.path.join(RUN, bj) if os.path.exist
 quads = [best["q1"], best.get("alpha1", 0.0), best["q2"], best.get("alpha2", 0.0)]
 if best.get("q3") is not None:
     quads += [best["q3"], best.get("alpha3", 0.0)]
+# the re-solved spiral basis must sit on the run's basis grid (superposition needs identical grids)
+from PyPATools.field import Field  # noqa: E402
+_g = Field.from_file(os.path.join(BASIS0, "ef_itp_spiral.pickle")).grid
+GRID_RES = a.res or float(np.asarray(_g["x"], dtype=float)[1] - np.asarray(_g["x"], dtype=float)[0])
+GRID_BOX = [float(np.asarray(_g[c], dtype=float)[i]) for c in "xyz" for i in (0, -1)]
 quad_basis_files = ["ef_itp_q{}.pickle".format(i + 1) for i in range(len(quads) // 2)] + \
                    ["ef_itp_q{}skew.pickle".format(i + 1) for i in range(len(quads) // 2) if quads[2 * i + 1] != 0.0]
 stamp("SC LEVEL of {}: quads {} (from {}), basis rotation {}, R {:+.3f} deg; start exit truncation {:.3f} deg, dz {:+.2f} mm; "
-      "{} mA, {} particles, {:.0f} mm cells".format(
+      "{} mA, {} particles, {:.0f} mm cells; basis grid {:.1f} mm".format(
           os.path.basename(RUN), " ".join("{:+.0f}@{:g}".format(quads[2 * i], quads[2 * i + 1]) for i in range(len(quads) // 2)),
-          os.path.basename(bj), QROT, R, t_exit0, 1e3 * dz0, a.current_ma, a.n, 1e3 * a.h))
+          os.path.basename(bj), QROT, R, t_exit0, 1e3 * dz0, a.current_ma, a.n, 1e3 * a.h, 1e3 * GRID_RES))
 
 
 def geometry_for(t_exit):
@@ -133,13 +138,14 @@ def geometry_for(t_exit):
             shutil.rmtree(gdir)
         stamp("  geometry at exit truncation {:.3f} deg (dz {:+.2f} mm fixed, voltage from the centering solve)".format(t_exit, 1e3 * dz0))
         build_geometry(gdir, sdir, ROT_BF, ENERGY, knobs=knobs, fix_truncations=(t_ent, t_exit), fix_dz=dz0, maxiter=0,
-                       res=a.res, h=a.geo_h, log=stamp)
+                       res=0.005, h=a.geo_h, log=stamp)
     os.makedirs(bdir, exist_ok=True)
     if not os.path.exists(os.path.join(bdir, "ef_itp_spiral.pickle")):
         stamp("  spiral basis field of that geometry")
         run_cmd(["-m", "spyral_inflector.tracking.bem_reload", "--tag", "spiral", "--step-dir", sdir, "--voltages", os.path.join(gdir, "voltages.csv"),
-                 "--state", os.path.join(gdir, "state.pickle"), "--out-dir", bdir, "--res", a.res, "--h", a.geo_h, "--bfield", a.bfield,
-                 "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * n_quads + ["--energy-mev", ENERGY],
+                 "--state", os.path.join(gdir, "state.pickle"), "--out-dir", bdir, "--res", GRID_RES, "--box"] + GRID_BOX +
+                ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * n_quads +
+                ["--energy-mev", ENERGY],
                 os.path.join(bdir, "log_basis_spiral.txt"))
     for fn in quad_basis_files:
         if not os.path.exists(os.path.join(bdir, fn)):
