@@ -17,6 +17,7 @@ import numpy as np
 DEFAULT_KNOBS = dict(
     volt=12000.0, gap=0.019, tilt=31.0, dx=0.01, sigma=0.0022, aspect=2.4, gamma=5.0, angling=11.0,
     quad_bore=0.013, quad_z1=-0.27, quad_z2=-0.19, quad_len=0.045, quad_len2=None, shared_plates=False,
+    n_quads=2, quad_z3=None, quad_len3=None,
     aper_hole=0.0125, entrance_hole=None, plate_gap=0.001, plate_thickness=0.005,
     slot_width=0.015, slot_length=0.040, exit_opening=None,
     housing_gap=0.006, housing_thickness=0.004, top_distance=0.005, bottom_distance=0.010, rotation=0.0,
@@ -28,6 +29,7 @@ KNOB_HELP = {
     "gamma": "gammaAng, exit tilt [deg]", "angling": "anglingAng, inner face angling [deg]",
     "quad_bore": "quadrupole hyperbola vertex radius a = b [m]", "quad_z1": "quad 1 start z [m]", "quad_z2": "quad 2 start z [m]",
     "quad_len": "quad 1 length [m]", "quad_len2": "quad 2 length [m] (default: quad_len)",
+    "n_quads": "2 (doublet) or 3 (triplet)", "quad_z3": "quad 3 start z [m] (shared_plates: derived)", "quad_len3": "quad 3 length [m] (default: quad_len)",
     "shared_plates": "one grounded plate between the quads (quad 2 then starts at z1 + len1 + 2 plate_gap + plate_thickness)",
     "aper_hole": "quad aperture hole radius [m]", "entrance_hole": "hole radius of the first plate [m] (default: aper_hole)",
     "plate_gap": "axial gap between a quad's aperture plates and its pole ends [m]", "plate_thickness": "quad aperture plate thickness [m]",
@@ -66,8 +68,15 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     k.update(knobs or {})
     if k["quad_len2"] is None:
         k["quad_len2"] = k["quad_len"]
+    if k.get("quad_len3") is None:
+        k["quad_len3"] = k["quad_len"]
+    n_quads = int(k.get("n_quads", 2) or 2)
     if k["shared_plates"]:
         k["quad_z2"] = k["quad_z1"] + k["quad_len"] + 2.0 * k["plate_gap"] + k["plate_thickness"]
+        if n_quads >= 3:
+            k["quad_z3"] = k["quad_z2"] + k["quad_len2"] + 2.0 * k["plate_gap"] + k["plate_thickness"]
+    z_starts = [k["quad_z1"], k["quad_z2"]] + ([k["quad_z3"]] if n_quads >= 3 else [])
+    lengths = [k["quad_len"], k["quad_len2"]] + ([k["quad_len3"]] if n_quads >= 3 else [])
     os.makedirs(out_dir, exist_ok=True)
     t_start = time.time()
     log("GEOMETRY: {}".format(k))
@@ -94,8 +103,8 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
                                                   "thickness": k["housing_thickness"], "voltage": 0.0, "experimental": True})
     si.set_parameter(key="make_quadrupoles", value=True)
     si.set_parameter(key="quadrupole_params", value={"a": k["quad_bore"], "b": k["quad_bore"], "radius": 0.04,
-                                                     "z_starts": [k["quad_z1"], k["quad_z2"]], "lengths": [k["quad_len"], k["quad_len2"]],
-                                                     "voltages": [3500, 3500], "aper_rad": 2.0 * k["aper_hole"],
+                                                     "z_starts": z_starts, "lengths": lengths,
+                                                     "voltages": [3500] * len(z_starts), "aper_rad": 2.0 * k["aper_hole"],
                                                      "plate_gap": k["plate_gap"], "plate_thickness": k["plate_thickness"],
                                                      "shared_plates": bool(k["shared_plates"]),
                                                      "last_exit_plate": bool(k["q2_exit_plate"]),
