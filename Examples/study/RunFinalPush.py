@@ -224,8 +224,17 @@ if 5 in PHASES and not done(5):
     history = [R]
     for it in range(3):
         stamp("phase 5.{}: re-optimize the geometry in the field rotated by {:+.3f} deg".format(it + 1, R))
-        if os.path.isdir(GEO):
-            shutil.rmtree(GEO)
+        for attempt in range(30):
+            # Dropbox (or the STEP writer) can hold a handle on the folder for a moment: WinError 32 on rmdir
+            if not os.path.isdir(GEO):
+                break
+            try:
+                shutil.rmtree(GEO)
+            except PermissionError as exc:
+                if attempt == 29:
+                    raise
+                stamp("  geometry folder busy ({}); retrying in 10 s".format(exc))
+                time.sleep(10)
         build_geometry(GEO, STEPS, ROT_BF, ENERGY, knobs=knobs, fix_truncations=TRUNC, fix_dz=args.fix_dz,
                        maxiter=args.maxiter, res=args.geo_res, log=stamp)
         spec = exit_plane_spec(STEPS, os.path.join(GEO, "state.pickle"), args.gap_azimuth, args.half_gap,

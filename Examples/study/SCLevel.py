@@ -182,7 +182,7 @@ def evaluate(t_exit, dz, label):
     tag = "lvl_{}".format(label)
     if not os.path.exists(os.path.join(OUT, "bunch_{}.json".format(tag))):
         t0 = time.time()
-        bunch(bdir, sdir, tag, ["--n", a.n, "--sc", "--h", a.h, "--resolve-every", a.resolve_every, "--shift-z", dz - dz0, "--no-plot"])
+        bunch(bdir, sdir, tag, ["--n", a.n, "--sc", "--h", a.h, "--resolve-every", a.resolve_every, "--shift-z", "{:.10f}".format(dz - dz0), "--no-plot"])
         stamp("  {}: {:.0f} s".format(tag, time.time() - t0))
     m = measure(tag)
     m.update(t_exit=t_exit, dz=dz, tag=tag, basis=bdir)
@@ -237,7 +237,7 @@ if a.final:
         if not os.path.exists(os.path.join(OUT, "bunch_{}.json".format(tag))):
             stamp("final run {}: every particle (core + injected tail) at truncation {:.3f} deg, dz {:+.2f} mm".format(tag, t_exit, 1e3 * dz))
             t0 = time.time()
-            bunch(bdir, sdir, tag, ["--n", 10 ** 7, "--stragglers", "--shift-z", dz - dz0,
+            bunch(bdir, sdir, tag, ["--n", 10 ** 7, "--stragglers", "--shift-z", "{:.10f}".format(dz - dz0),
                                     "--save-openpmd", os.path.join(OUT, "handoff_{}.h5".format(tag))] + extra)
             stamp("  done in {:.0f} min".format((time.time() - t0) / 60))
         final[tag] = measure(tag)
