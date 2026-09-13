@@ -47,6 +47,23 @@ def _sanitize(name):
     return re.sub(r"[^A-Za-z0-9_-]+", "_", str(name)).strip("_")
 
 
+def rmtree_retry(path, log=None, tries=30, wait=10.0):
+    """shutil.rmtree that survives a folder held open for a moment (Dropbox indexing a just-written
+    folder on the deck gives WinError 32 on rmdir): retries every `wait` s up to `tries` times."""
+    for attempt in range(tries):
+        if not os.path.isdir(path):
+            return
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError as exc:
+            if attempt == tries - 1:
+                raise
+            if log:
+                log("  folder busy ({}); retrying in {:.0f} s".format(exc, wait))
+            time.sleep(wait)
+
+
 def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_truncations=(0.34, 0.77), fix_dz=None,
                    maxiter=8, res=0.005, h=0.005, log=None):
     """Generate the geometry, optimize the design particle, export the STEP files.
@@ -166,8 +183,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
         pickle.dump(state, fh)
     volt_fn = os.path.join(out_dir, "voltages.csv")
     write_voltages(volt_fn, electrode_voltages)
-    if os.path.isdir(steps_dir):
-        shutil.rmtree(steps_dir)
+    rmtree_retry(steps_dir, log=log)
     os.makedirs(steps_dir)
     for i, electrode in enumerate(assembly.electrodes.values()):
         if electrode.export(os.path.join(steps_dir, "{:03d}_{}.step".format(i, names[i]))) != 0:

@@ -139,7 +139,7 @@ stamp("  truncations {} (None = free), quad retune ranked by {}".format(TRUNC, a
 
 from spyral_inflector.tracking.deck import particle_rows, load_bfield  # noqa: E402
 from spyral_inflector.tracking.frames import to_deck_frame, rotate_bfield_z, bfield_frame  # noqa: E402
-from spyral_inflector.tracking.geometry_point import build_geometry  # noqa: E402
+from spyral_inflector.tracking.geometry_point import build_geometry, rmtree_retry  # noqa: E402
 from spyral_inflector.tracking.exit_plane import exit_plane_spec  # noqa: E402
 from spyral_inflector.tracking.export import steps_to_baseline_mm, field_to_machine_frame  # noqa: E402
 from PyPATools.field import Field  # noqa: E402
@@ -224,17 +224,7 @@ if 5 in PHASES and not done(5):
     history = [R]
     for it in range(3):
         stamp("phase 5.{}: re-optimize the geometry in the field rotated by {:+.3f} deg".format(it + 1, R))
-        for attempt in range(30):
-            # Dropbox (or the STEP writer) can hold a handle on the folder for a moment: WinError 32 on rmdir
-            if not os.path.isdir(GEO):
-                break
-            try:
-                shutil.rmtree(GEO)
-            except PermissionError as exc:
-                if attempt == 29:
-                    raise
-                stamp("  geometry folder busy ({}); retrying in 10 s".format(exc))
-                time.sleep(10)
+        rmtree_retry(GEO, log=stamp)         # Dropbox can hold the just-written folder for a moment (WinError 32)
         build_geometry(GEO, STEPS, ROT_BF, ENERGY, knobs=knobs, fix_truncations=TRUNC, fix_dz=args.fix_dz,
                        maxiter=args.maxiter, res=args.geo_res, log=stamp)
         spec = exit_plane_spec(STEPS, os.path.join(GEO, "state.pickle"), args.gap_azimuth, args.half_gap,
