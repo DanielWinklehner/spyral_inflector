@@ -88,17 +88,18 @@ def state_to_machine_frame(r, v=None):
 
 
 def steps_to_baseline_mm(steps_dir, out_dir, rotation_deg=0.0, quad_rotation=(0.0, 0.0), source_unit="m",
-                         combined="assembly_baseline_mm.step", log=print):
+                         combined="assembly_baseline_mm.step", shift_z=0.0, log=print):
     """Every NNN_<Name>.step of steps_dir rotated about z by rotation_deg (quad 1 / quad 2 by
-    their extra angles on top), mirrored into the machine (Baseline) frame and written in
-    MILLIMETRES with a matching unit declaration: one file per electrode plus one combined
-    compound. The deck's own STEP exports carry metre-valued coordinates under a
-    millimetre unit header (CAD imports them 1000x too small); source_unit="m" scales
+    their extra angles on top), shifted by shift_z along z in the DECK frame (metres of the
+    source geometry; a levelled assembly's axial shift), mirrored into the machine (Baseline)
+    frame and written in MILLIMETRES with a matching unit declaration: one file per electrode
+    plus one combined compound. The deck's own STEP exports carry metre-valued coordinates
+    under a millimetre unit header (CAD imports them 1000x too small); source_unit="m" scales
     them by 1000 here so the files import at true size. Returns the written file names."""
     from OCC.Core.STEPControl import STEPControl_Reader, STEPControl_Writer, STEPControl_AsIs
     from OCC.Core.IFSelect import IFSelect_RetDone
     from OCC.Core.Interface import Interface_Static
-    from OCC.Core.gp import gp_Trsf, gp_Ax1, gp_Ax2, gp_Pnt, gp_Dir
+    from OCC.Core.gp import gp_Trsf, gp_Ax1, gp_Ax2, gp_Pnt, gp_Dir, gp_Vec
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
     from OCC.Core.BRep import BRep_Builder
     from OCC.Core.TopoDS import TopoDS_Compound
@@ -122,11 +123,13 @@ def steps_to_baseline_mm(steps_dir, out_dir, rotation_deg=0.0, quad_rotation=(0.
         rd.TransferRoots()
         t_rot = gp_Trsf()
         t_rot.SetRotation(zax, np.radians(ang))
+        t_shf = gp_Trsf()
+        t_shf.SetTranslation(gp_Vec(0.0, 0.0, float(shift_z)))      # deck frame, before the mirror
         t_mir = gp_Trsf()
         t_mir.SetMirror(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)))
         t_scl = gp_Trsf()
         t_scl.SetScale(gp_Pnt(0, 0, 0), scale)
-        shp = BRepBuilderAPI_Transform(rd.OneShape(), t_scl.Multiplied(t_mir.Multiplied(t_rot)), True).Shape()
+        shp = BRepBuilderAPI_Transform(rd.OneShape(), t_scl.Multiplied(t_mir.Multiplied(t_shf.Multiplied(t_rot))), True).Shape()
         builder.Add(compound, shp)
         Interface_Static.SetCVal("write.step.unit", "MM")
         w = STEPControl_Writer()
@@ -144,9 +147,10 @@ def steps_to_baseline_mm(steps_dir, out_dir, rotation_deg=0.0, quad_rotation=(0.
         done.append(combined)
     with open(os.path.join(out_dir, "FRAME.txt"), "w", encoding="utf-8") as fh:
         fh.write(MACHINE_FRAME_NOTE + "\nUnits: MILLIMETRES (coordinates and STEP header).\nSource: {}\n"
-                 "Transform: rotation about z by {:+.4f} deg (quads {:+.2f} / {:+.2f} deg on top), mirror through "
-                 "z = 0, scale x{:g}.\nFiles: {}\n".format(steps_dir, rotation_deg, quad_rotation[0], quad_rotation[1],
-                                                           scale, ", ".join(done)))
+                 "Transform: rotation about z by {:+.4f} deg (quads {:+.2f} / {:+.2f} deg on top), shift {:+.3f} mm along "
+                 "the deck z (= {:+.3f} mm along the Baseline z), mirror through z = 0, scale x{:g}.\nFiles: {}\n".format(
+                     steps_dir, rotation_deg, quad_rotation[0], quad_rotation[1], 1e3 * shift_z, -1e3 * shift_z, scale,
+                     ", ".join(done)))
     return done
 
 

@@ -52,6 +52,9 @@ p.add_argument("--no-q2-exit-plate", action="store_true",
 p.add_argument("--quad-len2", type=float, default=None, help="override quad 2 length [m] (ignored with --no-q2-exit-plate)")
 p.add_argument("--fix-truncations", type=float, nargs=2, default=[0.34, 0.77])
 p.add_argument("--free-exit-truncation", action="store_true", help="the exit truncation is a knob of the design-orbit optimizer (with dz)")
+p.add_argument("--fix-dz", type=float, default=None,
+               help="hold the axial shift at this value [m] instead of optimizing it (e.g. the dz of a space-charge levelling; "
+                    "with both truncations fixed only the voltage centering solve runs)")
 p.add_argument("--knobs-json", default=None, help="json with knob overrides (e.g. the winner of a shape scan)")
 p.add_argument("--rank", choices=("transmission", "vert"), default="transmission",
                help="quad retune: best transmission, or the smallest rms vertical angle within --rank-tol of it")
@@ -201,7 +204,7 @@ if 1 in PHASES and not done(1):
 GEO0, STEPS0 = os.path.join(OUT, "geometry0"), os.path.join(OUT, "steps0")
 if 2 in PHASES and not done(2):
     stamp("phase 2: geometry + design orbit at R = 0 ({} knobs)".format(len(knobs)))
-    build_geometry(GEO0, STEPS0, BFIELD, ENERGY, knobs=knobs, fix_truncations=TRUNC,
+    build_geometry(GEO0, STEPS0, BFIELD, ENERGY, knobs=knobs, fix_truncations=TRUNC, fix_dz=args.fix_dz,
                    maxiter=args.maxiter, res=args.geo_res, log=stamp)
     mark(2, state_of(GEO0)["optimizer"])
 if 3 in PHASES and not done(3):
@@ -223,7 +226,7 @@ if 5 in PHASES and not done(5):
         stamp("phase 5.{}: re-optimize the geometry in the field rotated by {:+.3f} deg".format(it + 1, R))
         if os.path.isdir(GEO):
             shutil.rmtree(GEO)
-        build_geometry(GEO, STEPS, ROT_BF, ENERGY, knobs=knobs, fix_truncations=TRUNC,
+        build_geometry(GEO, STEPS, ROT_BF, ENERGY, knobs=knobs, fix_truncations=TRUNC, fix_dz=args.fix_dz,
                        maxiter=args.maxiter, res=args.geo_res, log=stamp)
         spec = exit_plane_spec(STEPS, os.path.join(GEO, "state.pickle"), args.gap_azimuth, args.half_gap,
                                out_json=os.path.join(OUT, "exit_plane.json"), log=stamp)

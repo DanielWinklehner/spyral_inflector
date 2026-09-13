@@ -39,7 +39,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 nsteps=1900, dt=1.0e-10, coast=300, asym_steps=210, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
-                stragglers=False, sc_min_particles=0, shift_z=0.0,
+                stragglers=False, sc_min_particles=0, shift_z=0.0, snapshot_every=0,
                 seed=20260905, reference=None, plot=True, log=None):
     """Track n particles of the RFQ file through the geometry; returns the summary dict
     and writes bunch_<out_tag>.json / .npz / .png into out_dir (default: reload_dir).
@@ -200,9 +200,11 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         interactions.insert(0, injector)          # inject before the space-charge solve of the step
     envelope = Envelope()
     trajectories = TrajectoryRecorder(len(r0), n_record=record)
+    # full 6-D snapshots every snapshot_every steps from step 0 (emittance along the line, EmittanceAlongLine.py)
+    snaps = SnapshotRecorder(range(0, 10 ** 6, int(snapshot_every))) if snapshot_every else None
     tracker = Tracker(Pusher(ion, algorithm="rk4_rel"), e_total, b_field, interactions=interactions,
                       terminators=[exit_plane, collision, handoff],
-                      recorders=[envelope, trajectories] + ([snapshot] if snapshot is not None else []))
+                      recorders=[envelope, trajectories] + [s for s in (snapshot, snaps) if s is not None])
     n_run = nsteps
     if injector is not None:
         # the run has to outlive the last injection plus the slowest tail particle's transit
@@ -331,7 +333,14 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
 
     with open(os.path.join(out_dir, "bunch_{}.json".format(out_tag)), "w") as fh:
         json.dump(summary, fh, indent=2)
-    np.savez_compressed(os.path.join(out_dir, "bunch_{}.npz".format(out_tag)),
+    snap_extra = {}
+    if snaps is not None and snaps.snapshots:
+        ks = sorted(snaps.snapshots)
+        snap_extra = dict(snap_steps=np.array(ks), snap_t=np.array([snaps.snapshots[k][3] for k in ks]),
+                          snap_r=np.array([snaps.snapshots[k][0] for k in ks], dtype=np.float32),
+                          snap_v=np.array([snaps.snapshots[k][1] for k in ks], dtype=np.float32),
+                          snap_active=np.array([snaps.snapshots[k][2] for k in ks]))
+    np.savez_compressed(os.path.join(out_dir, "bunch_{}.npz".format(out_tag)), **snap_extra,
                         envelope=env, z_exit=z_exit, exit_state=exit_plane.state[crossed], exit_step=exit_plane.step, crossed=crossed,
                         hit_electrode=collision.hit_electrode, hit_step=collision.hit_step, hit_point=collision.hit_point, active=result.active,
                         electrode_names=np.array([assembly.electrodes[u].name for u in index_map.values()]),
@@ -477,6 +486,8 @@ def main(argv=None):
                    help="track every particle of the file: the unaccelerated tail is injected at its own arrival time")
     p.add_argument("--sc-min-particles", type=int, default=0, help="skip the space-charge solve below this many depositing particles")
     p.add_argument("--shift-z", type=float, default=0.0, help="axial shift of the whole assembly at tracking time [m] (field translated exactly)")
+    p.add_argument("--snapshot-every", type=int, default=0,
+                   help="save the full 6-D state of every particle every N steps into the npz (snap_*; emittance along the line)")
     p.add_argument("--seed", type=int, default=20260905)
     p.add_argument("--reference", default=None, help="bunch json of a vacuum run for the comparison plot")
     p.add_argument("--no-plot", action="store_true")
@@ -489,8 +500,8 @@ def main(argv=None):
                        exclude=[s.strip() for s in a.exclude.split(",") if s.strip()], superpose=a.superpose, vscale=a.vscale,
                        basis_dir=a.basis_dir, unit=a.unit, save_openpmd=a.save_openpmd, save_mode=a.save_mode,
                        handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame,
-                       stragglers=a.stragglers, sc_min_particles=a.sc_min_particles, shift_z=a.shift_z, seed=a.seed,
-                       reference=a.reference, plot=not a.no_plot)
+                       stragglers=a.stragglers, sc_min_particles=a.sc_min_particles, shift_z=a.shift_z,
+                       snapshot_every=a.snapshot_every, seed=a.seed, reference=a.reference, plot=not a.no_plot)
 
 
 if __name__ == "__main__":
