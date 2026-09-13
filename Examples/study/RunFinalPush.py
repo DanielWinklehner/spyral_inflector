@@ -51,6 +51,11 @@ p.add_argument("--no-q2-exit-plate", action="store_true",
                help="quad 2 terminated by the inflector entrance plate; its length is then derived at build time to end one plate_gap before it")
 p.add_argument("--quad-len2", type=float, default=None, help="override quad 2 length [m] (ignored with --no-q2-exit-plate)")
 p.add_argument("--fix-truncations", type=float, nargs=2, default=[0.34, 0.77])
+p.add_argument("--free-exit-truncation", action="store_true", help="the exit truncation is a knob of the design-orbit optimizer (with dz)")
+p.add_argument("--knobs-json", default=None, help="json with knob overrides (e.g. the winner of a shape scan)")
+p.add_argument("--rank", choices=("transmission", "vert"), default="transmission",
+               help="quad retune: best transmission, or the smallest rms vertical angle within --rank-tol of it")
+p.add_argument("--rank-tol", type=float, default=0.03)
 p.add_argument("--res", type=float, default=0.0025, help="basis-field resolution [m]")
 p.add_argument("--geo-res", type=float, default=0.005, help="resolution of the design-orbit optimizer [m]")
 p.add_argument("--maxiter", type=int, default=8)
@@ -115,14 +120,19 @@ def state_of(build):
 
 
 knobs = dict(KNOBS)
+if args.knobs_json:
+    knobs.update({k: v for k, v in json.load(open(args.knobs_json)).items() if not k.startswith("_")})
 if args.no_q2_exit_plate:
     knobs["q2_exit_plate"] = False
+TRUNC = (args.fix_truncations[0], None if args.free_exit_truncation else args.fix_truncations[1])
 if args.quad_len2 is not None:
     knobs["quad_len2"] = args.quad_len2
 BFIELD = args.bfield or os.path.join(DECK, "Fields", "{}_baseline_1mm.pickle".format(args.name))
 stamp("FINAL PUSH '{}' -> {}".format(args.name, OUT))
 stamp("  phases {}, field {}, particles {}{}".format(sorted(PHASES), BFIELD, os.path.basename(args.particles),
                                                     " [QUICK]" if args.quick else ""))
+stamp("  knobs {}".format(knobs))
+stamp("  truncations {} (None = free), quad retune ranked by {}".format(TRUNC, args.rank))
 
 from spyral_inflector.tracking.deck import particle_rows, load_bfield  # noqa: E402
 from spyral_inflector.tracking.frames import to_deck_frame, rotate_bfield_z, bfield_frame  # noqa: E402
@@ -191,7 +201,7 @@ if 1 in PHASES and not done(1):
 GEO0, STEPS0 = os.path.join(OUT, "geometry0"), os.path.join(OUT, "steps0")
 if 2 in PHASES and not done(2):
     stamp("phase 2: geometry + design orbit at R = 0 ({} knobs)".format(len(knobs)))
-    build_geometry(GEO0, STEPS0, BFIELD, ENERGY, knobs=knobs, fix_truncations=tuple(args.fix_truncations),
+    build_geometry(GEO0, STEPS0, BFIELD, ENERGY, knobs=knobs, fix_truncations=TRUNC,
                    maxiter=args.maxiter, res=args.geo_res, log=stamp)
     mark(2, state_of(GEO0)["optimizer"])
 if 3 in PHASES and not done(3):
@@ -213,7 +223,7 @@ if 5 in PHASES and not done(5):
         stamp("phase 5.{}: re-optimize the geometry in the field rotated by {:+.3f} deg".format(it + 1, R))
         if os.path.isdir(GEO):
             shutil.rmtree(GEO)
-        build_geometry(GEO, STEPS, ROT_BF, ENERGY, knobs=knobs, fix_truncations=tuple(args.fix_truncations),
+        build_geometry(GEO, STEPS, ROT_BF, ENERGY, knobs=knobs, fix_truncations=TRUNC,
                        maxiter=args.maxiter, res=args.geo_res, log=stamp)
         spec = exit_plane_spec(STEPS, os.path.join(GEO, "state.pickle"), args.gap_azimuth, args.half_gap,
                                out_json=os.path.join(OUT, "exit_plane.json"), log=stamp)
@@ -250,7 +260,8 @@ if 6 in PHASES and not done(6):
 
 # ---------------------------------------------------------------- 7. quad retune
 scan_common = ["--reload-dir", BASIS, "--out-dir", BASIS, "--step-dir", STEPS, "--bfield", BFIELD,
-               "--basis", "spiral", "q1", "q1", "q2", "q2", "--phi", PHI, "--particles", args.particles, "--n", args.n_scan]
+               "--basis", "spiral", "q1", "q1", "q2", "q2", "--phi", PHI, "--particles", args.particles, "--n", args.n_scan,
+               "--rank", args.rank, "--rank-tol", args.rank_tol]
 if 7 in PHASES and not done(7):
     stamp("phase 7: quad retune, coarse {}x{}".format(int(args.q1[2]), int(args.q2[2])))
     if not os.path.exists(os.path.join(BASIS, "scan2_coarse.json")):
@@ -332,7 +343,11 @@ if 11 in PHASES and not done(11):
          "the point {:.1f} mm along the normal sits at azimuth {:+.3f} deg (gap at {:g} deg).".format(
              spec["baseline"]["r_mm"], spec["baseline"]["azimuth_deg"], spec["baseline"]["point_mm"][2],
              spec["baseline"]["normal_azimuth_deg"], spec["half_gap_mm"], spec["pushed_point_azimuth_deg"], spec["gap_azimuth_deg"]), "",
-         "## Quads", "", "q1 {:+.0f} V, q2 {:+.0f} V ({:.1f} % on the scan bunch)".format(BEST["q1"], BEST["q2"], 100 * BEST["transmission"]), "",
+         "truncations entrance {:.2f} / exit {:.2f} deg ({})".format(*geo["optimizer"].get("truncations_deg", TRUNC if None not in TRUNC else (0, 0)),
+                                                                        "exit free" if TRUNC[1] is None else "both fixed"), "",
+         "## Quads", "", "q1 {:+.0f} V, q2 {:+.0f} V ({:.1f} % on the scan bunch, ranked by {}{})".format(
+             BEST["q1"], BEST["q2"], 100 * BEST["transmission"], args.rank,
+             "" if BEST.get("vfom") is None else "; vertical angle {:.1f} mrad rms".format(BEST["vfom"])), "",
          "## Every particle of the RFQ file", "",
          "| run | particles | transmitted | core | tail | intercepted |", "|---|---|---|---|---|---|"]
     for name, b in (("vacuum", vac), ("space charge {:g} mA".format(args.current_ma), sc)):

@@ -50,7 +50,8 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     """Generate the geometry, optimize the design particle, export the STEP files.
 
     energy_mev: design kinetic energy (the mean of the RFQ core file). knobs: overrides
-    of DEFAULT_KNOBS. fix_truncations: entrance/exit truncation angles held fixed [deg].
+    of DEFAULT_KNOBS. fix_truncations: entrance/exit truncation angles held fixed [deg];
+    None frees that truncation as a knob of the optimizer (e.g. (0.34, None)).
     fix_dz: hold the axial shift of the whole system at this value [m] (then only the
     voltage is optimized). Returns a dict with steps_dir, voltages_csv, state_pickle,
     the optimized voltage/dz and the residuals; writes out_dir/summary.json.
@@ -102,16 +103,21 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     si.generate_geometry()
     log("  geometry generated ({:.0f} s)".format(time.time() - t_start))
 
-    fixed = {0: fix_truncations[0], 1: fix_truncations[1]}
+    # a truncation given as None is a free knob of the optimizer (starting from the default)
+    t_ent = 0.34 if fix_truncations[0] is None else float(fix_truncations[0])
+    t_exit = 0.77 if fix_truncations[1] is None else float(fix_truncations[1])
+    fixed = {i: v for i, v in ((0, fix_truncations[0]), (1, fix_truncations[1])) if v is not None}
     if fix_dz is not None:
         fixed[2] = fix_dz
     result = si.optimize_trajectory(maxiter=maxiter, solver="dfols", res=res,
-                                    initial_guess=[fix_truncations[0], fix_truncations[1], 1.85e-3 if fix_dz is None else fix_dz, 0.97],
+                                    initial_guess=[t_ent, t_exit, 1.85e-3 if fix_dz is None else fix_dz, 0.97],
                                     fixed=fixed, bounds=((0.0, 15.0), (0.0, 15.0), (-15.0e-3, 15.0e-3), (0.85, 1.3)),
                                     exclude_quadrupoles=True)
     m = result["measurements"]
     optimizer = {
         "status": result["status"], "converged": result["converged"], "n_evaluations": result["n_evaluations"],
+        "truncations_deg": [float(result["db_entrance"]), float(result["db_exit"])],
+        "free_truncations": [fix_truncations[0] is None, fix_truncations[1] is None],
         "dz_mm": 1e3 * result["dz"], "volt_scale": result["volt_scale"], "voltage_V": result["voltage"],
         "residual_final": {"angle_deg": float(result["residual_final"][0]), "centering_mm": 1e3 * float(result["residual_final"][1]),
                            "z_offset_mm": 1e3 * float(result["residual_final"][2]), "width_mm": 1e3 * float(result["residual_final"][3])},

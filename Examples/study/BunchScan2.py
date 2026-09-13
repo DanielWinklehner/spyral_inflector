@@ -36,7 +36,7 @@ from PyPATools.field import Field  # noqa: E402
 from PyPATools.pusher import Pusher  # noqa: E402
 from PyPATools.trackers import Tracker  # noqa: E402
 
-DECK = os.environ.get("SI_DECK") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+DECK = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--reload-dir", default=os.path.join(DECK, "Results", "reload"))
@@ -65,6 +65,9 @@ parser.add_argument("--asym-steps", type=int, default=210, help="steps after the
 parser.add_argument("--dt", type=float, default=1.0e-10)
 parser.add_argument("--seed", type=int, default=20260906)
 parser.add_argument("--tag", default="scan2")
+parser.add_argument("--rank", choices=("transmission", "vert"), default="transmission",
+                    help="best point: highest transmission, or (vert) the smallest rms vertical angle vz/v_long of the transmitted bunch at the asymptotic state (vfom, mrad) among the points within --rank-tol of the best transmission")
+parser.add_argument("--rank-tol", type=float, default=0.03, help="transmission tolerance for --rank vert (fraction)")
 args = parser.parse_args()
 
 out_dir = args.out_dir or args.reload_dir
@@ -175,14 +178,26 @@ def run_point(q1, q2, a1, a2, s, phi):
         losses["Housing_exit"] = int(post.sum())
     spiral = sum(v for k, v in losses.items() if k in ("SI_Anode", "SI_Cathode"))
     quads = sum(v for k, v in losses.items() if k in ("D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7"))
-    za = zr = aa = ar = None
+    za = zr = aa = ar = vfom = zp_mean = zp_rms = None
+    z_env = None
     if exit_plane.asym_state is not None:
         ok = crossed & np.all(np.isfinite(exit_plane.asym_state), axis=1)
         if ok.any():
             st_a = exit_plane.asym_state[ok]
-            va = np.degrees(np.arcsin(st_a[:, 5] / np.linalg.norm(st_a[:, 3:], axis=1)))
+            vnorm = np.linalg.norm(st_a[:, 3:], axis=1)
+            va = np.degrees(np.arcsin(st_a[:, 5] / vnorm))
             za, zr = 1e3 * float(st_a[:, 2].mean()), 1e3 * float(st_a[:, 2].std())
             aa, ar = float(va.mean()), float(va.std())
+            # vertical envelope past the exit, ballistic from the asymptotic state (taken
+            # asym_steps after the crossing, i.e. s_a = asym_steps * dt * |v| along the path)
+            s_a = exit_plane.asym_steps * args.dt * vnorm
+            slope = st_a[:, 5] / vnorm
+            env_s = np.array([0.0, 0.05, 0.10, 0.15, 0.20])
+            z_env = [1e3 * float(np.std(st_a[:, 2] + (s - s_a) * slope)) for s in env_s]
+            # the figure of merit: rms vertical angle vz / v_longitudinal (in-plane speed) [mrad]
+            zp = st_a[:, 5] / np.hypot(st_a[:, 3], st_a[:, 4])
+            zp_mean, zp_rms = 1e3 * float(zp.mean()), 1e3 * float(zp.std())
+            vfom = zp_rms
     return {"q1": q1, "q2": q2, "alpha1": a1, "alpha2": a2, "vscale": s, "phi": phi,
             "transmission": float(crossed.sum()) / len(rr), "n_transmitted": int(crossed.sum()),
             "lost_spiral": spiral / len(rr), "lost_quads": quads / len(rr),
@@ -190,7 +205,25 @@ def run_point(q1, q2, a1, a2, s, phi):
             "z_exit_mean_mm": 1e3 * float(np.mean(z_exit)) if z_exit.size else None,
             "z_exit_rms_mm": 1e3 * float(np.std(z_exit)) if z_exit.size else None,
             "z_asym_mean_mm": za, "z_asym_rms_mm": zr, "vert_angle_asym_mean_deg": aa, "vert_angle_asym_rms_deg": ar,
+            "z_env_s_mm": [0, 50, 100, 150, 200], "z_env_rms_mm": z_env,
+            "z_env_mean_mm": None if z_env is None else float(np.mean(z_env[:4])),
+            "zp_asym_mean_mrad": zp_mean, "zp_asym_rms_mrad": zp_rms,
+            "vfom": vfom, "vfom_unit": "mrad (rms vz/v_long at the asymptotic state)",
             "losses": losses, "wall_s": time.time() - t0}
+
+
+def pick_best(rows):
+    """The best point of the scan so far: highest transmission, or with --rank vert the
+    smallest vertical envelope among the points within --rank-tol of the best transmission."""
+    rows = [r for r in rows if r["transmission"] > 0]
+    if not rows:
+        return None
+    top = max(r["transmission"] for r in rows)
+    if args.rank == "vert":
+        cands = [r for r in rows if r["transmission"] >= top - args.rank_tol and r["vfom"] is not None]
+        if cands:
+            return min(cands, key=lambda r: (r["vfom"], -r["transmission"]))
+    return max(rows, key=lambda r: r["transmission"])
 
 
 if args.points:
@@ -202,8 +235,8 @@ else:
 
 combos = list(itertools.product(args.phi, args.alpha1, args.alpha2, args.vscale))
 print("{} field/beam combinations x {} quad points = {} runs".format(len(combos), len(pts), len(combos) * len(pts)), flush=True)
-print("{:>6s} {:>6s} {:>6s} {:>6s} {:>7s} {:>7s} {:>8s} {:>7s} {:>7s} {:>7s} {:>8s} {:>5s}   top losses".format(
-    "phi", "alpha1", "alpha2", "Vsc", "q1[V]", "q2[V]", "transm.", "spiral", "quads", "apert.", "z_exit", "s"))
+print("{:>6s} {:>6s} {:>6s} {:>6s} {:>7s} {:>7s} {:>8s} {:>7s} {:>7s} {:>7s} {:>8s} {:>7s} {:>5s}   top losses".format(
+    "phi", "alpha1", "alpha2", "Vsc", "q1[V]", "q2[V]", "transm.", "spiral", "quads", "apert.", "z_exit", "zp_rms", "s"))
 results = []
 best = None
 for phi, a1, a2, s in combos:
@@ -211,23 +244,23 @@ for phi, a1, a2, s in combos:
         res = run_point(q1, q2, a1, a2, s, phi)
         results.append(res)
         top = sorted(res["losses"].items(), key=lambda kv: -kv[1])[:3]
-        print("{:6.1f} {:6.1f} {:6.1f} {:6.3f} {:7.0f} {:7.0f} {:7.1f} % {:6.1f}% {:6.1f}% {:6.1f}% {:8s} {:5.0f}   {}".format(
+        print("{:6.1f} {:6.1f} {:6.1f} {:6.3f} {:7.0f} {:7.0f} {:7.1f} % {:6.1f}% {:6.1f}% {:6.1f}% {:8s} {:7s} {:5.0f}   {}".format(
             phi, a1, a2, s, q1, q2, 100 * res["transmission"], 100 * res["lost_spiral"], 100 * res["lost_quads"],
             100 * res["lost_apertures"],
             "-" if res["z_exit_mean_mm"] is None else "{:+.1f} mm".format(res["z_exit_mean_mm"]),
+            "-" if res["vfom"] is None else "{:.1f}mrad".format(res["vfom"]),
             res["wall_s"], ", ".join("{} {}".format(n, c) for n, c in top)), flush=True)
-        if best is None or res["transmission"] > best["transmission"]:
-            best = res
+        best = pick_best(results)
         with open(os.path.join(out_dir, "scan2_{}.json".format(args.tag)), "w") as fh:
             json.dump({"tag": args.tag, "n": len(r0), "unit_V": args.unit, "particles": ti.PARTICLES,
                        "swap_xy": bool(args.swap_xy), "bfield": ti.BFIELD, "basis": args.basis,
                        "results": results, "best": best}, fh, indent=2)
 
-print("best: phi {:.1f}, alpha {:.1f}/{:.1f}, spiral x{:.3f}, q1 = {:.0f} V, q2 = {:.0f} V: {:.1f} % "
-      "(spiral {:.1f} %, quads {:.1f} %, apertures {:.1f} %)".format(
-          best["phi"], best["alpha1"], best["alpha2"], best["vscale"], best["q1"], best["q2"],
+print("best ({}): phi {:.1f}, alpha {:.1f}/{:.1f}, spiral x{:.3f}, q1 = {:.0f} V, q2 = {:.0f} V: {:.1f} % "
+      "(spiral {:.1f} %, quads {:.1f} %, apertures {:.1f} %), vertical angle {} mrad rms".format(
+          args.rank, best["phi"], best["alpha1"], best["alpha2"], best["vscale"], best["q1"], best["q2"],
           100 * best["transmission"], 100 * best["lost_spiral"], 100 * best["lost_quads"],
-          100 * best["lost_apertures"]), flush=True)
+          100 * best["lost_apertures"], "-" if best["vfom"] is None else "{:.1f}".format(best["vfom"])), flush=True)
 
 # best point as a regular field + state for BunchTrack.py (beam rotation is not part of the field:
 # pass --phi to BunchTrack separately)
