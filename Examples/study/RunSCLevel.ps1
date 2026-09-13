@@ -1,10 +1,10 @@
 # Stage 5 of the vertical-focusing campaign: waits for the SC retune to finish (sc_retune.md),
 # then levels the 8 mA bunch centroid with the exit truncation and the axial shift as knobs
-# (SCLevel.py from the `triplet` worktree; the spiral voltage stays the centering knob), at the
+# (SCLevel.py from the package at -Package, default the master repo; the spiral voltage stays the centering knob), at the
 # SC-retuned quad setting (sc_retune\sc_grid.json), with the full runs and hand-offs (--final).
 #   powershell -File RunSCLevel.ps1 [-Run vfocus1_final] [-Package "<worktree path>"] [-BestJson sc_retune\sc_grid.json]
 param([string]$Run = "vfocus1_final",
-      [string]$Package = "D:\Dropbox (Personal)\Code\Python\spyral_inflector_triplet",
+      [string]$Package = "D:\Dropbox (Personal)\Code\Python\spyral_inflector",
       [string]$BestJson = "sc_retune\sc_grid.json")
 & "C:\Users\Daniel\anaconda3\shell\condabin\conda-hook.ps1"
 conda activate accel-dev-env

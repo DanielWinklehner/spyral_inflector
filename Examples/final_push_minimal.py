@@ -254,6 +254,11 @@ if 5 in PHASES and not done(5):
     mark(5, {"R_history": history, "R": R, "optimizer": jload(os.path.join(GEO, "summary.json"))["optimizer"]})
 if os.path.exists(os.path.join(OUT, "exit_plane.json")):
     R = jload(os.path.join(OUT, "exit_plane.json"))["rotation_deg"]
+if R is None:
+    # phases 1-2 only: no exit-plane rotation yet, nothing downstream can run
+    stamp("done ({:.0f} min): no exit-plane rotation yet (phase 3 not run), stopping before the rotated system".format(
+        (time.time() - T_START) / 60))
+    sys.exit(0)
 PHI = BASE_PHI + R
 stamp("  system rotation R = {:+.3f} deg, beam angle {:+.3f} deg".format(R, PHI))
 
