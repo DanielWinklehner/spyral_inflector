@@ -39,7 +39,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 nsteps=1900, dt=1.0e-10, coast=300, asym_steps=210, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
-                stragglers=False, sc_min_particles=0, shift_z=0.0, snapshot_every=0,
+                stragglers=False, inject_core=False, sc_min_particles=0, shift_z=0.0, snapshot_every=0,
                 seed=20260905, reference=None, plot=True, log=None):
     """Track n particles of the RFQ file through the geometry; returns the summary dict
     and writes bunch_<out_tag>.json / .npz / .png into out_dir (default: reload_dir).
@@ -67,24 +67,37 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("BUNCH TRACKING {}, tag '{}' -> '{}'".format(
         "WITH SPACE CHARGE ({:g} mA at {:g} MHz)".format(current_ma, rf_mhz) if sc else "(no space charge)", tag, out_tag))
     log("=" * 78)
+    if inject_core and not stragglers:
+        raise SystemExit("--inject-core needs --stragglers: it is a property of the whole file's arrival times")
     if stragglers:
-        r0, v0, ion, raw, t_inject, is_tail = load_particles_with_tail(particles, n, seed=seed, rf_mhz=rf_mhz)
+        r0, v0, ion, raw, t_inject, is_tail = load_particles_with_tail(particles, n, seed=seed, rf_mhz=rf_mhz,
+                                                                       inject_core=inject_core)
     else:
         r0, v0, ion, raw = load_particles(particles, n, seed=seed)
         t_inject, is_tail = np.zeros(len(r0)), np.zeros(len(r0), dtype=bool)
     r0, v0 = orient_beam(r0, v0, phi, swap_xy)
     k_inject = np.rint(t_inject / dt).astype(int)
-    injector = DelayedInjection(k_inject, r0, v0) if is_tail.any() else None
+    # TODO (Daniel, 2026-09-13): with inject_core the particles still upstream of the start plane are absent from
+    # the Poisson solve during the ~30 ns injection ramp, so the bunch is missing the charge BEHIND its head.
+    # Transversely that is mild (a long thin bunch's transverse field is set by the local line density, which is
+    # there as soon as a slice is injected), but the LONGITUDINAL push from the trailing charge is underestimated.
+    # Investigate feeding an estimate of the uninjected charge into the AMG solve: a static slab at the injection
+    # plane carrying the pending particles' line charge, or a Dirichlet/Neumann condition on the upstream face of
+    # the Poisson box derived from that line density. Not urgent; measure the two conventions first.
+    injector = DelayedInjection(k_inject, r0, v0) if (k_inject > 0).any() else None
     alive0 = injector.alive0 if injector is not None else np.ones(len(r0), dtype=bool)
     log("  particles      : {:,d} (file has {:,d} unlost) from {}{}{}".format(
         len(r0), len(raw), os.path.basename(particles), ", x and y swapped" if swap_xy else "",
         ", rotated {:+.1f} deg".format(phi) if phi else ""))
     if injector is not None:
         log("  RFQ tail       : {:,d} unaccelerated particles ({:.1f}..{:.1f} keV) injected at z = {:+.3f} m at their arrival, "
-            "{:.1f}..{:.1f} ns after the core (steps {:,d}..{:,d}); {:,d} core particles placed as a bunch".format(
+            "{:.1f}..{:.1f} ns after the core (steps {:,d}..{:,d}); {:,d} core particles {}".format(
                 int(is_tail.sum()), 1e3 * raw[is_tail, 8].min(), 1e3 * raw[is_tail, 8].max(), r0[is_tail, 2].mean(),
                 1e9 * t_inject[is_tail].min(), 1e9 * t_inject[is_tail].max(), int(k_inject[is_tail].min()),
-                int(k_inject[is_tail].max()), int((~is_tail).sum())))
+                int(k_inject[is_tail].max()), int((~is_tail).sum()),
+                "injected at the same plane over {:.1f} ns (steps {:,d}..{:,d})".format(
+                    1e9 * (t_inject[~is_tail].max() - t_inject[~is_tail].min()), int(k_inject[~is_tail].min()),
+                    int(k_inject[~is_tail].max())) if inject_core else "placed as a spatial bunch"))
     log("  B-field        : {}".format(os.path.basename(bfield)))
     log("  mean energy    : {:.6f} MeV, start centroid {} m, z range {:+.4f}..{:+.4f} m".format(
         raw[:, 8].mean(), np.round(r0.mean(axis=0), 5), r0[:, 2].min(), r0[:, 2].max()))
@@ -484,6 +497,9 @@ def main(argv=None):
     p.add_argument("--handoff-frame", choices=["deck", "machine"], default="deck", help="machine: mirrored through the median plane (z -> -z)")
     p.add_argument("--stragglers", action="store_true",
                    help="track every particle of the file: the unaccelerated tail is injected at its own arrival time")
+    p.add_argument("--inject-core", action="store_true",
+                   help="inject the CORE at the start plane at its own arrival time too (the hand-off convention) instead of "
+                        "placing it as a spatial bunch; needs --stragglers")
     p.add_argument("--sc-min-particles", type=int, default=0, help="skip the space-charge solve below this many depositing particles")
     p.add_argument("--shift-z", type=float, default=0.0, help="axial shift of the whole assembly at tracking time [m] (field translated exactly)")
     p.add_argument("--snapshot-every", type=int, default=0,
@@ -500,7 +516,7 @@ def main(argv=None):
                        exclude=[s.strip() for s in a.exclude.split(",") if s.strip()], superpose=a.superpose, vscale=a.vscale,
                        basis_dir=a.basis_dir, unit=a.unit, save_openpmd=a.save_openpmd, save_mode=a.save_mode,
                        handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame,
-                       stragglers=a.stragglers, sc_min_particles=a.sc_min_particles, shift_z=a.shift_z,
+                       stragglers=a.stragglers, inject_core=a.inject_core, sc_min_particles=a.sc_min_particles, shift_z=a.shift_z,
                        snapshot_every=a.snapshot_every, seed=a.seed, reference=a.reference, plot=not a.no_plot)
 
 

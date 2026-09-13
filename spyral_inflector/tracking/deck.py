@@ -158,14 +158,23 @@ def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES, cor
     return r, v, ion, data
 
 
-def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SPECIES, rf_mhz=32.8):
+def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SPECIES, rf_mhz=32.8, inject_core=False):
     """Every particle of an RFQ file: the core (|phase| <= 180 deg and energy at least half
     the median) placed as load_particles places it -- a spatial bunch at z_start with the
     phase as longitudinal spread -- and the unaccelerated tail as particles to be injected
     AT z_start at their own arrival time t = phase / (2 pi f_rf), with their own energy.
 
-    Returns r, v, ion, rows, t_inject [s] (0 for the core) and is_tail. n below the file
-    size draws n particles at random from the whole file."""
+    inject_core=True puts EVERY particle at the plane z_start and gives the core the same
+    arrival-time treatment as the tail (the convention of the inflector -> central-region
+    hand-off): the file's phase is the arrival time, t = phase_deg / (360 f_rf), which is
+    exactly the time the spatial placement encodes as z = -phase/(2 pi) * beta*lambda, and
+    the clock is shifted so the earliest particle starts at t = 0. No particle is then born
+    inside an electrode bore or downstream of a field it never traversed. The price is that
+    the charge still upstream of the plane is missing from the space-charge solve during the
+    injection ramp; see the TODO in tracking/bunch.py.
+
+    Returns r, v, ion, rows, t_inject [s] (0 for the core unless inject_core) and is_tail.
+    n below the file size draws n particles at random from the whole file."""
     data = particle_rows(path, core=False)
     rng = np.random.default_rng(seed)
     if n < len(data):
@@ -177,9 +186,14 @@ def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SP
     gamma = 1.0 + ekin / ion.mass_mev
     speed = np.sqrt(1.0 - 1.0 / gamma ** 2) * CLIGHT
     vz = speed / np.sqrt(1.0 + xp ** 2 + yp ** 2)
-    r = np.column_stack([x, y, z_start + np.where(is_tail, 0.0, z)])
     v = np.column_stack([vz * xp, vz * yp, vz])
-    t_inject = np.where(is_tail, phase / 360.0 / (rf_mhz * 1e6), 0.0)
+    t_all = phase / 360.0 / (rf_mhz * 1e6)
+    if inject_core:
+        r = np.column_stack([x, y, np.full(len(x), float(z_start))])
+        t_inject = t_all - t_all.min()            # the earliest particle starts the clock
+    else:
+        r = np.column_stack([x, y, z_start + np.where(is_tail, 0.0, z)])
+        t_inject = np.where(is_tail, t_all, 0.0)
     return r, v, ion, data, t_inject, is_tail
 
 
