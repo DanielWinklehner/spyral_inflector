@@ -262,6 +262,8 @@ for e in sorted(evals, key=lambda e: e["objective"]):
     L.append("| {} | ".format(e["tag"]) + " | ".join("{:g}".format(v) for v in e["x"]) +
              (" | {:.1f} | {:.1f} % | {:+.2f} | {:+.1f} | {:.3f} |".format(1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], e["objective"])
               if m else " | FAILED | | | | {} |".format(e["error"])))
+L += ["", "The design exit radius is not in the objective; it follows k' (about -0.6 mm per degree). "
+      "`FullOptRadius.py --run <this run>` tabulates it per evaluation -> `full_opt_radius.md`."]
 L += ["", "Best knobs for the final push: `full_opt/best_knobs.json` (RunFinalPush --knobs-json it --fix-truncations {:.3f} {:.3f} --fix-dz {:.6f} "
       "--q1 {:.0f} {:.0f} 1 --q2 {:.0f} {:.0f} 1 --fine-step 0), then the plate-rule R iterates to its fixed point there.".format(
           xb[4], xb[5], 1e-3 * xb[6], xb[7], xb[7], xb[8], xb[8])]
