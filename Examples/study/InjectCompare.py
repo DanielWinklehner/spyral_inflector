@@ -101,7 +101,7 @@ def measure(folder, tag):
     z = -1e3 * st[ok, 2]                               # Baseline height [mm]
     v = st[ok, 3:6]
     zp = -1e3 * v[:, 2] / np.hypot(v[:, 0], v[:, 1])   # Baseline vertical angle [mrad]
-    ti = s.get("tail_info") or {}
+    ti = s.get("tail") or {}
     losses = s.get("losses_by_electrode") or {}
     n = s["n_particles"]
     return {"T": s["transmission"], "core": ti.get("core_transmission"), "tail": ti.get("tail_transmission"),

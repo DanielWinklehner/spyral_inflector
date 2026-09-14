@@ -7,8 +7,9 @@ import sys
 import numpy as np
 
 R = sys.argv[1]
-print("RUN:", R)
-for tag in ("vac_all", "sc_all"):
+TAGS = sys.argv[2:] or ["vac_all", "sc_all"]   # e.g. vac_all_level sc_all_level for a levelled run
+print("RUN:", R, "TAGS:", TAGS)
+for tag in TAGS:
     d = np.load(os.path.join(R, "bunch_{}.npz".format(tag)), allow_pickle=True)
     st = d["asym_state"]
     ok = d["crossed"] & np.all(np.isfinite(st), axis=1) & ~d["is_tail"]
@@ -31,7 +32,7 @@ for tag in ("vac_all", "sc_all"):
 
 print("=" * 100)
 print("transverse emittances at 55 mm past the exit (rms, unnormalized, mm mrad); input core: x 30.1, y 40.2 -> 4D 1210")
-for tag in ("vac_all", "sc_all"):
+for tag in TAGS:
     d = np.load(os.path.join(R, "bunch_{}.npz".format(tag)), allow_pickle=True)
     st = d["asym_state"]
     ok = d["crossed"] & np.all(np.isfinite(st), axis=1) & ~d["is_tail"]

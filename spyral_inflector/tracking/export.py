@@ -89,8 +89,8 @@ def state_to_machine_frame(r, v=None):
 
 def steps_to_baseline_mm(steps_dir, out_dir, rotation_deg=0.0, quad_rotation=(0.0, 0.0), source_unit="m",
                          combined="assembly_baseline_mm.step", shift_z=0.0, log=print):
-    """Every NNN_<Name>.step of steps_dir rotated about z by rotation_deg (quad 1 / quad 2 by
-    their extra angles on top), shifted by shift_z along z in the DECK frame (metres of the
+    """Every NNN_<Name>.step of steps_dir rotated about z by rotation_deg (each quadrupole by
+    its own extra angle from quad_rotation, one entry per quad, on top), shifted by shift_z along z in the DECK frame (metres of the
     source geometry; a levelled assembly's axial shift), mirrored into the machine (Baseline)
     frame and written in MILLIMETRES with a matching unit declaration: one file per electrode
     plus one combined compound. The deck's own STEP exports carry metre-valued coordinates
@@ -103,7 +103,7 @@ def steps_to_baseline_mm(steps_dir, out_dir, rotation_deg=0.0, quad_rotation=(0.
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
     from OCC.Core.BRep import BRep_Builder
     from OCC.Core.TopoDS import TopoDS_Compound
-    from .deck import QUAD1, QUAD2
+    from .deck import quad_index
 
     scale = {"m": 1000.0, "mm": 1.0}[source_unit]
     os.makedirs(out_dir, exist_ok=True)
@@ -116,7 +116,9 @@ def steps_to_baseline_mm(steps_dir, out_dir, rotation_deg=0.0, quad_rotation=(0.
         if not fn.lower().endswith(".step") or "assembly" in fn.lower():
             continue
         name = os.path.splitext(fn)[0].split("_", 1)[1]
-        ang = rotation_deg + (quad_rotation[0] if name in QUAD1 else quad_rotation[1] if name in QUAD2 else 0.0)
+        qi = quad_index(name)          # None for anything that is not a quadrupole pole
+        qr = list(quad_rotation or ())
+        ang = rotation_deg + (qr[qi] if qi is not None and qi < len(qr) else 0.0)
         rd = STEPControl_Reader()
         if rd.ReadFile(os.path.join(steps_dir, fn)) != IFSelect_RetDone:
             raise RuntimeError("cannot read " + fn)

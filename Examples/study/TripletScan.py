@@ -170,8 +170,11 @@ L = ["# Triplet scan {}".format(args.name), "",
 for i, r in enumerate(cands[:15]):
     L.append("| {} | {:+.0f} | {:+.0f} | {:+.0f} | {:g} | {:.1f} % | {:.1f} | {:.1f} | {:.1f} % |".format(
         i + 1, r["q1"], r["q2"], r["q3"], r.get("alpha3", 0), 100 * r["transmission"], r["vfom"], r["z_asym_rms_mm"], 100 * r["lost_spiral"]))
-L += ["", "Doublet reference (vfocus1 scan, same shape if present): see Results/vfocus/vfocus1/report.md; final1's doublet at its "
-      "low-angle setting reads 39.6 mrad at 87.6 % (5 mm fields, 1000 particles).", "", "Wall time {:.0f} min.".format((time.time() - T0) / 60)]
+L += ["", "Doublet reference: take it from Results/vfocus/vfocus1/report.md (5 mm screen) or a final-push run's own quad scan "
+      "at the SAME basis-field resolution and particle count as this scan. Do NOT compare a 2.5 mm triplet number with a "
+      "5 mm doublet number: halving the basis grid is worth about 13 mrad and 9 transmission points on this geometry "
+      "(Results/triplet/triplet2wide vs triplet2wide_push, identical everything else).", "",
+      "Wall time {:.0f} min.".format((time.time() - T0) / 60)]
 with open(os.path.join(OUT, "report.md"), "w", encoding="utf-8") as fh:
     fh.write("\n".join(L) + "\n")
 with open(os.path.join(OUT, "summary.json"), "w") as fh:

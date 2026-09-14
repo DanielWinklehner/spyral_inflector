@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(SCRIPTS)))
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--run", required=True)
 p.add_argument("--level", default="sc_level", help="levelling folder inside the run (with sc_level.json)")
-p.add_argument("--quads", type=float, nargs=2, default=[16.0, 24.0], help="quad rotations on top of R [deg]")
+p.add_argument("--quads", type=float, nargs="+", default=[16.0, 24.0], help="quad rotations on top of R [deg], one per quad (2 for a doublet, 3 for a triplet)")
 p.add_argument("--gap-azimuth", type=float, default=34.0)
 p.add_argument("--half-gap", type=float, default=0.005)
 p.add_argument("--out", default=None, help="default: <run>/export_baseline_levelled")
@@ -91,5 +91,5 @@ with open(os.path.join(OUT, "README.txt"), "w", encoding="utf-8") as fh:
              "exit_plane_spec.json     the exit plate's outer face at R (unshifted z; add the shift for the machine-frame z)\n"
              "handoff_*_level.h5       openPMD hand-off at the electrode exit of the levelled full runs (vacuum / 8 mA), machine frame\n"
              "Levelling report: {}\n".format(os.path.basename(RUN), t_exit, 1e3 * shift, -1e3 * shift, 1e3 * dz0, 1e3 * dz, R, R_run,
-                                             a.quads[0], a.quads[1], os.path.join(RUN, "sc_level.md")))
+                                             " / ".join("{:+.1f}".format(q) for q in a.quads), os.path.join(RUN, "sc_level.md")))
 stamp("done: {} STEP files + {} hand-offs -> {}".format(len(files), len(copied), OUT))
