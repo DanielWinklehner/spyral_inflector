@@ -45,6 +45,7 @@ p.add_argument("--n", type=int, default=5000)
 p.add_argument("--h", type=float, default=0.004)
 p.add_argument("--resolve-every", type=int, default=16)
 p.add_argument("--current-ma", type=float, default=8.0)
+p.add_argument("--vscale", type=float, default=1.0, help="operating spiral voltage as a multiple of the gap-centering value (FullOpt _vscale)")
 p.add_argument("--dt", type=float, default=0.3, help="finite-difference step of the exit truncation [deg]")
 p.add_argument("--ddz", type=float, default=0.001, help="finite-difference step of the axial shift [m]")
 p.add_argument("--max-dt", type=float, default=1.0)
@@ -158,7 +159,7 @@ def geometry_for(t_exit):
 def bunch(bdir, sdir, tag, extra):
     cmd = ["-m", "spyral_inflector.tracking.bunch", "--tag", "spiral", "--reload-dir", bdir, "--step-dir", sdir,
            "--particles", a.particles, "--bfield", a.bfield, "--phi", PHI, "--out-dir", OUT, "--out-tag", tag,
-           "--basis-dir", bdir, "--superpose"] + quads + ["--current-ma", a.current_ma, "--handoff-frame", "machine",
+           "--basis-dir", bdir, "--superpose"] + quads + ["--current-ma", a.current_ma, "--vscale", "{:.6f}".format(a.vscale), "--handoff-frame", "machine",
            "--handoff-distance", 0.0] + list(extra)
     run_cmd(cmd, os.path.join(OUT, "log_{}.txt".format(tag)))
 
@@ -226,7 +227,7 @@ for it in range(1, a.iters + 1):
 stamp("levelled: exit truncation {:.3f} deg, dz {:+.2f} mm -> height {:+.2f} mm, angle {:+.1f} mrad ({})".format(
     t_exit, 1e3 * dz, 1e3 * cur["z"], 1e3 * cur["zp"], "converged" if converged else "not converged"))
 with open(os.path.join(OUT, "sc_level.json"), "w") as fh:
-    json.dump({"quads": quads, "quad_rotation_deg": QROT, "history": history, "t_exit_deg": t_exit, "dz_m": dz, "dz0_m": dz0,
+    json.dump({"vscale": a.vscale, "quads": quads, "quad_rotation_deg": QROT, "history": history, "t_exit_deg": t_exit, "dz_m": dz, "dz0_m": dz0,
                "shift_z_m": dz - dz0, "converged": converged, "basis": cur["basis"]}, fh, indent=2)
 
 # ---------------------------------------------------------------- final runs at the levelled setting
