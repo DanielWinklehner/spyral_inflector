@@ -108,7 +108,9 @@ bj = a.best_json or next((f for f in ("scan2_scan.json", "scan2_fine.json") if o
 if bj is None:
     raise SystemExit("no scan json with the quad setting found in " + BASIS0)
 best = jload(bj if os.path.isabs(bj) else os.path.join(RUN, bj) if os.path.exists(os.path.join(RUN, bj)) else os.path.join(BASIS0, bj))["best"]
-quads = [best["q1"], best.get("alpha1", 0.0), best["q2"], best.get("alpha2", 0.0)]
+quads = []                                    # (voltage, skew angle) per quad, N from the run
+for _i in range(1, n_quads + 1):
+    quads += [best["q{}".format(_i)], best.get("alpha{}".format(_i), 0.0)]
 if best.get("q3") is not None:
     quads += [best["q3"], best.get("alpha3", 0.0)]
 # the re-solved spiral basis must sit on the run's basis grid (superposition needs identical grids)
