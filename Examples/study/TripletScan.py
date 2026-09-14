@@ -40,6 +40,8 @@ p.add_argument("--angling", type=float, default=None)
 p.add_argument("--gamma", type=float, default=None)
 p.add_argument("--lens", type=float, nargs=3, default=[0.035, 0.040, 0.035], help="quad lengths [m]; the last is re-derived to end one plate gap before the entrance plate")
 p.add_argument("--quads", type=float, nargs=3, default=[16.0, 24.0, 24.0], help="quad rotations on top of R [deg] (basis orientation)")
+p.add_argument("--plate-gap", type=float, default=None, help="axial gap between a quad pole end and its aperture plate [m] (default: the base run, 1 mm; Daniel 2026-09-14: 3 mm)")
+p.add_argument("--plate-thickness", type=float, default=None, help="grounded aperture plate thickness [m] (default: the base run, 5 mm; Daniel 2026-09-14: 2 mm)")
 p.add_argument("--alpha3", type=float, nargs="+", default=[0.0, 20.0, 40.0], help="extra rotations of quad 3 scanned by superposition [deg]")
 p.add_argument("--q1", type=float, nargs=3, default=[4000, 10000, 4], metavar=("MIN", "MAX", "N"))
 p.add_argument("--q2", type=float, nargs=3, default=[-11000, -5000, 4], metavar=("MIN", "MAX", "N"))
@@ -93,6 +95,10 @@ for k in ("sigma", "angling", "gamma"):
     if getattr(args, k) is not None:
         knobs[k] = getattr(args, k)
 knobs.update(n_quads=3, quad_len=args.lens[0], quad_len2=args.lens[1], quad_len3=args.lens[2], shared_plates=True, q2_exit_plate=False)
+if args.plate_gap is not None:
+    knobs["plate_gap"] = args.plate_gap
+if args.plate_thickness is not None:
+    knobs["plate_thickness"] = args.plate_thickness
 ROT_BF = os.path.join(args.base_run, "bfield_rotated.pickle")
 ENERGY = float(particle_rows(args.particles, core=True)[:, 8].mean())
 TRUNC = (args.fix_entrance, None)

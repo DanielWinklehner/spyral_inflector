@@ -1,6 +1,6 @@
-"""Full DFO-LS optimization of the doublet system with 8 mA space charge in the loop, seeded at a
-final-push run's best setting. Knobs (10): k' tilt, angling, gamma, V-depth sigma, entrance and exit
-truncation, axial shift dz, quad voltages q1 / q2, spiral gap (the design voltage scales with the gap,
+"""Full DFO-LS optimization of the doublet or triplet system with space charge in the loop, seeded at a
+final-push / TripletScan run's best setting. Knobs (10 for a doublet, 11 for a triplet): k' tilt, angling, gamma,
+V-depth sigma, entrance and exit truncation, axial shift dz, quad voltages q1..qN (the run says N), spiral gap (the design voltage scales with the gap,
 the operating voltage stays the inner gap-centering solve). Each evaluation rebuilds the geometry at
 the run's rotation R (design orbit with both truncations and dz fixed: only the centering solve runs),
 re-solves the spiral basis field on the run's basis grid (the quad bases are reused), tracks --n core
@@ -37,7 +37,7 @@ p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDes
 p.add_argument("--run", required=True, help="final-push run folder (geometry/, steps/, basis/, exit_plane.json, bfield_rotated.pickle)")
 p.add_argument("--base-run", default=None, help="folder with bfield_rotated.pickle (default: --run)")
 p.add_argument("--best-json", default="basis\\scan2_coarse.json", help="scan json whose 'best' holds the seed q1/q2")
-p.add_argument("--quads", type=float, nargs=2, default=[16.0, 24.0], help="basis rotation of the quads on top of R [deg]")
+p.add_argument("--quads", type=float, nargs="+", default=[16.0, 24.0], help="basis rotation of the quads on top of R [deg], one per quad (the run says how many)")
 p.add_argument("--n", type=int, default=8000)
 p.add_argument("--h", type=float, default=0.004)
 p.add_argument("--resolve-every", type=int, default=16)
@@ -47,17 +47,15 @@ p.add_argument("--maxfun", type=int, default=80)
 p.add_argument("--rhobeg", type=float, default=0.12, help="initial trust region as a fraction of the bound ranges")
 p.add_argument("--rhoend", type=float, default=0.01)
 p.add_argument("--t-floor", type=float, default=None, help="transmission floor (fraction) of the penalty; default seed - 0.05")
-p.add_argument("--bounds", type=float, nargs=20, default=[20, 42, 8, 22, 3, 13, 0.2, 1.6, 0.1, 0.8, 0.3, 1.6, 2.0, 7.0, 5500, 7500, -7700, -5700, 16, 24],
-               metavar="B", help="lo hi per knob: tilt[deg] angling[deg] gamma[deg] sigma[mm] t_ent[deg] t_exit[deg] dz[mm] q1[V] q2[V] gap[mm]")
+p.add_argument("--bounds", type=float, nargs="+", default=None,
+               metavar="B", help="lo hi per knob: tilt[deg] angling[deg] gamma[deg] sigma[mm] t_ent[deg] t_exit[deg] dz[mm] q1..qN[V] gap[mm]; "
+                    "default: the doublet values, or +-35 %% around the seed voltages for three or more quads")
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
 p.add_argument("--keep-basis", action="store_true", help="keep every evaluation's basis field (large)")
 a = p.parse_args()
 
-NAMES = ["tilt", "angling", "gamma", "sigma_mm", "t_ent", "t_exit", "dz_mm", "q1", "q2", "gap_mm"]
-UNITS = ["deg", "deg", "deg", "mm", "deg", "deg", "mm", "V", "V", "mm"]
-LO = np.array(a.bounds[0::2], dtype=float)
-HI = np.array(a.bounds[1::2], dtype=float)
+# NAMES / UNITS / LO / HI are set after the seed is read: the run says how many quads there are
 
 RUN = os.path.abspath(a.run)
 BASE = os.path.abspath(a.base_run) if a.base_run else RUN
@@ -108,13 +106,32 @@ ENERGY = float(particle_rows(a.particles, core=True)[:, 8].mean())
 bj = a.best_json if os.path.isabs(a.best_json) else os.path.join(RUN, a.best_json)
 best0 = jload(bj)["best"]
 QROT = list(a.quads)
+NQ = int(knobs0.get("n_quads", 2) or 2)
+QN = ["q{}".format(i + 1) for i in range(NQ)]
+NAMES = ["tilt", "angling", "gamma", "sigma_mm", "t_ent", "t_exit", "dz_mm"] + QN + ["gap_mm"]
+UNITS = ["deg", "deg", "deg", "mm", "deg", "deg", "mm"] + ["V"] * NQ + ["mm"]
+if len(QROT) != NQ:
+    raise SystemExit("--quads needs {} angles for this {}-quad run, got {}".format(NQ, NQ, len(QROT)))
+qseed = [float(best0[q]) for q in QN]
+if a.bounds is None:
+    if NQ == 2:
+        qb = [5500, 7500, -7700, -5700]
+    else:                                     # +-35 % around each seed voltage, sign preserved
+        qb = []
+        for v in qseed:
+            qb += sorted([0.65 * v, 1.35 * v])
+    a.bounds = [20, 42, 8, 22, 3, 13, 0.2, 1.6, 0.1, 0.8, 0.3, 1.6, 2.0, 7.0] + qb + [16, 24]
+if len(a.bounds) != 2 * len(NAMES):
+    raise SystemExit("--bounds needs {} numbers (lo hi per knob), got {}".format(2 * len(NAMES), len(a.bounds)))
+LO = np.array(a.bounds[0::2], dtype=float)
+HI = np.array(a.bounds[1::2], dtype=float)
 _g = Field.from_file(os.path.join(BASIS0, "ef_itp_spiral.pickle")).grid
 GRID_RES = float(np.asarray(_g["x"], dtype=float)[1] - np.asarray(_g["x"], dtype=float)[0])
 GRID_BOX = [float(np.asarray(_g[c], dtype=float)[i]) for c in "xyz" for i in (0, -1)]
 VOLT_PER_M = float(knobs0["volt"]) / float(knobs0["gap"])   # the design voltage scales with the gap (same field)
 
 x0 = np.array([knobs0["tilt"], knobs0["angling"], knobs0["gamma"], 1e3 * knobs0["sigma"], t_ent0, t_exit_seed, 1e3 * dz_seed,
-               best0["q1"], best0["q2"], 1e3 * knobs0["gap"]], dtype=float)
+               *qseed, 1e3 * knobs0["gap"]], dtype=float)
 x0 = np.clip(x0, LO, HI)
 stamp("FULL OPT of {}: R {:+.3f} deg fixed, quads rotated {}, {} mA, {} particles, {:.0f} mm cells, basis grid {:.1f} mm; DFO-LS maxfun {}, rhobeg {} of range".format(
     os.path.basename(RUN), R, QROT, a.current_ma, a.n, 1e3 * a.h, 1e3 * GRID_RES, a.maxfun, a.rhobeg))
@@ -167,7 +184,10 @@ def evaluate(x):
     tag = "e{:03d}".format(idx)
     edir = os.path.join(OUT, tag)
     gdir, sdir, bdir = (os.path.join(edir, d) for d in ("geometry", "steps", "basis"))
-    tilt, angling, gamma, sigma_mm, t_ent, t_exit, dz_mm, q1, q2, gap_mm = [float(v) for v in x]
+    vals = dict(zip(NAMES, [float(v) for v in x]))
+    tilt, angling, gamma, sigma_mm, t_ent, t_exit, dz_mm, gap_mm = (vals[k] for k in ("tilt", "angling", "gamma", "sigma_mm", "t_ent", "t_exit", "dz_mm", "gap_mm"))
+    qv = [vals[q] for q in QN]
+    SUPER = [v for q in qv for v in (q, 0.0)]           # voltage, skew voltage per quad
     knobs = dict(knobs0)
     knobs.update(tilt=tilt, angling=angling, gamma=gamma, sigma=1e-3 * sigma_mm, gap=1e-3 * gap_mm, volt=VOLT_PER_M * 1e-3 * gap_mm)
     t0 = time.time()
@@ -179,13 +199,13 @@ def evaluate(x):
                        res=0.005, h=a.geo_h, log=lambda s: None)
         run_cmd(["-m", "spyral_inflector.tracking.bem_reload", "--tag", "spiral", "--step-dir", sdir, "--voltages", os.path.join(gdir, "voltages.csv"),
                  "--state", os.path.join(gdir, "state.pickle"), "--out-dir", bdir, "--res", GRID_RES, "--box"] + GRID_BOX +
-                ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages", 0, 0, "--energy-mev", ENERGY],
+                ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * NQ + ["--energy-mev", ENERGY],
                 os.path.join(edir, "log_basis_spiral.txt"))
-        for fn in ("ef_itp_q1.pickle", "ef_itp_q2.pickle"):
+        for fn in ["ef_itp_q{}.pickle".format(i + 1) for i in range(NQ)]:
             shutil.copyfile(os.path.join(BASIS0, fn), os.path.join(bdir, fn))
         run_cmd(["-m", "spyral_inflector.tracking.bunch", "--tag", "spiral", "--reload-dir", bdir, "--step-dir", sdir,
                  "--particles", a.particles, "--bfield", a.bfield, "--phi", PHI, "--out-dir", edir, "--out-tag", tag,
-                 "--basis-dir", bdir, "--superpose", q1, 0.0, q2, 0.0, "--current-ma", a.current_ma, "--handoff-frame", "machine",
+                 "--basis-dir", bdir, "--superpose"] + SUPER + ["--current-ma", a.current_ma, "--handoff-frame", "machine",
                  "--handoff-distance", 0.0, "--n", a.n, "--sc", "--h", a.h, "--resolve-every", a.resolve_every,
                  "--shift-z", "{:.10f}".format(1e-3 * dz_mm - dz0), "--no-plot"], os.path.join(edir, "log_bunch.txt"))
         m = measure(edir, tag)
@@ -240,13 +260,15 @@ good = [e for e in evals if e["measure"] is not None]
 best = min(good, key=lambda e: e["objective"])
 xb = best["x"]
 bk = dict(knobs0)
-bk.update(tilt=xb[0], angling=xb[1], gamma=xb[2], sigma=1e-3 * xb[3], gap=1e-3 * xb[9], volt=VOLT_PER_M * 1e-3 * xb[9])
-bk.update({"_truncations_deg": [xb[4], xb[5]], "_dz_m": 1e-3 * xb[6], "_q1": xb[7], "_q2": xb[8], "_objective": best["objective"],
+IG = NAMES.index("gap_mm")
+bk.update(tilt=xb[0], angling=xb[1], gamma=xb[2], sigma=1e-3 * xb[3], gap=1e-3 * xb[IG], volt=VOLT_PER_M * 1e-3 * xb[IG])
+bk.update({"_" + q: xb[NAMES.index(q)] for q in QN})
+bk.update({"_truncations_deg": [xb[4], xb[5]], "_dz_m": 1e-3 * xb[6], "_objective": best["objective"],
            "_measure": best["measure"], "_seed_objective": seed["objective"], "_R_deg": R, "_tag": best["tag"]})
 with open(os.path.join(OUT, "best_knobs.json"), "w") as fh:
     json.dump(bk, fh, indent=2)
-L = ["# Full DFO-LS optimization of {} with 8 mA space charge in the loop".format(os.path.basename(RUN)), "",
-     "Knobs: k' tilt, angling, gamma, V-depth, entrance and exit truncation, dz, q1, q2, gap (the design voltage scales with the gap; "
+L = ["# Full DFO-LS optimization of {} with {} mA space charge in the loop".format(os.path.basename(RUN), a.current_ma), "",
+     "Knobs: k' tilt, angling, gamma, V-depth, entrance and exit truncation, dz, " + ", ".join(QN) + ", gap (the design voltage scales with the gap; "
      "the operating voltage is the inner centering solve). Rotation R = {:+.3f} deg fixed; spiral basis re-solved per evaluation on the "
      "run's {:.1f} mm grid, quad bases reused; {} core particles, {} mA, {:.0f} mm cells. Residuals: rms vertical angle / 3 mrad, "
      "(floor - T) / 1 point below the floor of {:.1f} %, centroid height / 0.3 mm, centroid angle / 2 mrad. DFO-LS: {} evaluations, "
@@ -265,8 +287,8 @@ for e in sorted(evals, key=lambda e: e["objective"]):
 L += ["", "The design exit radius is not in the objective; it follows k' (about -0.6 mm per degree). "
       "`FullOptRadius.py --run <this run>` tabulates it per evaluation -> `full_opt_radius.md`."]
 L += ["", "Best knobs for the final push: `full_opt/best_knobs.json` (RunFinalPush --knobs-json it --fix-truncations {:.3f} {:.3f} --fix-dz {:.6f} "
-      "--q1 {:.0f} {:.0f} 1 --q2 {:.0f} {:.0f} 1 --fine-step 0), then the plate-rule R iterates to its fixed point there.".format(
-          xb[4], xb[5], 1e-3 * xb[6], xb[7], xb[7], xb[8], xb[8])]
+      "{} --fine-step 0), then the plate-rule R iterates to its fixed point there.".format(
+          xb[4], xb[5], 1e-3 * xb[6], " ".join("--{} {:.0f} {:.0f} 1".format(q, xb[NAMES.index(q)], xb[NAMES.index(q)]) for q in QN))]
 with open(os.path.join(RUN, "full_opt.md"), "w", encoding="utf-8") as fh:
     fh.write("\n".join(L) + "\n")
 stamp("report -> {}; best {} f {:.3f} vs seed {:.3f}".format(os.path.join(RUN, "full_opt.md"), best["tag"], best["objective"], seed["objective"]))
