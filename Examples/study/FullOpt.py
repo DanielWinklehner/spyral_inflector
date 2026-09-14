@@ -170,8 +170,19 @@ def measure(out_dir, tag):
         ok &= ~d["is_tail"]
     z, v = st[ok, 2], st[ok, 3:6]
     zp = v[:, 2] / np.hypot(v[:, 0], v[:, 1])
-    z100 = z + 0.1 * zp                                   # ballistic height 100 mm downstream, per particle
-    return {"z": float(z.mean()), "zp": float(zp.mean()), "z_rms": float(z.std()), "zp_rms": float(zp.std()), "z100_rms": float(z100.std()),
+    # the hand-off plane (electrode exit, machine frame) is where the cyclotron sets its injection cut: the laptop's
+    # 2026-09-14 A/Bs put the survival cliff at ~40 mrad rms of z' THERE, while the 55 mm plane compresses beams that
+    # differ by 11 points of survival into 33-36 mrad. Angle and proxy are therefore measured at the hand-off plane.
+    hs = d["handoff_state"] if "handoff_state" in d.files else None
+    okh = ok & np.all(np.isfinite(hs), axis=1) if hs is not None else np.zeros(len(ok), bool)
+    if okh.sum() >= 100:
+        zh, vh = hs[okh, 2], hs[okh, 3:6]
+        zph = vh[:, 2] / np.hypot(vh[:, 0], vh[:, 1])
+        zp_h_rms, z100 = float(zph.std()), zh + 0.1 * zph          # ballistic height 100 mm past the hand-off plane
+    else:
+        zp_h_rms, z100 = float(zp.std()), z + 0.1 * zp
+    return {"z": float(z.mean()), "zp": float(zp.mean()), "z_rms": float(z.std()), "zp_rms": float(zp.std()), "zp_h_rms": zp_h_rms,
+            "z100_rms": float(z100.std()),
             "transmission": float(s["transmission"]), "n": int(ok.sum()), "voltage_V": s.get("voltages", {}).get("SI_Anode")}
 
 
@@ -181,7 +192,7 @@ T_FLOOR = a.t_floor          # set after the seed evaluation if None
 def residuals(m):
     if m is None:
         return np.array([10.0] * (5 if a.w_z100 > 0 else 4))
-    r = [1e3 * m["zp_rms"] / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01, 1e3 * m["z"] / 0.3, 1e3 * m["zp"] / 2.0]
+    r = [1e3 * m.get("zp_h_rms", m["zp_rms"]) / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01, 1e3 * m["z"] / 0.3, 1e3 * m["zp"] / 2.0]
     if a.w_z100 > 0:
         r.append(a.w_z100 * 1e3 * m.get("z100_rms", 0.0) / 5.0)
     return np.array(r)
@@ -237,8 +248,8 @@ def evaluate(x):
     if m is None:
         stamp("  {} FAILED ({:.0f} s): {} | {}".format(tag, e["wall_s"], err, " ".join("{}={:g}".format(n, v) for n, v in zip(NAMES, x))))
     else:
-        stamp("  {} ({:.0f} s): angle {:.1f} mrad rms, T {:.1f} %, centroid {:+.2f} mm / {:+.1f} mrad, V {} -> f {:.3f} | {}".format(
-            tag, e["wall_s"], 1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"],
+        stamp("  {} ({:.0f} s): angle {:.1f} mrad rms at the hand-off ({:.1f} at 55 mm), T {:.1f} %, centroid {:+.2f} mm / {:+.1f} mrad, proxy {:.1f} mm, V {} -> f {:.3f} | {}".format(
+            tag, e["wall_s"], 1e3 * m.get("zp_h_rms", m["zp_rms"]), 1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], 1e3 * m.get("z100_rms", 0.0),
             "-" if m["voltage_V"] is None else "{:.0f}".format(m["voltage_V"]), e["objective"],
             " ".join("{}={:g}".format(n, v) for n, v in zip(NAMES, x))))
     return e
@@ -284,20 +295,20 @@ with open(os.path.join(OUT, "best_knobs.json"), "w") as fh:
 L = ["# Full DFO-LS optimization of {} with {} mA space charge in the loop".format(os.path.basename(RUN), a.current_ma), "",
      "Knobs: k' tilt, angling, gamma, V-depth, entrance and exit truncation, dz, " + ", ".join(QN) + ", gap, vscale (the design voltage scales with the gap; "
      "the operating voltage is vscale x the inner centering solve). Rotation R = {:+.3f} deg fixed; spiral basis re-solved per evaluation on the "
-     "run's {:.1f} mm grid, quad bases reused; {} core particles, {} mA, {:.0f} mm cells. Residuals: rms vertical angle / 3 mrad, "
+     "run's {:.1f} mm grid, quad bases reused; {} core particles, {} mA, {:.0f} mm cells. Residuals: rms vertical angle AT THE HAND-OFF PLANE / 3 mrad, "
      "(floor - T) / 1 point below the floor of {:.1f} %, centroid height / 0.3 mm, centroid angle / 2 mrad. DFO-LS: {} evaluations, "
      "flag {} ({}).".format(R, 1e3 * GRID_RES, a.n, a.current_ma, 1e3 * a.h, 100 * T_FLOOR, soln.nf, soln.flag, soln.msg), "",
-     "| | " + " | ".join(NAMES) + " | angle [mrad] | T | centroid [mm / mrad] | f |", "|---|" + "---|" * (len(NAMES) + 4)]
+     "| | " + " | ".join(NAMES) + " | angle at hand-off [mrad] | angle at 55 mm | T | centroid [mm / mrad] | f |", "|---|" + "---|" * (len(NAMES) + 5)]
 for label, e in (("seed", seed), ("best", best)):
     m = e["measure"]
     L.append("| {} | ".format(label) + " | ".join("{:g}".format(v) for v in e["x"]) +
-             " | {:.1f} | {:.1f} % | {:+.2f} / {:+.1f} | {:.3f} |".format(1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], e["objective"]))
-L += ["", "## All evaluations (sorted by objective)", "", "| tag | " + " | ".join(NAMES) + " | angle | T | height | z' | f |", "|---|" + "---|" * (len(NAMES) + 5)]
+             " | {:.1f} | {:.1f} | {:.1f} % | {:+.2f} / {:+.1f} | {:.3f} |".format(1e3 * m.get("zp_h_rms", m["zp_rms"]), 1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], e["objective"]))
+L += ["", "## All evaluations (sorted by objective)", "", "| tag | " + " | ".join(NAMES) + " | angle hand-off | angle 55 mm | T | height | z' | f |", "|---|" + "---|" * (len(NAMES) + 6)]
 for e in sorted(evals, key=lambda e: e["objective"]):
     m = e["measure"]
     L.append("| {} | ".format(e["tag"]) + " | ".join("{:g}".format(v) for v in e["x"]) +
-             (" | {:.1f} | {:.1f} % | {:+.2f} | {:+.1f} | {:.3f} |".format(1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], e["objective"])
-              if m else " | FAILED | | | | {} |".format(e["error"])))
+             (" | {:.1f} | {:.1f} | {:.1f} % | {:+.2f} | {:+.1f} | {:.3f} |".format(1e3 * m.get("zp_h_rms", m["zp_rms"]), 1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], e["objective"])
+              if m else " | FAILED | | | | | {} |".format(e["error"])))
 L += ["", "The design exit radius is not in the objective; it follows k' (about -0.6 mm per degree). "
       "`FullOptRadius.py --run <this run>` tabulates it per evaluation -> `full_opt_radius.md`."]
 L += ["", "Best knobs for the final push: `full_opt/best_knobs.json` (RunFinalPush --knobs-json it --fix-truncations {:.3f} {:.3f} --fix-dz {:.6f} "
