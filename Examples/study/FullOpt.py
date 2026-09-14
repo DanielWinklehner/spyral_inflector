@@ -53,6 +53,11 @@ p.add_argument("--bounds", type=float, nargs="+", default=None,
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
 p.add_argument("--keep-basis", action="store_true", help="keep every evaluation's basis field (large)")
+p.add_argument("--w-z100", type=float, default=0.0,
+               help="weight of an aperture proxy residual: rms ballistic height 100 mm past the measurement plane (z + 0.1 z') / 5 mm. "
+                    "0 (default) = off. The exit metrics alone do not rank designs for the cyclotron (2026-09-14: a variant gained 2.5 "
+                    "core points at the exit and lost 11 points of vertical survival in the machine); this proxy penalizes a beam that "
+                    "has spread vertically by the first-turn apertures")
 a = p.parse_args()
 
 # NAMES / UNITS / LO / HI are set after the seed is read: the run says how many quads there are
@@ -161,7 +166,8 @@ def measure(out_dir, tag):
         ok &= ~d["is_tail"]
     z, v = st[ok, 2], st[ok, 3:6]
     zp = v[:, 2] / np.hypot(v[:, 0], v[:, 1])
-    return {"z": float(z.mean()), "zp": float(zp.mean()), "z_rms": float(z.std()), "zp_rms": float(zp.std()),
+    z100 = z + 0.1 * zp                                   # ballistic height 100 mm downstream, per particle
+    return {"z": float(z.mean()), "zp": float(zp.mean()), "z_rms": float(z.std()), "zp_rms": float(zp.std()), "z100_rms": float(z100.std()),
             "transmission": float(s["transmission"]), "n": int(ok.sum()), "voltage_V": s.get("voltages", {}).get("SI_Anode")}
 
 
@@ -170,8 +176,11 @@ T_FLOOR = a.t_floor          # set after the seed evaluation if None
 
 def residuals(m):
     if m is None:
-        return np.array([10.0, 10.0, 10.0, 10.0])
-    return np.array([1e3 * m["zp_rms"] / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01, 1e3 * m["z"] / 0.3, 1e3 * m["zp"] / 2.0])
+        return np.array([10.0] * (5 if a.w_z100 > 0 else 4))
+    r = [1e3 * m["zp_rms"] / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01, 1e3 * m["z"] / 0.3, 1e3 * m["zp"] / 2.0]
+    if a.w_z100 > 0:
+        r.append(a.w_z100 * 1e3 * m.get("z100_rms", 0.0) / 5.0)
+    return np.array(r)
 
 
 def evaluate(x):
