@@ -48,6 +48,9 @@ p.add_argument("--q2", type=float, nargs=3, default=[-11000, -5000, 4], metavar=
 p.add_argument("--q3", type=float, nargs=3, default=[2000, 8000, 4], metavar=("MIN", "MAX", "N"))
 p.add_argument("--n-scan", type=int, default=1000)
 p.add_argument("--rank-tol", type=float, default=0.05)
+p.add_argument("--rank-key", choices=("vfom_h", "vfom"), default="vfom_h",
+               help="what the vertical ranking minimizes: vfom_h = rms vertical angle at the HAND-OFF plane (the cyclotron's injection "
+                    "cut; default since 2026-09-14), vfom = the value 55 mm past the exit (the old metric, which hides that cut)")
 p.add_argument("--fix-entrance", type=float, default=0.34)
 p.add_argument("--maxiter", type=int, default=4)
 p.add_argument("--geo-res", type=float, default=0.005)
@@ -151,11 +154,12 @@ if not os.path.exists(scan_json):
          "--basis", "spiral", "q1", "q1skew", "q2", "q2skew", "q3", "q3skew", "--phi", 90.0 + R, "--particles", args.particles,
          "--n", args.n_scan, "--q1", args.q1[0], args.q1[1], int(args.q1[2]), "--q2", args.q2[0], args.q2[1], int(args.q2[2]),
          "--q3", args.q3[0], args.q3[1], int(args.q3[2]), "--alpha3"] + list(args.alpha3) +
-        ["--tag", args.tag, "--rank", "vert", "--rank-tol", args.rank_tol], os.path.join(OUT, "log_scan_{}.txt".format(args.tag)))
+        ["--tag", args.tag, "--rank", ("vert_h" if args.rank_key == "vfom_h" else "vert"), "--rank-tol", args.rank_tol], os.path.join(OUT, "log_scan_{}.txt".format(args.tag)))
 sc = jload(scan_json)
-rows = [r for r in sc["results"] if r.get("vfom") is not None]
+KEY = args.rank_key                     # "vfom_h": rms vertical angle at the hand-off plane; "vfom": at 55 mm (the old metric)
+rows = [r for r in sc["results"] if r.get(KEY) is not None]
 t_max = max(r["transmission"] for r in rows)
-cands = sorted([r for r in rows if r["transmission"] >= t_max - args.rank_tol], key=lambda r: (r["vfom"], -r["transmission"]))
+cands = sorted([r for r in rows if r["transmission"] >= t_max - args.rank_tol], key=lambda r: (r[KEY], -r["transmission"]))
 best = cands[0]
 by_t = max(rows, key=lambda r: r["transmission"])
 
@@ -163,19 +167,20 @@ by_t = max(rows, key=lambda r: r["transmission"])
 L = ["# Triplet scan {}".format(args.name), "",
      "Shape sigma {:.1f} mm, angling {:g}, gamma {:g}; quads {} mm long at rotations {} deg on top of R = {:+.3f} deg; design orbit "
      "V {:.0f} V, dz {:+.2f} mm, exit truncation {}. Grid {}x{}x{} voltages x quad-3 rotations {} at {} particles, {:.0f} mm fields; "
-     "ranking: rms vertical angle vz/v_long at 55 mm past the exit within {:.0f} points of the best transmission.".format(
+     "ranking: rms vertical angle vz/v_long {} within {:.0f} points of the best transmission.".format(
          1e3 * knobs["sigma"], knobs["angling"], knobs["gamma"], [1e3 * x for x in args.lens], args.quads, R, opt["voltage_V"], opt["dz_mm"],
          "{:.2f} deg".format(opt["truncations_deg"][1]) if opt.get("truncations_deg") else "-", int(args.q1[2]), int(args.q2[2]), int(args.q3[2]),
-         args.alpha3, args.n_scan, 1e3 * args.res, 100 * args.rank_tol), "",
-     "Best transmission on the grid: {:.1f} % at q1 {:+.0f} / q2 {:+.0f} / q3 {:+.0f} V (+{:g} deg on quad 3), {:.1f} mrad.".format(
-         100 * by_t["transmission"], by_t["q1"], by_t["q2"], by_t["q3"], by_t.get("alpha3", 0), by_t["vfom"]), "",
-     "**Vertically ranked best: {:.1f} mrad rms at {:.1f} %**, q1 {:+.0f} / q2 {:+.0f} / q3 {:+.0f} V (+{:g} deg on quad 3); "
-     "z rms {:.1f} mm at 55 mm, envelope {:.1f} mm.".format(100 * 0 + best["vfom"], 100 * best["transmission"], best["q1"], best["q2"], best["q3"],
+         args.alpha3, args.n_scan, 1e3 * args.res,
+         "AT THE HAND-OFF PLANE (the cyclotron's injection cut, cliff near 40 mrad)" if KEY == "vfom_h" else "at 55 mm past the exit", 100 * args.rank_tol), "",
+     "Best transmission on the grid: {:.1f} % at q1 {:+.0f} / q2 {:+.0f} / q3 {:+.0f} V (+{:g} deg on quad 3), {:.1f} mrad at the hand-off / {:.1f} at 55 mm.".format(
+         100 * by_t["transmission"], by_t["q1"], by_t["q2"], by_t["q3"], by_t.get("alpha3", 0), by_t.get("vfom_h") or float("nan"), by_t["vfom"]), "",
+     "**Vertically ranked best ({}): {:.1f} mrad rms at the hand-off, {:.1f} at 55 mm, at {:.1f} %**, q1 {:+.0f} / q2 {:+.0f} / q3 {:+.0f} V (+{:g} deg on quad 3); "
+     "z rms {:.1f} mm at 55 mm, envelope {:.1f} mm.".format(KEY, best.get("vfom_h") or float("nan"), best["vfom"], 100 * best["transmission"], best["q1"], best["q2"], best["q3"],
                                                             best.get("alpha3", 0), best["z_asym_rms_mm"], best.get("z_env_mean_mm") or float("nan")), "",
-     "| rank | q1 | q2 | q3 | +alpha3 | transmission | z' rms [mrad] | z rms [mm] | spiral loss |", "|---|---|---|---|---|---|---|---|---|"]
+     "| rank | q1 | q2 | q3 | +alpha3 | transmission | z' rms hand-off [mrad] | z' rms 55 mm | z rms [mm] | spiral loss |", "|---|---|---|---|---|---|---|---|---|---|"]
 for i, r in enumerate(cands[:15]):
-    L.append("| {} | {:+.0f} | {:+.0f} | {:+.0f} | {:g} | {:.1f} % | {:.1f} | {:.1f} | {:.1f} % |".format(
-        i + 1, r["q1"], r["q2"], r["q3"], r.get("alpha3", 0), 100 * r["transmission"], r["vfom"], r["z_asym_rms_mm"], 100 * r["lost_spiral"]))
+    L.append("| {} | {:+.0f} | {:+.0f} | {:+.0f} | {:g} | {:.1f} % | {:.1f} | {:.1f} | {:.1f} | {:.1f} % |".format(
+        i + 1, r["q1"], r["q2"], r["q3"], r.get("alpha3", 0), 100 * r["transmission"], r.get("vfom_h") or float("nan"), r["vfom"], r["z_asym_rms_mm"], 100 * r["lost_spiral"]))
 L += ["", "Doublet reference: take it from Results/vfocus/vfocus1/report.md (5 mm screen) or a final-push run's own quad scan "
       "at the SAME basis-field resolution and particle count as this scan. Do NOT compare a 2.5 mm triplet number with a "
       "5 mm doublet number: halving the basis grid is worth about 13 mrad and 9 transmission points on this geometry "
@@ -186,5 +191,5 @@ with open(os.path.join(OUT, "report.md"), "w", encoding="utf-8") as fh:
 with open(os.path.join(OUT, "summary.json"), "w") as fh:
     json.dump({"args": vars(args), "knobs": knobs, "R_deg": R, "optimizer": opt, "best": best, "best_transmission": by_t,
                "n_points": len(rows)}, fh, indent=2)
-stamp("done: best {:.1f} mrad at {:.1f} % (q {:+.0f}/{:+.0f}/{:+.0f}, +{:g} deg); report -> {}".format(
-    best["vfom"], 100 * best["transmission"], best["q1"], best["q2"], best["q3"], best.get("alpha3", 0), os.path.join(OUT, "report.md")))
+stamp("done: best {:.1f} mrad ({}) at {:.1f} % (q {:+.0f}/{:+.0f}/{:+.0f}, +{:g} deg); report -> {}".format(
+    best[KEY], KEY, 100 * best["transmission"], best["q1"], best["q2"], best["q3"], best.get("alpha3", 0), os.path.join(OUT, "report.md")))
