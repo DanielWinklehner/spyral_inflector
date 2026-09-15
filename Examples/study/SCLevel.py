@@ -112,7 +112,8 @@ best = jload(bj if os.path.isabs(bj) else os.path.join(RUN, bj) if os.path.exist
 quads = []                                    # (voltage, skew angle) per quad, N from the run
 for _i in range(1, n_quads + 1):
     quads += [best["q{}".format(_i)], best.get("alpha{}".format(_i), 0.0)]
-if best.get("q3") is not None:
+if n_quads < 3 and best.get("q3") is not None:
+    # the 2-quad runs with a third, scan-only quad (triplet2wide); a 3-quad run already has q3 from the loop
     quads += [best["q3"], best.get("alpha3", 0.0)]
 # the re-solved spiral basis must sit on the run's basis grid (superposition needs identical grids)
 from PyPATools.field import Field  # noqa: E402
