@@ -55,6 +55,9 @@ p.add_argument("--bounds", type=float, nargs="+", default=None,
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
 p.add_argument("--keep-basis", action="store_true", help="keep every evaluation's basis field (large)")
+p.add_argument("--out-name", default="full_opt",
+               help="name of the output / cache folder inside the run (default full_opt). A run with a different objective "
+                    "(e.g. --w-de) must use its own folder: cached measures of an older objective lack the new terms")
 p.add_argument("--w-de", type=float, default=0.0,
                help="weight of the hand-off energy-spread residual (rms kinetic energy at the hand-off plane / 1 keV). 0 (default) = off. "
                     "2026-09-15: the central region's bar ends take the particles below ~65 keV (29 %% of the doublet hand-off, 3.3 keV "
@@ -71,7 +74,7 @@ a = p.parse_args()
 RUN = os.path.abspath(a.run)
 BASE = os.path.abspath(a.base_run) if a.base_run else RUN
 BASIS0, STEPS0 = os.path.join(RUN, "basis"), os.path.join(RUN, "steps")
-OUT = os.path.join(RUN, "full_opt")
+OUT = os.path.join(RUN, a.out_name)
 os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, "log.txt"), "a", encoding="utf-8")
 
@@ -215,7 +218,9 @@ def evaluate(x):
     x = np.asarray(x, dtype=float)
     key = key_of(x)
     for e in evals:
-        if e["key"] == key:
+        if e["key"] == key and e["measure"] is not None:
+            # a cached FAILURE is re-evaluated on resume: 2026-09-15 a memory squeeze on the desktop poisoned the GPU
+            # host-memory pool and evaluations e041.. failed in seconds; replaying those as failures would be pointless
             return e
     idx = len(evals)
     tag = "e{:03d}".format(idx)
@@ -328,6 +333,6 @@ L += ["", "The design exit radius is not in the objective; it follows k' (about 
 L += ["", "Best knobs for the final push: `full_opt/best_knobs.json` (RunFinalPush --knobs-json it --fix-truncations {:.3f} {:.3f} --fix-dz {:.6f} "
       "{} --fine-step 0), then the plate-rule R iterates to its fixed point there; level with SCLevel --vscale {:.4f}.".format(
           xb[4], xb[5], 1e-3 * xb[6], " ".join("--{} {:.0f} {:.0f} 1".format(q, xb[NAMES.index(q)], xb[NAMES.index(q)]) for q in QN), xb[NAMES.index("vscale")])]
-with open(os.path.join(RUN, "full_opt.md"), "w", encoding="utf-8") as fh:
+with open(os.path.join(RUN, a.out_name + ".md"), "w", encoding="utf-8") as fh:
     fh.write("\n".join(L) + "\n")
-stamp("report -> {}; best {} f {:.3f} vs seed {:.3f}".format(os.path.join(RUN, "full_opt.md"), best["tag"], best["objective"], seed["objective"]))
+stamp("report -> {}; best {} f {:.3f} vs seed {:.3f}".format(os.path.join(RUN, a.out_name + ".md"), best["tag"], best["objective"], seed["objective"]))
