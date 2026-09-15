@@ -55,6 +55,10 @@ p.add_argument("--bounds", type=float, nargs="+", default=None,
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
 p.add_argument("--keep-basis", action="store_true", help="keep every evaluation's basis field (large)")
+p.add_argument("--w-de", type=float, default=0.0,
+               help="weight of the hand-off energy-spread residual (rms kinetic energy at the hand-off plane / 1 keV). 0 (default) = off. "
+                    "2026-09-15: the central region's bar ends take the particles below ~65 keV (29 %% of the doublet hand-off, 3.3 keV "
+                    "rms, 71 %% correlated with height); a 3 keV beam at weight 3 weighs like the 33 mrad angle residual")
 p.add_argument("--w-z100", type=float, default=0.0,
                help="weight of an aperture proxy residual: rms ballistic height 100 mm past the measurement plane (z + 0.1 z') / 5 mm. "
                     "0 (default) = off. The exit metrics alone do not rank designs for the cyclotron (2026-09-14: a variant gained 2.5 "
@@ -175,14 +179,21 @@ def measure(out_dir, tag):
     # differ by 11 points of survival into 33-36 mrad. Angle and proxy are therefore measured at the hand-off plane.
     hs = d["handoff_state"] if "handoff_state" in d.files else None
     okh = ok & np.all(np.isfinite(hs), axis=1) if hs is not None else np.zeros(len(ok), bool)
+    # 2026-09-15: the energy spread at the hand-off is the longitudinal channel of the central region (the bar ends take
+    # the particles below ~65 keV: 29 % of the doublet's hand-off, 3.3 keV rms, 71 % correlated with the height because
+    # the spiral's exit potential varies with z). Reported always, in the objective only with --w-dE > 0.
+    M_H2P_KG = 3.3462e-27                                             # 2 protons + 1 electron
+    dT_rms_keV, f_low = 0.0, 0.0
     if okh.sum() >= 100:
         zh, vh = hs[okh, 2], hs[okh, 3:6]
         zph = vh[:, 2] / np.hypot(vh[:, 0], vh[:, 1])
         zp_h_rms, z100 = float(zph.std()), zh + 0.1 * zph          # ballistic height 100 mm past the hand-off plane
+        T_keV = 0.5 * M_H2P_KG * np.sum(vh ** 2, axis=1) / 1.602176634e-19 / 1e3
+        dT_rms_keV, f_low = float(T_keV.std()), float(np.mean(T_keV < 0.965 * T_keV.mean()))
     else:
         zp_h_rms, z100 = float(zp.std()), z + 0.1 * zp
     return {"z": float(z.mean()), "zp": float(zp.mean()), "z_rms": float(z.std()), "zp_rms": float(zp.std()), "zp_h_rms": zp_h_rms,
-            "z100_rms": float(z100.std()),
+            "z100_rms": float(z100.std()), "dT_rms_keV": dT_rms_keV, "f_low_energy": f_low,
             "transmission": float(s["transmission"]), "n": int(ok.sum()), "voltage_V": s.get("voltages", {}).get("SI_Anode")}
 
 
@@ -191,10 +202,12 @@ T_FLOOR = a.t_floor          # set after the seed evaluation if None
 
 def residuals(m):
     if m is None:
-        return np.array([10.0] * (5 if a.w_z100 > 0 else 4))
+        return np.array([10.0] * (4 + (1 if a.w_z100 > 0 else 0) + (1 if a.w_de > 0 else 0)))
     r = [1e3 * m.get("zp_h_rms", m["zp_rms"]) / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01, 1e3 * m["z"] / 0.3, 1e3 * m["zp"] / 2.0]
     if a.w_z100 > 0:
         r.append(a.w_z100 * 1e3 * m.get("z100_rms", 0.0) / 5.0)
+    if a.w_de > 0:
+        r.append(a.w_de * m.get("dT_rms_keV", 0.0) / 1.0)            # 1 keV rms of hand-off energy spread = one unit
     return np.array(r)
 
 
@@ -248,8 +261,9 @@ def evaluate(x):
     if m is None:
         stamp("  {} FAILED ({:.0f} s): {} | {}".format(tag, e["wall_s"], err, " ".join("{}={:g}".format(n, v) for n, v in zip(NAMES, x))))
     else:
-        stamp("  {} ({:.0f} s): angle {:.1f} mrad rms at the hand-off ({:.1f} at 55 mm), T {:.1f} %, centroid {:+.2f} mm / {:+.1f} mrad, proxy {:.1f} mm, V {} -> f {:.3f} | {}".format(
+        stamp("  {} ({:.0f} s): angle {:.1f} mrad rms at the hand-off ({:.1f} at 55 mm), T {:.1f} %, centroid {:+.2f} mm / {:+.1f} mrad, proxy {:.1f} mm, dE {:.2f} keV ({:.0f} % low), V {} -> f {:.3f} | {}".format(
             tag, e["wall_s"], 1e3 * m.get("zp_h_rms", m["zp_rms"]), 1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], 1e3 * m.get("z100_rms", 0.0),
+            m.get("dT_rms_keV", 0.0), 100 * m.get("f_low_energy", 0.0),
             "-" if m["voltage_V"] is None else "{:.0f}".format(m["voltage_V"]), e["objective"],
             " ".join("{}={:g}".format(n, v) for n, v in zip(NAMES, x))))
     return e
