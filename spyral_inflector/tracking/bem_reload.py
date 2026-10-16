@@ -20,9 +20,18 @@ import numpy as np
 
 from ..meshclean import clean_surface_mesh
 from .deck import (SPECIES, Z_START, read_voltages, set_quad_voltages, set_spiral_voltage, load_state,
-                   load_step_assembly, rotate_quads, rotate_assembly, shift_assembly, mesh_assembly, quad_index)
+                   load_step_assembly, rotate_quads, rotate_assembly, shift_assembly, mesh_assembly, quad_index,
+                   isolated_quad_drop, quad_names)
 
 DEFAULT_BOX = (-0.10, 0.10, -0.10, 0.10, -0.29, 0.06)
+
+# The potential is built in sub-domains to bound peak memory; with overlap=0 the result is
+# BIT-IDENTICAL whatever the split, but each sub-domain costs a fixed bempp overhead. So take
+# as FEW as the memory allows. Measured 2026-09-19, 41x41x71 grid against 18,098 elements:
+# 64 sub-domains (the old fixed 4x4x4) 19.6 s, 8 sub-domains 3.9 s, 1 sub-domain 1.9 s.
+# The chooser lives with calculate_potential, which is where every other caller reaches it.
+from ..field_solving import (POTENTIAL_BYTES_PER_ENTRY, POTENTIAL_MEMORY_FRACTION,  # noqa: F401
+                             available_bytes, auto_domain_decomp)
 
 
 def _path_length(r):
@@ -191,8 +200,9 @@ def rotate_state(state, deg):
 
 
 def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0025, h=0.005,
-                        quad_voltages=None, spiral_voltage=None, rotate=None, box=DEFAULT_BOX, domain_decomp=(4, 4, 4),
-                        test_particle=True, nsteps_axis=2400, energy_mev=0.069337, rotate_all=0.0, shift_all=0.0, log=print):
+                        quad_voltages=None, spiral_voltage=None, rotate=None, box=DEFAULT_BOX, domain_decomp=None,
+                        test_particle=True, nsteps_axis=2400, energy_mev=0.069337, rotate_all=0.0, shift_all=0.0,
+                        drop=None, isolate_quad=None, log=print):
     """Solve the STEP assembly with bempp and save the field and the design state.
 
     voltages: dict or voltages.csv of the geometry build; quad_voltages=(q1, q2[, q3]) and
@@ -201,7 +211,11 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     WHOLE assembly (every electrode, and the design orbit of the state) about z by that
     angle first, i.e. a rigid rotation of the inflector system in the magnet; shift_all
     translates the whole assembly and the design orbit along z by that amount [m]. state:
-    the geometry build's state.pickle (design orbit). Returns the summary of reload_<tag>.json.
+    the geometry build's state.pickle (design orbit). `drop` removes electrodes from the solve
+    by name (exact, or a trailing * for a prefix), for a basis field whose source is shielded
+    from them -- measured 2026-09-19: dropping the quad line from the SPIRAL basis moves it by
+    0.28 % rms where the field matters, against the 1.4 % two honest re-solves differ by.
+    Returns the summary of reload_<tag>.json.
     """
     from PyPATools.particles import ParticleDistribution
     from PyPATools.species import IonSpecies
@@ -222,6 +236,22 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     t0 = time.time()
     assembly = load_step_assembly(step_dir, volts, name="{} from STEP".format(tag))
     log("loaded {} electrodes from {} in {:.1f} s".format(len(assembly.electrodes), step_dir, time.time() - t0))
+    if isolate_quad is not None:
+        # everything but this quad's poles and the axisymmetric plates of the quad line, so the
+        # solved field can be rotated about z instead of re-solved at every quad rotation
+        auto = isolated_quad_drop([e.name for e in assembly.electrodes.values()], int(isolate_quad))
+        drop = sorted(set(list(drop or []) + auto))
+        log("   isolating quad {} ({}): the field of this sub-assembly is rotatable about z".format(
+            int(isolate_quad) + 1, ", ".join(quad_names(int(isolate_quad)))))
+    if drop:
+        gone = []
+        for uid, e in list(assembly.electrodes.items()):
+            if any(e.name == d or (d.endswith("*") and e.name.startswith(d[:-1])) for d in drop):
+                assembly.electrodes.pop(uid)
+                gone.append(e.name)
+        if not assembly.electrodes:
+            raise RuntimeError("--drop removed every electrode")
+        log("   dropped {} electrode(s) from the solve: {}".format(len(gone), ", ".join(sorted(gone))))
     if rotate_all:
         rotate_assembly(assembly, rotate_all)
         log("   whole assembly rotated about z by {} deg".format(rotate_all))
@@ -255,7 +285,10 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     t_solve = time.time() - t0
     b = box
     t0 = time.time()
-    si.calculate_potential(limits=((b[0], b[1]), (b[2], b[3]), (b[4], b[5])), res=res, domain_decomp=tuple(domain_decomp), overlap=0)
+    _shape = [int(round((b[2 * i + 1] - b[2 * i]) / res)) + 1 for i in range(3)]
+    dd = (auto_domain_decomp(_shape, int(mesh["elems"].shape[1]), log=log) if domain_decomp is None
+          else tuple(domain_decomp))
+    si.calculate_potential(limits=((b[0], b[1]), (b[2], b[3]), (b[4], b[5])), res=res, domain_decomp=dd, overlap=0)
     si.calculate_efield()
     t_pot = time.time() - t0
     log("BEM solve {:.1f} s, potential+field {:.1f} s".format(t_solve, t_pot))
@@ -278,6 +311,8 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     summary = {"tag": tag, "step_dir": step_dir, "voltages": electrode_voltages, "rotate_quads": list(rotate) if rotate else [0.0, 0.0],
                "mesh_clean": mesh_clean,
                "rotate_all_deg": float(rotate_all or 0.0),
+               "isolated_quad": (None if isolate_quad is None else int(isolate_quad)),
+               "dropped": sorted(drop) if drop else [],
                "n_triangles": int(mesh["elems"].shape[1]), "res_m": res, "h_m": h, "solve_s": t_solve, "potential_s": t_pot,
                "mesh_comparison_mm": mesh_cmp, "quad_field_check": quad_check, "surface_field": surface}
     if not test_particle or "track_r" not in state:
@@ -347,15 +382,27 @@ def main(argv=None):
     p.add_argument("--rotate-quads", type=float, nargs="+", default=None, metavar="A", help="one angle per quad [deg]; 45 deg = skew basis")
     p.add_argument("--shift-all", type=float, default=0.0, help="translate the whole assembly and the design orbit along z [m]")
     p.add_argument("--rotate-all", type=float, default=0.0, help="rigid rotation of the whole assembly and the design orbit about z [deg]")
+    p.add_argument("--drop", nargs="+", default=None, metavar="NAME",
+                   help="electrodes to leave OUT of the solve, by name; a trailing * matches a prefix "
+                        "(e.g. --drop 'D*' ent0 ext0 ext4 for the quad line)")
+    p.add_argument("--isolate-quad", type=int, default=None, metavar="N",
+                   help="solve quadrupole N (1-based) ALONE with the grounded plates of the quad line: "
+                        "everything else is dropped, which leaves only surfaces of revolution about z "
+                        "besides the poles, so the solved field can be ROTATED to any quad angle "
+                        "instead of re-solved. Solve it at --rotate-all 0 --rotate-quads 0 ...")
     p.add_argument("--no-test", action="store_true", help="skip the test particle (basis fields without the spiral field)")
     p.add_argument("--box", type=float, nargs=6, default=list(DEFAULT_BOX), metavar=("XMIN", "XMAX", "YMIN", "YMAX", "ZMIN", "ZMAX"))
-    p.add_argument("--domain-decomp", type=int, nargs=3, default=[4, 4, 4])
+    p.add_argument("--domain-decomp", type=int, nargs=3, default=None,
+                   help="sub-domains of the potential grid; default: chosen from the free memory, "
+                        "which is as few as will fit (they cost a fixed overhead each and change nothing)")
     p.add_argument("--nsteps-axis", type=int, default=2400)
     p.add_argument("--energy-mev", type=float, default=0.069337)
     a = p.parse_args(argv)
     return solve_step_assembly(a.step_dir, a.voltages, a.state, a.out_dir, a.tag, a.bfield, res=a.res, h=a.h,
-                               quad_voltages=a.quad_voltages, spiral_voltage=a.spiral_voltage, rotate=a.rotate_quads,
-                               box=tuple(a.box), domain_decomp=tuple(a.domain_decomp), test_particle=not a.no_test,
+                               quad_voltages=a.quad_voltages, spiral_voltage=a.spiral_voltage, rotate=a.rotate_quads, drop=a.drop,
+                               isolate_quad=(None if a.isolate_quad is None else a.isolate_quad - 1),
+                               box=tuple(a.box), domain_decomp=(tuple(a.domain_decomp) if a.domain_decomp else None),
+                               test_particle=not a.no_test,
                                nsteps_axis=a.nsteps_axis, energy_mev=a.energy_mev, rotate_all=a.rotate_all, shift_all=a.shift_all,
                                log=lambda m: print(m, flush=True))
 

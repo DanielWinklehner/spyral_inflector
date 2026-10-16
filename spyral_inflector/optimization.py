@@ -72,7 +72,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
                                            (ys - 0.5 * _hcl, ys + 0.5 * _hcl),
                                            (zs - 1.9 * _hcl, zs + 0.1 * _hcl)),
                                    res=res,
-                                   domain_decomp=(4, 4, 4),
+                                   domain_decomp=None,
                                    overlap=0)
 
         si.calculate_efield()
@@ -159,7 +159,7 @@ def optimize_fringe(si, initial_guess=(None, None), maxiter=10, tol=1e-1, res=0.
                                            (ys - 2.0 * _hcl, ys + 2.0 * _hcl),
                                            (zs - _hcl, zs + _hcl)),
                                    res=res,
-                                   domain_decomp=(4, 4, 4),
+                                   domain_decomp=None,
                                    overlap=0)
 
         si.calculate_efield()
@@ -712,7 +712,7 @@ def _evaluate_trajectory(si, x, ctx):
 def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_voltage=True,
                         exclude_quadrupoles=True,
                         tol_angle=0.05, tol_offset=0.2e-3, tol_width=0.5e-3,
-                        res=0.005, domain_decomp=(3, 3, 3), z_start=None, dt=1e-10, nsteps=1600,
+                        res=0.005, domain_decomp=None, z_start=None, dt=1e-10, nsteps=1600,
                         fd_steps=(0.5, 0.5, 1.0e-3, 0.01),
                         bounds=((0.0, 15.0), (0.0, 15.0), (-15.0e-3, 15.0e-3), (0.9, 1.1)),
                         max_step=(3.0, 3.0, 6.0e-3, 0.03),

@@ -93,6 +93,13 @@ t0 = time.time()
 print("Reading {}".format(os.path.basename(args.src)))
 if args.src.lower().endswith((".h5part", ".h5")):
     x, y, z, raw = read_h5part(args.src, args.group)
+elif args.src.lower().endswith(".vtu"):
+    # COMSOL VTK unstructured export of the regular grid (PyPATools load_vtu, 2026-09-15); sign handled by --mode
+    from PyPATools.field_src.field_loaders import load_vtu
+    d = load_vtu(args.src)
+    x, y, z = d["grid"]["x"], d["grid"]["y"], d["grid"]["z"]
+    raw = {c: d["values"][c] for c in "xyz"}
+    print("  {:,d} nodes read from the .vtu ({}; {:.0f} s)".format(d["metadata"]["array_length"], d["metadata"]["layout"], time.time() - t0), flush=True)
 else:
     x, y, z, raw = read_comsol_text(args.src)
 nx, ny, nz = len(x), len(y), len(z)

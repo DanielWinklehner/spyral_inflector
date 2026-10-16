@@ -18,7 +18,7 @@ DEFAULT_KNOBS = dict(
     volt=12000.0, gap=0.019, tilt=31.0, dx=0.01, sigma=0.0022, aspect=2.4, gamma=5.0, angling=11.0,
     quad_bore=0.013, quad_z1=-0.27, quad_z2=-0.19, quad_len=0.045, quad_len2=None, shared_plates=False,
     n_quads=2, quad_z3=None, quad_len3=None,
-    aper_hole=0.0125, entrance_hole=None, plate_gap=0.001, plate_thickness=0.005,
+    aper_hole=0.0125, entrance_hole=None, entrance_rect=None, exit_rects=None, plate_gap=0.001, plate_thickness=0.005,
     slot_width=0.015, slot_length=0.040, exit_opening=None,
     housing_gap=0.006, housing_thickness=0.004, top_distance=0.005, bottom_distance=0.010, rotation=0.0,
     q2_exit_plate=True,
@@ -32,6 +32,10 @@ KNOB_HELP = {
     "n_quads": "2 (doublet) or 3 (triplet)", "quad_z3": "quad 3 start z [m] (shared_plates: derived)", "quad_len3": "quad 3 length [m] (default: quad_len)",
     "shared_plates": "one grounded plate between the quads (quad 2 then starts at z1 + len1 + 2 plate_gap + plate_thickness)",
     "aper_hole": "quad aperture hole radius [m]", "entrance_hole": "hole radius of the first plate [m] (default: aper_hole)",
+    "entrance_rect": "[half-width u, half-height w [m], angle [deg]]: a RECTANGULAR first-plate hole instead of the round one; "
+                     "u is turned by angle from the deck x axis (the plate turns with the assembly, not with quad 1)",
+    "exit_rects": "per quad, None or [half-width u, half-height w [m], angle [deg]]: a RECTANGULAR hole in the plate AFTER "
+                  "that quad (index 0 = the plate between quads 1 and 2) instead of the round aper_hole",
     "plate_gap": "axial gap between a quad's aperture plates and its pole ends [m]", "plate_thickness": "quad aperture plate thickness [m]",
     "slot_width": "inflector entrance slot width (gap direction) [m]", "slot_length": "inflector entrance slot length [m]",
     "exit_opening": "housing exit opening (across, along the tilted gap) [m] (default: the entrance slot)",
@@ -79,6 +83,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     from PyPATools.species import IonSpecies
     from ..spyral_inflector import SpiralInflector
     from .deck import SPECIES, write_voltages
+    from .export import HOUSING_OUTLINE_NAME, write_housing_outline
 
     log = log or (lambda m: print(m, flush=True))
     k = dict(DEFAULT_KNOBS)
@@ -125,7 +130,13 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
                                                      "plate_gap": k["plate_gap"], "plate_thickness": k["plate_thickness"],
                                                      "shared_plates": bool(k["shared_plates"]),
                                                      "last_exit_plate": bool(k["q2_exit_plate"]),
-                                                     "entrance_aper_rad": 2.0 * (k["entrance_hole"] if k["entrance_hole"] else k["aper_hole"])})
+                                                     "entrance_aper_rad": 2.0 * (k["entrance_hole"] if k["entrance_hole"] else k["aper_hole"]),
+                                                     **({"entrance_hole_rect": (2.0 * float(k["entrance_rect"][0]), 2.0 * float(k["entrance_rect"][1]),
+                                                                                float(np.radians(float(k["entrance_rect"][2]))))}
+                                                        if k.get("entrance_rect") else {}),
+                                                     **({"exit_hole_rects": [(2.0 * float(x[0]), 2.0 * float(x[1]), float(np.radians(float(x[2]))))
+                                                                             if x else None for x in k["exit_rects"]]}
+                                                        if k.get("exit_rects") else {})})
     si.generate_geometry()
     log("  geometry generated ({:.0f} s)".format(time.time() - t_start))
 
@@ -186,9 +197,63 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     rmtree_retry(steps_dir, log=log)
     os.makedirs(steps_dir)
     for i, electrode in enumerate(assembly.electrodes.values()):
-        if electrode.export(os.path.join(steps_dir, "{:03d}_{}.step".format(i, names[i]))) != 0:
+        if electrode.export(os.path.join(steps_dir, "{:03d}_{}.stp".format(i, names[i]))) != 0:
             raise RuntimeError("STEP export failed for {}".format(electrode.name))
     log("  exported {} STEP files -> {}".format(len(names), steps_dir))
+    # the negative space between the two spiral electrodes as an extra CAD object (Daniel, 2026-10-16); its
+    # "_negative" suffix keeps every STEP-folder loader from taking it for an electrode. A failure here must not
+    # stop a build.
+    try:
+        from ..geometry import generate_gap_volume
+        from .export import GAP_VOLUME_NAME
+        import gmsh as _gmsh
+        _gap_fn = os.path.join(steps_dir, GAP_VOLUME_NAME)
+        if generate_gap_volume(si).export(_gap_fn) != 0:
+            raise RuntimeError("export failed")
+        _gmsh.initialize()
+        try:
+            _gmsh.option.setNumber("General.Terminal", 0)
+            _gmsh.model.occ.importShapes(_gap_fn)
+            _gmsh.model.occ.synchronize()
+            _vol = sum(_gmsh.model.occ.getMass(3, t) for _d, t in _gmsh.model.getEntities(3))
+        finally:
+            _gmsh.finalize()
+        log("  gap volume between the spiral electrodes: {:.1f} cm3 -> {}".format(1e6 * _vol, GAP_VOLUME_NAME))
+    except Exception as exc:  # noqa: BLE001
+        log("  gap volume export failed: {}".format(exc))
+    # the closest approach of the two spiral electrodes (Daniel, 2026-10-15: they nearly touched at the
+    # exit end on the e071 / e016e shapes -- a guaranteed spark); every build reports it
+    try:
+        from .electrode_gap import electrode_gap
+        gap_info = electrode_gap(steps_dir)
+        v_ac = abs(electrode_voltages.get("SI_Anode", 0.0) - electrode_voltages.get("SI_Cathode", 0.0))
+        log("  electrode gap: anode-cathode minimum {:.2f} mm at z {:+.1f} mm, r {:.1f} mm, azimuth {:+.1f} deg "
+            "({:.1f} kV across it: {:.1f} kV/mm)".format(gap_info["min_mm"], gap_info["z_mm"], gap_info["r_mm"],
+                                                        gap_info["azimuth_deg"], 1e-3 * v_ac,
+                                                        1e-3 * v_ac / max(gap_info["min_mm"], 1e-6)))
+    except Exception as exc:  # noqa: BLE001
+        log("  electrode gap check failed: {}".format(exc))
+        gap_info = None
+    # The central region wants the housing as a shape rather than as this solid, so write what
+    # the solid was made from: the polygon the wall is extruded from and the four corners of the
+    # exit opening. Same frame as the STEP files just written - the electrode's own rotation and
+    # translation (the centering shift) applied exactly as PyElectrode.export applies them.
+    _hs = assembly.get_electrode_by_name("Housing")
+    _ol = getattr(_hs, "outline", None) if _hs is not None else None
+    if _ol:
+        _xy = _hs._transformation.apply_to_points(
+            np.column_stack([_ol["outer"], np.zeros(len(_ol["outer"]))]))[:, :2]
+        _ap = _hs._transformation.apply_to_points(np.array(_ol["aperture"], dtype=float))
+        write_housing_outline(os.path.join(steps_dir, HOUSING_OUTLINE_NAME), _xy, _ap,
+                              curves=_ol.get("outer_curves"),
+                              comments=("geometry: {}".format(out_dir),
+                                        "the housing solid is this polygon extruded over z = {:+.4f} .. {:+.4f} m "
+                                        "with a {:.1f} mm wall inwards and {:.1f} mm clearance to the electrodes."
+                                        .format(_ol["z_min"], _ol["z_max"], 1e3 * _ol["thickness"], 1e3 * _ol["gap"]),
+                                        "the exit opening is {:.1f} x {:.1f} mm (along the gap x across it)."
+                                        .format(1e3 * _ol["aperture_size"][0], 1e3 * _ol["aperture_size"][1])))
+        log("  housing outline: {} outer vertices + 4 aperture corners -> {}".format(
+            len(_xy), os.path.join(steps_dir, HOUSING_OUTLINE_NAME)))
     # surface field of the last BEM solve (the optimized voltage), per electrode
     from .bem_reload import surface_field_stats
     try:
@@ -202,7 +267,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     out = {"steps_dir": steps_dir, "voltages_csv": volt_fn, "state_pickle": state_fn, "knobs": k, "energy_mev": energy_mev,
            "fixed_truncations_deg": list(fix_truncations), "fix_dz_m": fix_dz, "res_m": res, "optimizer": optimizer,
            "voltage": result["voltage"], "dz_mm": 1e3 * result["dz"], "surface_field": sf, "surface_mesh_h_m": h,
-           "wall_s": time.time() - t_start}
+           "electrode_gap": gap_info, "wall_s": time.time() - t_start}
     with open(os.path.join(out_dir, "summary.json"), "w") as fh:
         json.dump(out, fh, indent=2)
     del si

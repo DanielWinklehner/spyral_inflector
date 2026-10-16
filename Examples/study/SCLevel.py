@@ -43,7 +43,7 @@ p.add_argument("--quads", type=float, nargs="+", default=None, help="basis rotat
 p.add_argument("--base-run", default=os.path.join(DECK, "Results", "final", "final1"), help="the rotated field the run's geometry was optimized in")
 p.add_argument("--n", type=int, default=5000)
 p.add_argument("--h", type=float, default=0.004)
-p.add_argument("--resolve-every", type=int, default=16)
+p.add_argument("--resolve-every", type=int, default=10)   # 10 since 2026-09-15 23:50 (was 16)
 p.add_argument("--current-ma", type=float, default=8.0)
 p.add_argument("--vscale", type=float, default=1.0, help="operating spiral voltage as a multiple of the gap-centering value (FullOpt _vscale)")
 p.add_argument("--dt", type=float, default=0.3, help="finite-difference step of the exit truncation [deg]")
@@ -55,6 +55,17 @@ p.add_argument("--tol-z", type=float, default=0.3e-3, help="[m]")
 p.add_argument("--tol-zp", type=float, default=2.0e-3, help="[rad]")
 p.add_argument("--res", type=float, default=None, help="resolution of the re-solved spiral basis [m]; default: the run's basis grid (and its box)")
 p.add_argument("--geo-h", type=float, default=0.005)
+p.add_argument("--geo-res", type=float, default=0.005,
+               help="potential grid of the design-orbit solve in each geometry rebuild [m]. Must "
+                    "match what the run's shape was optimized at: measured 2026-09-19, 5 mm and "
+                    "2.5 mm put the design point 0.263 deg of exit truncation and 0.130 mm of dz "
+                    "apart while both report residuals inside tolerance")
+p.add_argument("--keep-quad-poles", dest="drop_quad_poles", action="store_false",
+               help="leave the grounded quad POLES in the re-solved spiral basis. They are dropped "
+                    "by default since 2026-09-19, to MATCH the quad bases: those are now solved in "
+                    "isolation (QuadBases.py), so a spiral basis that keeps the poles is not the "
+                    "combination that was validated. Measured effect on the spiral field of "
+                    "dropping them, with the bounding plates kept: 0.003 %% of peak")
 p.add_argument("--final", action="store_true")
 p.add_argument("--final-h", type=float, default=0.002)
 p.add_argument("--final-resolve-every", type=int, default=8)
@@ -142,14 +153,14 @@ def geometry_for(t_exit):
             shutil.rmtree(gdir)
         stamp("  geometry at exit truncation {:.3f} deg (dz {:+.2f} mm fixed, voltage from the centering solve)".format(t_exit, 1e3 * dz0))
         build_geometry(gdir, sdir, ROT_BF, ENERGY, knobs=knobs, fix_truncations=(t_ent, t_exit), fix_dz=dz0, maxiter=0,
-                       res=0.005, h=a.geo_h, log=stamp)
+                       res=a.geo_res, h=a.geo_h, log=stamp)
     os.makedirs(bdir, exist_ok=True)
     if not os.path.exists(os.path.join(bdir, "ef_itp_spiral.pickle")):
         stamp("  spiral basis field of that geometry")
         run_cmd(["-m", "spyral_inflector.tracking.bem_reload", "--tag", "spiral", "--step-dir", sdir, "--voltages", os.path.join(gdir, "voltages.csv"),
                  "--state", os.path.join(gdir, "state.pickle"), "--out-dir", bdir, "--res", GRID_RES, "--box"] + GRID_BOX +
                 ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * n_quads +
-                ["--energy-mev", ENERGY],
+                ["--energy-mev", ENERGY] + (["--drop", "D*"] if a.drop_quad_poles else []),
                 os.path.join(bdir, "log_basis_spiral.txt"))
     for fn in quad_basis_files:
         if not os.path.exists(os.path.join(bdir, fn)):
@@ -186,7 +197,8 @@ def evaluate(t_exit, dz, label):
     tag = "lvl_{}".format(label)
     if not os.path.exists(os.path.join(OUT, "bunch_{}.json".format(tag))):
         t0 = time.time()
-        bunch(bdir, sdir, tag, ["--n", a.n, "--sc", "--h", a.h, "--resolve-every", a.resolve_every, "--shift-z", "{:.10f}".format(dz - dz0), "--no-plot"])
+        bunch(bdir, sdir, tag, ["--n", a.n] + (["--sc", "--h", a.h, "--resolve-every", a.resolve_every] if a.current_ma > 0 else []) +
+              ["--shift-z", "{:.10f}".format(dz - dz0), "--no-plot"])
         stamp("  {}: {:.0f} s".format(tag, time.time() - t0))
     m = measure(tag)
     m.update(t_exit=t_exit, dz=dz, tag=tag, basis=bdir)
@@ -228,7 +240,7 @@ for it in range(1, a.iters + 1):
 stamp("levelled: exit truncation {:.3f} deg, dz {:+.2f} mm -> height {:+.2f} mm, angle {:+.1f} mrad ({})".format(
     t_exit, 1e3 * dz, 1e3 * cur["z"], 1e3 * cur["zp"], "converged" if converged else "not converged"))
 with open(os.path.join(OUT, "sc_level.json"), "w") as fh:
-    json.dump({"vscale": a.vscale, "quads": quads, "quad_rotation_deg": QROT, "history": history, "t_exit_deg": t_exit, "dz_m": dz, "dz0_m": dz0,
+    json.dump({"vscale": a.vscale, "current_ma": a.current_ma, "n": a.n, "h_m": a.h, "resolve_every": a.resolve_every, "bfield": a.bfield, "particles": a.particles, "quads": quads, "quad_rotation_deg": QROT, "history": history, "t_exit_deg": t_exit, "dz_m": dz, "dz0_m": dz0,
                "shift_z_m": dz - dz0, "converged": converged, "basis": cur["basis"]}, fh, indent=2)
 
 # ---------------------------------------------------------------- final runs at the levelled setting
@@ -236,8 +248,11 @@ final = {}
 if a.final:
     bdir = cur["basis"]
     sdir = STEPS0 if bdir == BASIS0 else os.path.join(os.path.dirname(bdir), "steps")
-    for tag, extra in (("sc_all_level", ["--sc", "--h", a.final_h, "--resolve-every", a.final_resolve_every, "--sc-min-particles", 200]),
-                       ("vac_all_level", [])):
+    runs = [("vac_all_level", [])]
+    if a.current_ma > 0:      # at 0 mA the space-charge run IS the vacuum run; do not run it twice
+        runs.insert(0, ("sc_all_level", ["--sc", "--h", a.final_h, "--resolve-every", a.final_resolve_every,
+                                         "--sc-min-particles", 200]))
+    for tag, extra in runs:
         if not os.path.exists(os.path.join(OUT, "bunch_{}.json".format(tag))):
             stamp("final run {}: every particle (core + injected tail) at truncation {:.3f} deg, dz {:+.2f} mm".format(tag, t_exit, 1e3 * dz))
             t0 = time.time()
@@ -264,7 +279,8 @@ L += ["", "**Levelled: exit truncation {:.3f} deg, dz {:+.2f} mm (shift {:+.2f} 
     t_exit, 1e3 * dz, 1e3 * (dz - dz0), 1e3 * cur["z"], 1e3 * cur["zp"], "converged" if converged else "not converged")]
 if final:
     L += ["", "## Every particle at the levelled setting", "", "| run | transmitted | core | tail | height [mm] | angle [mrad] | rms angle |", "|---|---|---|---|---|---|---|"]
-    for tag, label in (("vac_all_level", "vacuum"), ("sc_all_level", "{:g} mA".format(a.current_ma))):
+    for tag, label in ([("vac_all_level", "vacuum")] +
+                       ([("sc_all_level", "{:g} mA".format(a.current_ma))] if a.current_ma > 0 else [])):
         m = final.get(tag)
         if not m:
             continue

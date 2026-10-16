@@ -157,7 +157,9 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("  design exit    : r = {:.4f} m, point {} m".format(r_exit, np.round(trj[-1], 4)))
 
     # ------------------------------------------------------------------ space charge
-    e_total = CompositeField([e_vac, Field.zero(dim=3)], [1.0, 1.0])
+    # the space-charge slot is only needed with --sc: a vacuum run evaluated a zero field (a scipy 3-D interpolator)
+    # at every step for nothing (2026-09-15 audit 7.7); adding exact zeros, so dropping it is bit-identical
+    e_total = CompositeField([e_vac, Field.zero(dim=3)], [1.0, 1.0]) if sc else e_vac
     interactions = []
     sc_obj = None
     sc_info = {}
@@ -189,7 +191,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         charges = np.full(len(r0), q_bunch / len(r0))
         log("  bunch charge   : {:.4e} C = {:.4e} C per macro-particle".format(q_bunch, charges[0]))
         sc_obj = SpaceCharge(solver, e_total, charges, resolve_every, min_particles=sc_min_particles)
-        sc_obj.solve_now(r0, alive0.copy(), 0, verbose=True)   # field for the first steps (the tail is not there yet)
+        sc_obj.solve_now(r0, alive0.copy(), 0, verbose=True, v=v0, dt=dt)   # field for the first steps (the tail is not there yet)
         interactions.append(sc_obj)
         sc_info = {"current_mA": current_ma, "rf_MHz": rf_mhz, "bunch_charge_C": q_bunch, "h_m": h, "cells": list(cells),
                    "box_lo_m": lo.tolist(), "box_hi_m": hi.tolist(), "n_conductor_cells": n_cond, "n_boundary_cells": n_bnd,
@@ -215,7 +217,13 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     trajectories = TrajectoryRecorder(len(r0), n_record=record)
     # full 6-D snapshots every snapshot_every steps from step 0 (emittance along the line, EmittanceAlongLine.py)
     snaps = SnapshotRecorder(range(0, 10 ** 6, int(snapshot_every))) if snapshot_every else None
-    tracker = Tracker(Pusher(ion, algorithm="rk4_rel"), e_total, b_field, interactions=interactions,
+    # 2026-09-15: SI_PUSHER picks the integrator; 'boris_rel' (synchronized relativistic Boris, one field evaluation
+    # per step) replaced rk4_rel (four) after the 1000-particle vacuum regression and its half-step check.
+    # default boris_rel since 2026-09-15 23:45: 1000-particle vacuum regression identical in transmission and losses,
+    # hand-off velocities within 6e-5 relative, z at the exit within 2 um; SI_PUSHER=rk4_rel restores the RK4.
+    pusher_alg = os.environ.get("SI_PUSHER", "boris_rel")
+    log("  pusher         : {} ({} steps of {:.1e} s){}".format(pusher_alg, nsteps, dt, "; self-field carried with the bunch between solves" if (sc and sc_obj is not None and sc_obj.move) else ""))
+    tracker = Tracker(Pusher(ion, algorithm=pusher_alg), e_total, b_field, interactions=interactions,
                       terminators=[exit_plane, collision, handoff],
                       recorders=[envelope, trajectories] + [s for s in (snapshot, snaps) if s is not None])
     n_run = nsteps
@@ -280,7 +288,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         "exit_offset_mean_m": float(np.nanmean(exit_plane.offset[crossed])) if crossed.any() else None,
         "voltages": state["electrode_voltages"], "efield": efield_fn, "particles": particles, "step_dir": step_dir,
         "assembly_rotation_deg": rot_all, "shift_z_m": shift_z, "vscale": vscale,
-        "phi_deg": phi, "swap_xy": bool(swap_xy), "nsteps": nsteps, "dt": dt, "wall_time_s": wall,
+        "phi_deg": phi, "swap_xy": bool(swap_xy), "nsteps": nsteps, "dt": dt, "wall_time_s": wall, "pusher": pusher_alg, "sc_move": bool(sc_obj.move) if sc_obj else None,
         "tail": tail_info,
     }
     if superpose:

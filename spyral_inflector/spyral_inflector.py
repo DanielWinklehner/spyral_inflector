@@ -698,7 +698,7 @@ if __name__ == "__main__":
     print("Calculating electric field...")
     si.calculate_potential(res=0.002,
                            limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                           domain_decomp=(7, 7, 7))
+                           domain_decomp=None)
     si.calculate_efield()
     print("Calculating field took {:.4f} s".format(time.time() - ts))
 

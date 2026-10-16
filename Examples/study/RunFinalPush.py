@@ -46,12 +46,17 @@ p.add_argument("--comsol", default=None, help="COMSOL text export in the Baselin
 p.add_argument("--bfield", default=None, help="an existing field pickle instead of phase 1")
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--gap-azimuth", type=float, default=34.0)
+p.add_argument("--rotation-rule", choices=("offset", "parallel"), default="offset",
+               help="offset: the plate's outer face lands half a gap before the gap's radial plane. "
+                    "parallel: the plate is turned parallel to that plane instead, and stands off it "
+                    "by whatever the geometry gives (one rotation cannot do both).")
 p.add_argument("--half-gap", type=float, default=0.005, help="[m] along the exit face normal")
 p.add_argument("--no-q2-exit-plate", action="store_true",
                help="quad 2 terminated by the inflector entrance plate; its length is then derived at build time to end one plate_gap before it")
 p.add_argument("--quad-len2", type=float, default=None, help="override quad 2 length [m] (ignored with --no-q2-exit-plate)")
 p.add_argument("--fix-truncations", type=float, nargs=2, default=[0.34, 0.77])
 p.add_argument("--free-exit-truncation", action="store_true", help="the exit truncation is a knob of the design-orbit optimizer (with dz)")
+p.add_argument("--free-truncations", action="store_true", help="BOTH truncations are knobs of the design-orbit optimizer (with dz)")
 p.add_argument("--fix-dz", type=float, default=None,
                help="hold the axial shift at this value [m] instead of optimizing it (e.g. the dz of a space-charge levelling; "
                     "with both truncations fixed only the voltage centering solve runs)")
@@ -72,6 +77,7 @@ p.add_argument("--sc-min-particles", type=int, default=200)
 p.add_argument("--handoff-distance", type=float, default=0.0, help="[m] of design path past the electrode exit")
 p.add_argument("--r-tol", type=float, default=0.2, help="re-optimize until the rotation moves by less than this [deg]")
 p.add_argument("--crop-xy", type=float, default=0.15)
+p.add_argument("--fix-rotation", type=float, default=None, metavar="DEG", help="hold the system rotation R at this value instead of solving it from the exit-plane rule (a machine with no central region yet: R is free and is chosen for the fit in the pole gap); the exit-plane spec is still measured and written, its own rotation kept as rule_rotation_deg")
 p.add_argument("--quick", action="store_true", help="rehearsal settings: coarse grids, few particles, 5 mm fields")
 p.add_argument("--phases", default="1-11", help="e.g. 6-11")
 args = p.parse_args()
@@ -83,7 +89,8 @@ if args.quick:
 lo, hi = (args.phases.split("-") + [args.phases])[:2]
 PHASES = set(range(int(lo), int(hi) + 1))
 
-OUT = os.path.join(DECK, "Results", "final", args.name)
+RESULTS = os.environ.get("SI_RESULTS") or os.path.join(DECK, "Results")   # 2026-09-15: new runs on a local SSD (E:), not Dropbox
+OUT = os.path.join(RESULTS, "final", args.name)
 os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, "log_run.txt"), "a", encoding="utf-8")
 T_START = time.time()
@@ -127,7 +134,8 @@ if args.knobs_json:
     knobs.update({k: v for k, v in json.load(open(args.knobs_json)).items() if not k.startswith("_")})
 if args.no_q2_exit_plate:
     knobs["q2_exit_plate"] = False
-TRUNC = (args.fix_truncations[0], None if args.free_exit_truncation else args.fix_truncations[1])
+TRUNC = (None if args.free_truncations else args.fix_truncations[0],
+         None if (args.free_truncations or args.free_exit_truncation) else args.fix_truncations[1])
 if args.quad_len2 is not None:
     knobs["quad_len2"] = args.quad_len2
 BFIELD = args.bfield or os.path.join(DECK, "Fields", "{}_baseline_1mm.pickle".format(args.name))
@@ -135,7 +143,9 @@ stamp("FINAL PUSH '{}' -> {}".format(args.name, OUT))
 stamp("  phases {}, field {}, particles {}{}".format(sorted(PHASES), BFIELD, os.path.basename(args.particles),
                                                     " [QUICK]" if args.quick else ""))
 stamp("  knobs {}".format(knobs))
-stamp("  truncations {} (None = free), quad retune ranked by {}".format(TRUNC, args.rank))
+stamp("  truncations {} (None = free), dz {}, rotation rule '{}' at {:g} deg, quad retune ranked by {}".format(
+    TRUNC, "fixed at {:+.2f} mm".format(1e3 * args.fix_dz) if args.fix_dz is not None else "free",
+    args.rotation_rule, args.gap_azimuth, args.rank))
 
 from spyral_inflector.tracking.deck import particle_rows, load_bfield  # noqa: E402
 from spyral_inflector.tracking.frames import to_deck_frame, rotate_bfield_z, bfield_frame  # noqa: E402
@@ -210,8 +220,17 @@ if 2 in PHASES and not done(2):
 if 3 in PHASES and not done(3):
     stamp("phase 3: exit plate and rotation")
     spec0 = exit_plane_spec(STEPS0, os.path.join(GEO0, "state.pickle"), args.gap_azimuth, args.half_gap,
-                            out_json=os.path.join(OUT, "exit_plane_R0.json"), log=stamp)
-    mark(3, {"R0": spec0["rotation_deg"]})
+                            out_json=os.path.join(OUT, "exit_plane_R0.json"), log=stamp,
+                            rule=args.rotation_rule)
+    if args.fix_rotation is not None:
+        # R held: the spec keeps its own answer under rule_rotation_deg, everything downstream reads rotation_deg
+        j = jload(os.path.join(OUT, "exit_plane_R0.json"))
+        j["rule_rotation_deg"], j["rotation_deg"] = j["rotation_deg"], float(args.fix_rotation)
+        with open(os.path.join(OUT, "exit_plane_R0.json"), "w") as fh:
+            json.dump(j, fh, indent=1)
+        stamp("  rotation HELD at {:+.3f} deg (the {} rule at {:g} deg would have given {:+.3f})".format(
+            args.fix_rotation, args.rotation_rule, args.gap_azimuth, j["rule_rotation_deg"]))
+    mark(3, {"R0": float(args.fix_rotation) if args.fix_rotation is not None else spec0["rotation_deg"]})
 R = jload(os.path.join(OUT, "exit_plane_R0.json"))["rotation_deg"] if os.path.exists(os.path.join(OUT, "exit_plane_R0.json")) else None
 GEO, STEPS = os.path.join(OUT, "geometry"), os.path.join(OUT, "steps")
 ROT_BF = os.path.join(OUT, "bfield_rotated.pickle")
@@ -228,8 +247,16 @@ if 5 in PHASES and not done(5):
         build_geometry(GEO, STEPS, ROT_BF, ENERGY, knobs=knobs, fix_truncations=TRUNC, fix_dz=args.fix_dz,
                        maxiter=args.maxiter, res=args.geo_res, log=stamp)
         spec = exit_plane_spec(STEPS, os.path.join(GEO, "state.pickle"), args.gap_azimuth, args.half_gap,
-                               out_json=os.path.join(OUT, "exit_plane.json"), log=stamp)
+                               out_json=os.path.join(OUT, "exit_plane.json"), log=stamp,
+                               rule=args.rotation_rule)
         R_new = spec["rotation_deg"]
+        if args.fix_rotation is not None:
+            j = jload(os.path.join(OUT, "exit_plane.json"))
+            j["rule_rotation_deg"], j["rotation_deg"] = j["rotation_deg"], float(args.fix_rotation)
+            with open(os.path.join(OUT, "exit_plane.json"), "w") as fh:
+                json.dump(j, fh, indent=1)
+            R_new = float(args.fix_rotation)
+            stamp("  rotation HELD at {:+.3f} deg (rule would give {:+.3f})".format(R_new, j["rule_rotation_deg"]))
         stamp("  rotation {:+.3f} -> {:+.3f} deg (change {:+.3f})".format(R, R_new, R_new - R))
         history.append(R_new)
         if abs(R_new - R) <= args.r_tol:
@@ -241,8 +268,9 @@ if 5 in PHASES and not done(5):
     mark(5, {"R_history": history, "R": R, "optimizer": state_of(GEO)["optimizer"]})
 if os.path.exists(os.path.join(OUT, "exit_plane.json")):
     R = jload(os.path.join(OUT, "exit_plane.json"))["rotation_deg"]
-PHI = BASE_PHI + R
-stamp("  system rotation R = {:+.3f} deg, beam angle {:+.3f} deg".format(R, PHI))
+PHI = BASE_PHI + R if R is not None else None   # R is None when only phase 1 was asked for (phases 1-1)
+if R is not None:
+    stamp("  system rotation R = {:+.3f} deg, beam angle {:+.3f} deg".format(R, PHI))
 
 # ---------------------------------------------------------------- 6. basis fields of the rotated system
 BASIS = os.path.join(OUT, "basis")
@@ -306,7 +334,8 @@ if 10 in PHASES and not done(10):
     stamp("phase 10: exports in the Baseline frame (mm)")
     os.makedirs(EXP, exist_ok=True)
     files = steps_to_baseline_mm(STEPS, os.path.join(EXP, "steps_baseline_mm"), rotation_deg=R, quad_rotation=QUADS,
-                                 combined="HCHC60_inflector_{}_baseline_mm.step".format(args.name), log=stamp)
+                                 combined="{}_inflector_{}_baseline_mm.stp".format(os.environ.get("SI_MACHINE", "HCHC60"), args.name),
+                                 log=stamp)
     field_to_machine_frame(os.path.join(BASIS, "ef_itp_fine_best.pickle"), os.path.join(EXP, "efield_fine_best_baseline.pickle"))
     for fn in ("handoff_vac_all.h5", "handoff_sc_all.h5"):
         if os.path.exists(os.path.join(BASIS, fn)):

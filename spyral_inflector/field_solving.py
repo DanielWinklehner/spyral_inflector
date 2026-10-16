@@ -95,10 +95,79 @@ def calculate_efield_fenics(si):
     return 0
 
 
+POTENTIAL_BYTES_PER_ENTRY = 8.0        # the dense (points x elements) block bempp builds per sub-domain
+POTENTIAL_MEMORY_FRACTION = 0.35       # of free physical memory, leaving room for the rest of the run
+
+
+def available_bytes(default_gb=8.0):
+    """Free physical memory. psutil is not in the deck environment, so Windows is asked directly
+    (GlobalMemoryStatusEx) and POSIX through sysconf; the guess is the last resort, and taking it
+    silently would quietly leave the machine two thirds idle on a 108 GB box."""
+    try:
+        import psutil
+        return float(psutil.virtual_memory().available)
+    except Exception:
+        pass
+    try:
+        import ctypes
+
+        class _MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        m = _MEMORYSTATUSEX()
+        m.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            return float(m.ullAvailPhys)
+    except Exception:
+        pass
+    try:
+        import os as _os
+        return float(_os.sysconf("SC_AVPHYS_PAGES") * _os.sysconf("SC_PAGE_SIZE"))
+    except Exception:
+        return default_gb * 1024 ** 3
+
+
+def auto_domain_decomp(grid_shape, n_elements, budget_bytes=None, log=print):
+    """The coarsest decomposition whose dense block still fits in memory.
+
+    With overlap=0 the decomposition is pure memory chunking -- the potential it produces is
+    bit-identical whatever the split -- but each sub-domain carries a fixed bempp overhead of
+    roughly a quarter second, so splitting more finely than memory requires is pure loss. The
+    hardcoded defaults this replaces (3x3x3, 4x4x4, 7x7x7) were set for the largest case and
+    paid 27, 64 or 343 times that overhead on every grid.
+    """
+    budget = float(budget_bytes if budget_bytes is not None
+                   else POTENTIAL_MEMORY_FRACTION * available_bytes())
+    dec = [1, 1, 1]
+    shape = [max(1, int(n)) for n in grid_shape]
+
+    def block(d):
+        per = [-(-shape[i] // d[i]) for i in XYZ]            # cells per sub-domain, rounded up
+        return float(per[X] * per[Y] * per[Z]) * float(n_elements) * POTENTIAL_BYTES_PER_ENTRY
+
+    # split the axis with the most cells per sub-domain until the block fits; the bound is one
+    # sub-domain per cell, which is the finest decomposition there is, so this always terminates
+    while block(dec) > budget and any(dec[i] < shape[i] for i in XYZ):
+        dec[int(np.argmax([shape[j] / dec[j] for j in XYZ]))] += 1
+    need = block(dec)
+    log("potential grid {}x{}x{} against {} elements -> domain decomposition {}x{}x{} "
+        "({} sub-domain(s), {:.2f} GB each, budget {:.2f} GB)".format(
+            shape[X], shape[Y], shape[Z], n_elements, dec[X], dec[Y], dec[Z],
+            dec[X] * dec[Y] * dec[Z], need / 1024 ** 3, budget / 1024 ** 3))
+    if need > budget:
+        log("   WARNING: even one cell per sub-domain needs {:.2f} GB; the grid or the mesh is "
+            "too big for this machine".format(need / 1024 ** 3))
+    return tuple(dec)
+
+
 def calculate_potential(si,
                         limits=((None, None), (None, None), (None, None)),
                         res=0.002,
-                        domain_decomp=(4, 4, 4),
+                        domain_decomp=None,
                         overlap=0):
     # TODO: Add some of the debug stuff back in
 
@@ -157,6 +226,8 @@ def calculate_potential(si,
 
     # Index borders (can be float). Lists, not a 2-D array: the three directions may
     # be decomposed into different numbers of blocks.
+    if domain_decomp is None:
+        domain_decomp = auto_domain_decomp(_n, int(_mesh_data["elems"].shape[1]))
     borders = [np.linspace(0, _n[i], domain_decomp[i] + 1) for i in XYZ]
 
     # Indices (must be int)

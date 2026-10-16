@@ -42,9 +42,27 @@ p.add_argument("--best-json", default="basis\\scan2_coarse.json", help="scan jso
 p.add_argument("--quads", type=float, nargs="+", default=[16.0, 24.0], help="basis rotation of the quads on top of R [deg], one per quad (the run says how many)")
 p.add_argument("--n", type=int, default=8000)
 p.add_argument("--h", type=float, default=0.004)
-p.add_argument("--resolve-every", type=int, default=16)
+p.add_argument("--resolve-every", type=int, default=10)   # 10 since 2026-09-15 23:50 (was 16)
 p.add_argument("--current-ma", type=float, default=8.0)
 p.add_argument("--geo-h", type=float, default=0.005)
+p.add_argument("--hold-quads", action="store_true",
+               help="take the quad voltages OUT of the optimizer's knob vector and hold them at the "
+                    "seed. Pinning them by bounds instead leaves them in the vector, so DFO-LS still "
+                    "spends one of its n+1 model-building evaluations on each -- three ~150 s "
+                    "evaluations perturbing a voltage across a 2 V bound. The full vector is still "
+                    "what is evaluated, cached and reported, so caches stay interchangeable")
+p.add_argument("--geo-res", type=float, default=0.005,
+               help="potential grid of the geometry build's design-orbit solve [m]. Measured "
+                    "2026-09-19: 5 mm and 2.5 mm put the converged design point 0.263 deg of exit "
+                    "truncation and 0.130 mm of dz apart, while BOTH report residuals inside "
+                    "tolerance -- so this is an accuracy knob, not a speed one")
+p.add_argument("--keep-quad-poles", dest="drop_quad_poles", action="store_false",
+               help="leave the grounded quad POLES in the per-evaluation spiral solve. They are "
+                    "dropped by default since 2026-09-19: measured against a solve that keeps them, "
+                    "the spiral field moves 0.003 %% of peak (the bounding plates, which do the "
+                    "shielding, stay), while the mesh drops ~26 %% -- at geo-h 4 mm that is 43.3k "
+                    "elements and a 15.0 GB dense block, right at this card's 16 GiB, against ~32k "
+                    "and 8.3 GB with them out")
 p.add_argument("--maxfun", type=int, default=80)
 p.add_argument("--rhobeg", type=float, default=0.12, help="initial trust region as a fraction of the bound ranges")
 p.add_argument("--rhoend", type=float, default=0.01)
@@ -55,6 +73,11 @@ p.add_argument("--bounds", type=float, nargs="+", default=None,
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
 p.add_argument("--keep-basis", action="store_true", help="keep every evaluation's basis field (large)")
+p.add_argument("--keep-npz", action="store_true",
+               help="keep each evaluation's hand-off npz (~1 MB at n=4000) instead of deleting it. The npz carries "
+                    "handoff_time / handoff_state, so any hand-off quantity can be recomputed later without re-running. "
+                    "2026-09-16: their absence is why bunch length was unrecoverable for the 135 evaluations of 09-13/15, "
+                    "which measured only what the objective of the day asked for")
 p.add_argument("--out-name", default="full_opt",
                help="name of the output / cache folder inside the run (default full_opt). A run with a different objective "
                     "(e.g. --w-de) must use its own folder: cached measures of an older objective lack the new terms")
@@ -62,6 +85,19 @@ p.add_argument("--w-de", type=float, default=0.0,
                help="weight of the hand-off energy-spread residual (rms kinetic energy at the hand-off plane / 1 keV). 0 (default) = off. "
                     "2026-09-15: the central region's bar ends take the particles below ~65 keV (29 %% of the doublet hand-off, 3.3 keV "
                     "rms, 71 %% correlated with height); a 3 keV beam at weight 3 weighs like the 33 mrad angle residual")
+p.add_argument("--w-angle", type=float, default=1.0,
+               help="weight of the hand-off vertical-angle residual (rms z' at the hand-off plane / 3 mrad); 1 = the campaign default. "
+                    "2026-09-15: lowered for the 'minimum phase width' variant so the bunch-length term can lead")
+p.add_argument("--w-dt", type=float, default=0.0,
+               help="weight of the hand-off bunch-length residual: rms arrival time at the hand-off plane in RF degrees / 10 deg. "
+                    "0 (default) = off. 2026-09-15: the central region's transmission follows the bunch length at the hand-off "
+                    "(52 deg rms -> 39.8 %%, 26 deg -> 66 %%, about one point per degree); the inflector sets the spiral height term "
+                    "and its own path dispersion. Needs its own --out-name (older caches lack the term)")
+p.add_argument("--min-gap", type=float, default=0.0,
+               help="minimum anode-cathode distance [mm] (Daniel, 2026-10-15: the electrodes nearly touched at the exit end - a sure "
+                    "spark). Measured exactly on the evaluation's solids; 0 = off")
+p.add_argument("--w-gap", type=float, default=10.0, help="weight of the one-sided gap residual: w * (min_gap - gap) per mm short")
+p.add_argument("--w-fit", type=float, default=0.0, help="weight of the pole-steel residual: conductor mesh vertices where |B| > 1.6 T in the magnet map, after R and dz (HCHC-1.5: the housing top rim sat 8 mm inside a hill at the HCHC-60 seed). 0 = off; 1 makes one vertex one unit")
 p.add_argument("--w-z100", type=float, default=0.0,
                help="weight of an aperture proxy residual: rms ballistic height 100 mm past the measurement plane (z + 0.1 z') / 5 mm. "
                     "0 (default) = off. The exit metrics alone do not rank designs for the cyclotron (2026-09-14: a variant gained 2.5 "
@@ -149,8 +185,20 @@ VOLT_PER_M = float(knobs0["volt"]) / float(knobs0["gap"])   # the design voltage
 x0 = np.array([knobs0["tilt"], knobs0["angling"], knobs0["gamma"], 1e3 * knobs0["sigma"], t_ent0, t_exit_seed, 1e3 * dz_seed,
                *qseed, 1e3 * knobs0["gap"], VSCALE0], dtype=float)
 x0 = np.clip(x0, LO, HI)
-stamp("FULL OPT of {}: R {:+.3f} deg fixed, quads rotated {}, {} mA, {} particles, {:.0f} mm cells, basis grid {:.1f} mm; DFO-LS maxfun {}, rhobeg {} of range".format(
-    os.path.basename(RUN), R, QROT, a.current_ma, a.n, 1e3 * a.h, 1e3 * GRID_RES, a.maxfun, a.rhobeg))
+# The optimizer sees only the free knobs; evaluate(), the cache and the report keep working on the
+# full vector, so an --out-name folder is shared between a held and an unheld run.
+FREE = [i for i, n in enumerate(NAMES) if not (a.hold_quads and n in QN)]
+HELD = [n for n in NAMES if a.hold_quads and n in QN]
+
+
+def expand(xf):
+    x = np.array(x0, dtype=float)
+    x[FREE] = xf
+    return x
+stamp("FULL OPT of {}: R {:+.3f} deg fixed, quads rotated {}, {} mA, {} particles, {:.0f} mm cells, basis grid {:.1f} mm, "
+      "mesh {:.1f} mm, design-orbit grid {:.1f} mm, quad poles {} of the spiral solve; DFO-LS maxfun {}, rhobeg {} of range".format(
+          os.path.basename(RUN), R, QROT, a.current_ma, a.n, 1e3 * a.h, 1e3 * GRID_RES, 1e3 * a.geo_h, 1e3 * a.geo_res,
+          "OUT" if a.drop_quad_poles else "in", a.maxfun, a.rhobeg))
 stamp("  seed: " + ", ".join("{} {:g} {}".format(n, v, u) for n, v, u in zip(NAMES, x0, UNITS)))
 stamp("  bounds: " + ", ".join("{} [{:g}, {:g}]".format(n, lo, hi) for n, lo, hi in zip(NAMES, LO, HI)))
 
@@ -186,17 +234,25 @@ def measure(out_dir, tag):
     # the particles below ~65 keV: 29 % of the doublet's hand-off, 3.3 keV rms, 71 % correlated with the height because
     # the spiral's exit potential varies with z). Reported always, in the objective only with --w-dE > 0.
     M_H2P_KG = 3.3462e-27                                             # 2 protons + 1 electron
-    dT_rms_keV, f_low = 0.0, 0.0
+    dT_rms_keV, f_low, dt_rms_deg = 0.0, 0.0, 0.0
     if okh.sum() >= 100:
         zh, vh = hs[okh, 2], hs[okh, 3:6]
         zph = vh[:, 2] / np.hypot(vh[:, 0], vh[:, 1])
         zp_h_rms, z100 = float(zph.std()), zh + 0.1 * zph          # ballistic height 100 mm past the hand-off plane
         T_keV = 0.5 * M_H2P_KG * np.sum(vh ** 2, axis=1) / 1.602176634e-19 / 1e3
         dT_rms_keV, f_low = float(T_keV.std()), float(np.mean(T_keV < 0.965 * T_keV.mean()))
+        # 2026-09-15: the bunch length at the hand-off in RF degrees (the central region's longitudinal channel);
+        # the arrival times are on the tracker's clock (the RFQ file's own phase spread included)
+        if "handoff_time" in d.files:
+            th = np.asarray(d["handoff_time"], dtype=float)[okh]
+            th = th[np.isfinite(th)]
+            f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or 32.8) * 1e6
+            if len(th) >= 100:
+                dt_rms_deg = float(360.0 * f_rf * th.std())
     else:
         zp_h_rms, z100 = float(zp.std()), z + 0.1 * zp
     return {"z": float(z.mean()), "zp": float(zp.mean()), "z_rms": float(z.std()), "zp_rms": float(zp.std()), "zp_h_rms": zp_h_rms,
-            "z100_rms": float(z100.std()), "dT_rms_keV": dT_rms_keV, "f_low_energy": f_low,
+            "z100_rms": float(z100.std()), "dT_rms_keV": dT_rms_keV, "f_low_energy": f_low, "dt_rms_deg": dt_rms_deg,
             "transmission": float(s["transmission"]), "n": int(ok.sum()), "voltage_V": s.get("voltages", {}).get("SI_Anode")}
 
 
@@ -205,13 +261,52 @@ T_FLOOR = a.t_floor          # set after the seed evaluation if None
 
 def residuals(m):
     if m is None:
-        return np.array([10.0] * (4 + (1 if a.w_z100 > 0 else 0) + (1 if a.w_de > 0 else 0)))
-    r = [1e3 * m.get("zp_h_rms", m["zp_rms"]) / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01, 1e3 * m["z"] / 0.3, 1e3 * m["zp"] / 2.0]
+        return np.array([10.0] * (4 + (1 if a.w_z100 > 0 else 0) + (1 if a.w_de > 0 else 0) + (1 if a.w_dt > 0 else 0)
+                                  + (1 if a.w_fit > 0 else 0) + (1 if a.min_gap > 0 else 0)))
+    r = [a.w_angle * 1e3 * m.get("zp_h_rms", m["zp_rms"]) / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01, 1e3 * m["z"] / 0.3, 1e3 * m["zp"] / 2.0]
     if a.w_z100 > 0:
         r.append(a.w_z100 * 1e3 * m.get("z100_rms", 0.0) / 5.0)
     if a.w_de > 0:
         r.append(a.w_de * m.get("dT_rms_keV", 0.0) / 1.0)            # 1 keV rms of hand-off energy spread = one unit
+    if a.w_dt > 0:
+        r.append(a.w_dt * m.get("dt_rms_deg", 0.0) / 10.0)           # 10 RF degrees rms of hand-off arrival time = one unit
+    if a.w_fit > 0:
+        r.append(a.w_fit * float(m.get("n_steel", 0)) / 1.0)          # one conductor mesh vertex in pole steel = one unit
+    if a.min_gap > 0:
+        g = m.get("electrode_gap_mm")
+        r.append(a.w_gap * max(0.0, a.min_gap - (g if g is not None else 0.0)))   # one-sided: nothing above the minimum
     return np.array(r)
+
+
+# 2026-10-14 (HCHC-1.5): the BEM and the tracker know nothing about the magnet's iron, so an
+# optimizer left to itself will happily put the housing into a pole. This counts the conductor
+# mesh vertices (the state pickle carries the mesh) that sit where |B| > B_IRON in the UNROTATED
+# map, after the system rotation R and the axial shift of this evaluation. The e071 seed on
+# HCHC-1.5 had 4 such vertices in the housing's top rim; its FullOpt must see them.
+B_IRON = 1.6
+_BF_FIT = None
+
+
+def steel_vertices(state_pickle, R_deg, dz_m):
+    global _BF_FIT
+    if _BF_FIT is None:
+        from spyral_inflector.tracking.deck import load_bfield
+        _BF_FIT = load_bfield(a.bfield)
+    with open(state_pickle, "rb") as fh:
+        mesh = pickle.load(fh)["mesh"]
+    V = np.asarray(mesh["verts"], dtype=float)
+    E = np.asarray(mesh["elems"], dtype=int)
+    if V.shape[0] == 3 and V.shape[1] != 3:
+        V = V.T
+    if E.shape[0] == 3 and E.shape[1] != 3:
+        E = E.T
+    V = V[np.unique(E)]
+    c, s = np.cos(np.radians(R_deg)), np.sin(np.radians(R_deg))
+    v = np.empty_like(V)
+    v[:, 0] = c * V[:, 0] - s * V[:, 1]
+    v[:, 1] = s * V[:, 0] + c * V[:, 1]
+    v[:, 2] = V[:, 2] + dz_m
+    return int((np.linalg.norm(_BF_FIT(v), axis=1) > B_IRON).sum())
 
 
 def evaluate(x):
@@ -238,25 +333,32 @@ def evaluate(x):
         rmtree_retry(edir, log=stamp)
         os.makedirs(bdir, exist_ok=True)
         build_geometry(gdir, sdir, ROT_BF, ENERGY, knobs=knobs, fix_truncations=(t_ent, t_exit), fix_dz=dz0, maxiter=0,
-                       res=0.005, h=a.geo_h, log=lambda s: None)
+                       res=a.geo_res, h=a.geo_h, log=lambda s: None)
+        # the geometry is built at dz0 and the tracking shifts it by (dz - dz0): the conductors sit at dz
+        n_steel = steel_vertices(os.path.join(gdir, "state.pickle"), R, 1e-3 * dz_mm) if a.w_fit > 0 else 0
+        _g = (jload(os.path.join(gdir, "summary.json")).get("electrode_gap") or {}).get("min_mm")
         run_cmd(["-m", "spyral_inflector.tracking.bem_reload", "--tag", "spiral", "--step-dir", sdir, "--voltages", os.path.join(gdir, "voltages.csv"),
                  "--state", os.path.join(gdir, "state.pickle"), "--out-dir", bdir, "--res", GRID_RES, "--box"] + GRID_BOX +
-                ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * NQ + ["--energy-mev", ENERGY],
+                ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * NQ +
+                ["--energy-mev", ENERGY] + (["--drop", "D*"] if a.drop_quad_poles else []),
                 os.path.join(edir, "log_basis_spiral.txt"))
         for fn in ["ef_itp_q{}.pickle".format(i + 1) for i in range(NQ)]:
             shutil.copyfile(os.path.join(BASIS0, fn), os.path.join(bdir, fn))
         run_cmd(["-m", "spyral_inflector.tracking.bunch", "--tag", "spiral", "--reload-dir", bdir, "--step-dir", sdir,
                  "--particles", a.particles, "--bfield", a.bfield, "--phi", PHI, "--out-dir", edir, "--out-tag", tag,
                  "--basis-dir", bdir, "--superpose"] + SUPER + ["--current-ma", a.current_ma, "--handoff-frame", "machine",
-                 "--handoff-distance", 0.0, "--n", a.n, "--sc", "--h", a.h, "--resolve-every", a.resolve_every,
+                 "--handoff-distance", 0.0, "--n", a.n] + (["--sc"] if a.current_ma > 0 else []) + [
+                 "--h", a.h, "--resolve-every", a.resolve_every,
                  "--shift-z", "{:.10f}".format(1e-3 * dz_mm - dz0), "--vscale", "{:.6f}".format(vscale), "--no-plot"], os.path.join(edir, "log_bunch.txt"))
         m = measure(edir, tag)
+        m["n_steel"] = n_steel
+        m["electrode_gap_mm"] = _g
     except Exception as exc:               # a collision / failed build / failed solve counts as a bad point, not a crash
         err = str(exc).splitlines()[-1][:200] if str(exc) else repr(exc)
     if not a.keep_basis and os.path.isdir(bdir):
         rmtree_retry(bdir)
     npz = os.path.join(edir, "bunch_{}.npz".format(tag))
-    if os.path.exists(npz):
+    if os.path.exists(npz) and not a.keep_npz:
         os.remove(npz)
     r = residuals(m)
     e = {"key": key, "index": idx, "tag": tag, "x": [float(v) for v in x], "measure": m, "error": err,
@@ -266,9 +368,10 @@ def evaluate(x):
     if m is None:
         stamp("  {} FAILED ({:.0f} s): {} | {}".format(tag, e["wall_s"], err, " ".join("{}={:g}".format(n, v) for n, v in zip(NAMES, x))))
     else:
-        stamp("  {} ({:.0f} s): angle {:.1f} mrad rms at the hand-off ({:.1f} at 55 mm), T {:.1f} %, centroid {:+.2f} mm / {:+.1f} mrad, proxy {:.1f} mm, dE {:.2f} keV ({:.0f} % low), V {} -> f {:.3f} | {}".format(
+        stamp("  {} ({:.0f} s): angle {:.1f} mrad rms at the hand-off ({:.1f} at 55 mm), T {:.1f} %, centroid {:+.2f} mm / {:+.1f} mrad, proxy {:.1f} mm, dE {:.2f} keV ({:.0f} % low), dt {:.1f} deg, steel {}, electrode gap {} mm, V {} -> f {:.3f} | {}".format(
             tag, e["wall_s"], 1e3 * m.get("zp_h_rms", m["zp_rms"]), 1e3 * m["zp_rms"], 100 * m["transmission"], 1e3 * m["z"], 1e3 * m["zp"], 1e3 * m.get("z100_rms", 0.0),
-            m.get("dT_rms_keV", 0.0), 100 * m.get("f_low_energy", 0.0),
+            m.get("dT_rms_keV", 0.0), 100 * m.get("f_low_energy", 0.0), m.get("dt_rms_deg", 0.0), m.get("n_steel", "-"),
+            "-" if m.get("electrode_gap_mm") is None else "{:.2f}".format(m["electrode_gap_mm"]),
             "-" if m["voltage_V"] is None else "{:.0f}".format(m["voltage_V"]), e["objective"],
             " ".join("{}={:g}".format(n, v) for n, v in zip(NAMES, x))))
     return e
@@ -289,13 +392,15 @@ stamp("  transmission floor {:.1f} % (loop scale); seed objective {:.3f}".format
 import dfols  # noqa: E402
 
 
-def objfun(x):
-    return np.array(evaluate(x)["residuals"], dtype=float)
+def objfun(xf):
+    return np.array(evaluate(expand(xf))["residuals"], dtype=float)
 
 
-stamp("DFO-LS start: {} knobs, maxfun {}".format(len(x0), a.maxfun))
-soln = dfols.solve(objfun, x0, bounds=(LO, HI), rhobeg=a.rhobeg, rhoend=a.rhoend, maxfun=a.maxfun,
-                   objfun_has_noise=True, scaling_within_bounds=True)
+stamp("DFO-LS start: {} free knobs ({}), maxfun {}{}".format(
+    len(FREE), ", ".join(NAMES[i] for i in FREE), a.maxfun,
+    "; held at the seed: " + ", ".join("{} {:g} V".format(n, x0[NAMES.index(n)]) for n in HELD) if HELD else ""))
+soln = dfols.solve(objfun, x0[FREE], bounds=(LO[FREE], HI[FREE]), rhobeg=a.rhobeg, rhoend=a.rhoend,
+                   maxfun=a.maxfun, objfun_has_noise=True, scaling_within_bounds=True)
 stamp("DFO-LS done: flag {} ({}), {} evaluations, f {:.3f}".format(soln.flag, soln.msg, soln.nf, float(np.sum(soln.resid ** 2))))
 
 # ---------------------------------------------------------------- report and best knobs (from the cache, best objective)
@@ -311,7 +416,9 @@ bk.update({"_truncations_deg": [xb[4], xb[5]], "_dz_m": 1e-3 * xb[6], "_objectiv
            "_measure": best["measure"], "_seed_objective": seed["objective"], "_R_deg": R, "_tag": best["tag"]})
 with open(os.path.join(OUT, "best_knobs.json"), "w") as fh:
     json.dump(bk, fh, indent=2)
-L = ["# Full DFO-LS optimization of {} with {} mA space charge in the loop".format(os.path.basename(RUN), a.current_ma), "",
+L = ["# Full DFO-LS optimization of {} {}".format(
+    os.path.basename(RUN),
+    "with {} mA space charge in the loop".format(a.current_ma) if a.current_ma > 0 else "in VACUUM (no space charge)"), "",
      "Knobs: k' tilt, angling, gamma, V-depth, entrance and exit truncation, dz, " + ", ".join(QN) + ", gap, vscale (the design voltage scales with the gap; "
      "the operating voltage is vscale x the inner centering solve). Rotation R = {:+.3f} deg fixed; spiral basis re-solved per evaluation on the "
      "run's {:.1f} mm grid, quad bases reused; {} core particles, {} mA, {:.0f} mm cells. Residuals: rms vertical angle AT THE HAND-OFF PLANE / 3 mrad, "
