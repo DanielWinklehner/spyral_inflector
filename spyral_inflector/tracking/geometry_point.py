@@ -19,7 +19,7 @@ DEFAULT_KNOBS = dict(
     quad_bore=0.013, quad_z1=-0.27, quad_z2=-0.19, quad_len=0.045, quad_len2=None, shared_plates=False,
     n_quads=2, quad_z3=None, quad_len3=None,
     aper_hole=0.0125, entrance_hole=None, entrance_rect=None, exit_rects=None, plate_gap=0.001, plate_thickness=0.005,
-    slot_width=0.015, slot_length=0.040, exit_opening=None,
+    slot_width=0.015, slot_length=0.040, exit_opening=None, exit_circle=None,
     housing_gap=0.006, housing_thickness=0.004, top_distance=0.005, bottom_distance=0.010, rotation=0.0,
     q2_exit_plate=True,
 )
@@ -39,6 +39,9 @@ KNOB_HELP = {
     "plate_gap": "axial gap between a quad's aperture plates and its pole ends [m]", "plate_thickness": "quad aperture plate thickness [m]",
     "slot_width": "inflector entrance slot width (gap direction) [m]", "slot_length": "inflector entrance slot length [m]",
     "exit_opening": "housing exit opening (across, along the tilted gap) [m] (default: the entrance slot)",
+    "exit_circle": "[radius, du, dw] [m]: a ROUND housing exit opening instead of the rectangle, its centre moved du along "
+                   "the plate and dw vertically from the default (e.g. onto a hand-off centroid, exit_hole_center.py); the "
+                   "plate is still sized from exit_opening, so the wall and the exit-plane rotation do not change",
     "housing_gap": "clearance between the electrodes' convex hull and the housing's inner wall [m]",
     "housing_thickness": "housing wall thickness [m]", "top_distance": "entrance plate height above the electrodes [m]",
     "bottom_distance": "distance of the housing exit opening past the electrode end [m]",
@@ -119,7 +122,9 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
                                                    "top_distance": k["top_distance"], "bottom_distance": k["bottom_distance"],
                                                    "hole_type": "rectangle", "voltage": 0.0,
                                                    **({"exit_width": k["exit_opening"][0], "exit_length": k["exit_opening"][1]}
-                                                      if k["exit_opening"] else {})})
+                                                      if k["exit_opening"] else {}),
+                                                   **({"exit_circle": tuple(float(v) for v in k["exit_circle"])}
+                                                      if k.get("exit_circle") else {})})
     si.set_parameter(key="make_housing", value=True)
     si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True, "gap": k["housing_gap"],
                                                   "thickness": k["housing_thickness"], "voltage": 0.0, "experimental": True})
@@ -250,10 +255,13 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
                                         "the housing solid is this polygon extruded over z = {:+.4f} .. {:+.4f} m "
                                         "with a {:.1f} mm wall inwards and {:.1f} mm clearance to the electrodes."
                                         .format(_ol["z_min"], _ol["z_max"], 1e3 * _ol["thickness"], 1e3 * _ol["gap"]),
-                                        "the exit opening is {:.1f} x {:.1f} mm (along the gap x across it)."
-                                        .format(1e3 * _ol["aperture_size"][0], 1e3 * _ol["aperture_size"][1])))
-        log("  housing outline: {} outer vertices + 4 aperture corners -> {}".format(
-            len(_xy), os.path.join(steps_dir, HOUSING_OUTLINE_NAME)))
+                                        ("the exit opening is a CIRCLE of radius {:.2f} mm; 'aperture' lists {} points on its rim."
+                                         .format(0.5e3 * _ol["aperture_size"][0], len(_ol["aperture"]))
+                                         if _ol.get("aperture_shape") == "circle" else
+                                         "the exit opening is {:.1f} x {:.1f} mm (along the gap x across it)."
+                                         .format(1e3 * _ol["aperture_size"][0], 1e3 * _ol["aperture_size"][1]))))
+        log("  housing outline: {} outer vertices + {} aperture points -> {}".format(
+            len(_xy), len(_ap), os.path.join(steps_dir, HOUSING_OUTLINE_NAME)))
     # surface field of the last BEM solve (the optimized voltage), per electrode
     from .bem_reload import surface_field_stats
     try:

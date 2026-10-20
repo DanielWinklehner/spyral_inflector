@@ -1547,6 +1547,20 @@ class SIHousing(PyElectrode):
 
         hole_type = self._aperture_params["hole_type"]
 
+        # A CIRCULAR exit opening (Daniel, 2026-10-20): "exit_circle" = (radius, du, dw) [m] cuts a round hole of that
+        # radius whose centre is moved du along the plate (t = z x n) and dw vertically from the default centre, e.g.
+        # onto the beam centroid of a hand-off. The plate itself is still sized from the a x b rectangle, so the wall,
+        # the outline and the plate corners -- and with them the exit-plane rotation -- stay exactly as they were.
+        exit_circle = self._aperture_params.get("exit_circle")
+        t3 = np.array([t_hat[0], t_hat[1], 0.0])
+        if exit_circle:
+            _rc, _du, _dw = (float(v) for v in exit_circle)
+            hole_type = "ellipse"
+            a_cut = b_cut = 2.0 * _rc
+            translate_cut = translate + _du * t3 + np.array([0.0, 0.0, _dw])
+        else:
+            a_cut, b_cut, translate_cut = a, b, translate
+
         # ---- the outline ------------------------------------------------------------------
         z_lo = zmin if z_filter else None
         z_hi = zmax if z_filter else None
@@ -1601,14 +1615,22 @@ class SIHousing(PyElectrode):
         _cf, _sf = np.cos(face_angle), np.sin(face_angle)
         _ry = np.array([[_ct, 0.0, _st], [0.0, 1.0, 0.0], [-_st, 0.0, _ct]])
         _rz = np.array([[_cf, -_sf, 0.0], [_sf, _cf, 0.0], [0.0, 0.0, 1.0]])
+        if exit_circle:
+            # the round opening as a polygon of 36 points on its rim, in the plate (t and z), at the same distance
+            # along the exit as the rectangle's corners were recorded
+            _th = np.radians(np.arange(0.0, 360.0, 10.0))
+            _ap = translate_cut + 0.5 * a_cut * (np.cos(_th)[:, None] * t3 + np.sin(_th)[:, None] * np.array([0.0, 0.0, 1.0]))
+        else:
+            _ap = translate + _c.dot(_rz.dot(_ry).T)
         _outer_pts, _outer_curves = self.wall.loop("outer")
         _inner_pts, _inner_curves = self.wall.loop("inner")
         self.outline = {"outer": _outer_pts, "outer_curves": _outer_curves,
                         "inner": _inner_pts, "inner_curves": _inner_curves,
                         "outer_dense": self.wall.outer, "inner_dense": self.wall.inner,
-                        "aperture": translate + _c.dot(_rz.dot(_ry).T),
+                        "aperture": _ap,
+                        "aperture_shape": "circle" if exit_circle else "rectangle",
                         "z_min": float(zmin), "z_max": float(zmax),
-                        "aperture_size": (float(a), float(b)),
+                        "aperture_size": (float(a_cut), float(b_cut)),
                         "tilt_angle": tilt_angle, "face_angle": face_angle,
                         "exit_direction": np.array([norm_vec[0], norm_vec[1], norm_vec[2]], dtype=float),
                         "simplified": bool(simplify),
@@ -1673,7 +1695,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
             sub_tool = 2 + offset
 
         elif hole_type == "ellipse":
-            geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
+            # drawn over local z = -0.025 .. +0.025, symmetric like the rectangle's box: which way local z ends up
+            # pointing depends on the quarter turn face_angle takes (below), and a one-sided 0 .. 0.05 extrusion
+            # pointed DOWNSTREAM on HCHC-1.5 t1nr_c2 and never touched the wall (2026-10-20: a solid plate, 0.01 %)
+            geo_str += "Disk ({}) = {{ 0, 0, -0.025, {}, {} }};\n".format(500 + offset, 0.5 * a_cut + 5E-9, 0.5 * b_cut + 5E-9)
             geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(0.05, 500 + offset)
             sub_tool = "disk_out[1]"
 
@@ -1691,9 +1716,9 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
             face_angle, sub_tool)
 
-        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate[0],
-                                                                               translate[1],
-                                                                               translate[2],
+        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate_cut[0],
+                                                                               translate_cut[1],
+                                                                               translate_cut[2],
                                                                                sub_tool)
 
         geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[1] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
@@ -1701,16 +1726,19 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
 
         # Does the cutting box actually reach through the wall? It is swept from the opening's
         # own plane, so a wall that stands further out than the box is long simply keeps its
-        # opening -- a closed housing that looks perfectly healthy until the beam hits it. Rx(pi/2)
-        # sends the tool's local z to -y and Rz(face_angle) sends local +y to +n_hat, so a tool
-        # drawn over z = z0 .. z1 covers s = s_face - z1 .. s_face - z0.
+        # opening -- a closed housing that looks perfectly healthy until the beam hits it. The
+        # tool's local z goes through Rx(pi/2), Ry(tilt) (which leaves it alone) and Rz(face_angle)
+        # to e = (sin face, -cos face, 0): -n_hat for one quarter turn of face_angle and +n_hat for
+        # the other, so a tool drawn over z = z0 .. z1 covers s = s_face + z * (e . n_hat). (This
+        # used to assume -n_hat, which let a one-sided disk that pointed downstream pass.)
         if hole_type == "rectangle":
             _z0, _z1 = (-0.025, 0.025) if self._experimental else (0.0, 0.1)
         else:
-            _z0, _z1 = 0.0, 0.05                              # the extruded disk
+            _z0, _z1 = -0.025, 0.025                          # the extruded disk
+        _e_n = float(np.sin(face_angle) * n_hat[0] - np.cos(face_angle) * n_hat[1])
         _s_wall = self.outline["outer_dense"].dot(n_hat)
         _s_face = float(translate[:2].dot(n_hat))
-        _reach = (_s_face - _z1, _s_face - _z0)
+        _reach = tuple(sorted((_s_face + _z0 * _e_n, _s_face + _z1 * _e_n)))
         _t_wall = self.outline["outer_dense"].dot(t_hat)
         _near = (_t_wall >= translate[:2].dot(t_hat) - 0.5 * a) & \
                 (_t_wall <= translate[:2].dot(t_hat) + 0.5 * a)

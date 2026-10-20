@@ -283,6 +283,9 @@ def housing_outline_to_baseline_mm(src, dst, rotation_deg=0.0, shift_z=0.0, comm
     mirror through z = 0, scale to millimetres. The housing is not a quadrupole, so there is
     no extra per-quad angle here."""
     o = read_housing_outline(src)
+    # carry the source's description of the exit opening (a CIRCLE's rim points look like any other polygon)
+    with open(src, encoding="utf-8") as _fh:
+        comments = tuple(comments) + tuple(ln[1:].strip() for ln in _fh if ln.startswith("# the exit opening"))
     if o.get("frame") != "deck" or o.get("units") != "m":
         raise ValueError("{}: expected a deck-frame outline in metres, got {} / {}".format(
             src, o.get("frame"), o.get("units")))

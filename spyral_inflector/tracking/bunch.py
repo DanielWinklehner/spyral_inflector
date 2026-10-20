@@ -39,7 +39,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 nsteps=1900, dt=1.0e-10, coast=300, asym_steps=210, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
-                stragglers=False, inject_core=False, sc_min_particles=0, shift_z=0.0, snapshot_every=0,
+                stragglers=False, inject_core=False, sc_min_particles=0, shift_z=0.0, snapshot_every=0, probe_z=(),
                 seed=20260905, reference=None, plot=True, log=None):
     """Track n particles of the RFQ file through the geometry; returns the summary dict
     and writes bunch_<out_tag>.json / .npz / .png into out_dir (default: reload_dir).
@@ -55,6 +55,8 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     spatial bunch and the unaccelerated tail injected at the start plane at its own
     arrival time (DelayedInjection), so where the tail terminates is recorded too;
     sc_min_particles stops re-solving the space charge once fewer particles deposit.
+    probe_z: z positions [m, tracking frame] of extra planes normal to +z; each particle's first crossing (state
+    and time, interpolated within the step) goes into the npz as probe_state (K, N, 6) and probe_time (K, N).
     """
     log = log or (lambda m: print(m, flush=True))
     out_dir = out_dir or reload_dir
@@ -208,6 +210,9 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("  hand-off plane : {:.0f} mm of design path past the exit, origin {} m, normal {}".format(
         1e3 * handoff_distance, np.round(ho_point, 4), np.round(ho_normal, 4)))
     handoff = PlaneCrossing(point=ho_point, normal=ho_normal, gate=exit_plane, dt=dt)
+    probes = [PlaneCrossing(point=(0.0, 0.0, float(zp)), normal=(0.0, 0.0, 1.0), dt=dt) for zp in (probe_z or ())]
+    for zp in (probe_z or ()):
+        log("  probe plane    : z = {:+.5f} m, normal +z (every particle's first crossing)".format(float(zp)))
     snapshot = SnapshotRecorder(range(1000, nsteps, 20)) if save_mode in ("lab6d", "both") else None
     if sc_obj:
         sc_obj.exclude = exit_plane
@@ -224,7 +229,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     pusher_alg = os.environ.get("SI_PUSHER", "boris_rel")
     log("  pusher         : {} ({} steps of {:.1e} s){}".format(pusher_alg, nsteps, dt, "; self-field carried with the bunch between solves" if (sc and sc_obj is not None and sc_obj.move) else ""))
     tracker = Tracker(Pusher(ion, algorithm=pusher_alg), e_total, b_field, interactions=interactions,
-                      terminators=[exit_plane, collision, handoff],
+                      terminators=[exit_plane, collision, handoff] + probes,
                       recorders=[envelope, trajectories] + [s for s in (snapshot, snaps) if s is not None])
     n_run = nsteps
     if injector is not None:
@@ -372,7 +377,13 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                         handoff_state=(handoff.state if handoff.state is not None else np.full((len(r0), 6), np.nan)),
                         handoff_time=(handoff.time if handoff.time is not None else np.full(len(r0), np.nan)),
                         post_exit_hit=post_exit,
-                        post_exit_point=(collision.post_exit_point if collision.post_exit_point is not None else np.full((len(r0), 3), np.nan)))
+                        post_exit_point=(collision.post_exit_point if collision.post_exit_point is not None else np.full((len(r0), 3), np.nan)),
+                        probe_z=np.array([float(zp) for zp in (probe_z or ())]),
+                        probe_state=np.array([pr.state if pr.state is not None else np.full((len(r0), 6), np.nan) for pr in probes]).reshape(len(probes), len(r0), 6),
+                        probe_time=np.array([pr.time if pr.time is not None else np.full(len(r0), np.nan) for pr in probes]).reshape(len(probes), len(r0)))
+    for zp, pr in zip(probe_z or (), probes):
+        log("  probe z = {:+.5f} m: {:,d} of {:,d} particles crossed".format(
+            float(zp), int(pr.crossed.sum()) if pr.crossed is not None else 0, len(r0)))
     if plot:
         _plot_bunch(os.path.join(out_dir, "bunch_{}.png".format(out_tag)), summary, env, z_exit, losses, hit_z, collision, sc_obj, state, trj,
                     ref, os.path.splitext(ref_fn)[0] + ".npz" if ref else None, len(r0), out_tag, sc, current_ma, rf_mhz, h)
@@ -512,6 +523,8 @@ def main(argv=None):
     p.add_argument("--shift-z", type=float, default=0.0, help="axial shift of the whole assembly at tracking time [m] (field translated exactly)")
     p.add_argument("--snapshot-every", type=int, default=0,
                    help="save the full 6-D state of every particle every N steps into the npz (snap_*; emittance along the line)")
+    p.add_argument("--probe-z", type=float, nargs="+", default=None, metavar="Z",
+                   help="extra planes normal to +z at these z [m, tracking frame]: every particle's first crossing -> npz probe_*")
     p.add_argument("--seed", type=int, default=20260905)
     p.add_argument("--reference", default=None, help="bunch json of a vacuum run for the comparison plot")
     p.add_argument("--no-plot", action="store_true")
@@ -525,7 +538,8 @@ def main(argv=None):
                        basis_dir=a.basis_dir, unit=a.unit, save_openpmd=a.save_openpmd, save_mode=a.save_mode,
                        handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame,
                        stragglers=a.stragglers, inject_core=a.inject_core, sc_min_particles=a.sc_min_particles, shift_z=a.shift_z,
-                       snapshot_every=a.snapshot_every, seed=a.seed, reference=a.reference, plot=not a.no_plot)
+                       snapshot_every=a.snapshot_every, probe_z=a.probe_z or (), seed=a.seed, reference=a.reference,
+                       plot=not a.no_plot)
 
 
 if __name__ == "__main__":

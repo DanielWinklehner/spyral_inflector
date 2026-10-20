@@ -141,9 +141,11 @@ def rotation_parallel_to_gap(normal, gap_azimuth_deg=24.0):
 def plate_corners(steps_dir):
     """The two ends of the housing's exit plate, in the deck frame [m], as (outer, inner).
 
-    The simplified wall is one spline plus one straight segment (see housing_outline.py); that
-    straight segment IS the plate, so its two endpoints are the corners where it meets the
-    spline. `outer` is the one at the larger radius.
+    The simplified wall is a spline plus the straight plate (see housing_outline.py), so the
+    plate's two endpoints are its corners. `outer` is the one at the larger radius. Since the
+    outline gained straight step edges at the plate ends (sub-mm lines between the plate and
+    the spline), the plate is the LONGEST straight segment, not the first: on HCHC-1.5 t1nr
+    the first line was the 0.8 mm step edge at r 37 mm, which put R 23 deg off.
     """
     from .export import HOUSING_OUTLINE_NAME, read_housing_outline
 
@@ -153,7 +155,7 @@ def plate_corners(steps_dir):
     if not lines:
         raise RuntimeError("{} has no straight segment: the wall is not the simplified "
                            "spline+plate outline".format(steps_dir))
-    i0, i1 = lines[0][1], lines[0][2]
+    i0, i1 = max(((c[1], c[2]) for c in lines), key=lambda ij: np.hypot(*(pts[ij[1]] - pts[ij[0]])))
     a, b = pts[i0], pts[i1]
     return (a, b) if np.hypot(*a) >= np.hypot(*b) else (b, a)
 
@@ -291,10 +293,14 @@ def main(argv=None):
     p.add_argument("--state", required=True)
     p.add_argument("--gap-azimuth", type=float, default=34.0)
     p.add_argument("--half-gap", type=float, default=5.0e-3, help="[m]")
-    p.add_argument("--rule", choices=("offset", "parallel"), default="offset")
+    p.add_argument("--rule", choices=("offset", "parallel", "corner"), default="offset")
+    p.add_argument("--corner-offset-mm", type=float, default=3.25)
+    p.add_argument("--corner", choices=("outer", "inner"), default="outer")
+    p.add_argument("--r-near", type=float, default=0.0, help="rule corner: the branch nearest this rotation [deg]")
     p.add_argument("--out", default=None)
     a = p.parse_args(argv)
-    return exit_plane_spec(a.steps, a.state, a.gap_azimuth, a.half_gap, a.out, rule=a.rule)
+    return exit_plane_spec(a.steps, a.state, a.gap_azimuth, a.half_gap, a.out, rule=a.rule,
+                           corner_offset_mm=a.corner_offset_mm, corner_which=a.corner, r_near=a.r_near)
 
 
 if __name__ == "__main__":

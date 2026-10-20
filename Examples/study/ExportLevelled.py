@@ -165,7 +165,7 @@ with open(os.path.join(OUT, "README.txt"), "w", encoding="utf-8") as fh:
              "(= {:+.3f} mm along the Baseline z) relative to the run's design orbit (dz {:+.2f} -> {:+.2f} mm).\n"
              "System rotation R = {:+.4f} deg about z (re-solved on the levelled geometry; the run had {:+.4f}); quads {} deg on top.\n"
              "steps_baseline_mm/       one STEP per electrode + the combined assembly, MILLIMETRES (header and coordinates), shift included\n"
-             "steps_baseline_mm/SI_Gap_Volume.stp     the NEGATIVE space between the two spiral electrodes (a solid, not an\n"
+             "steps_baseline_mm/SI_Gap_Volume_negative.stp   the NEGATIVE space between the two spiral electrodes (a solid, not an\n"
              "                         electrode; not in the combined assembly), same frame and units\n"
              "steps_baseline_mm/housing_outline.txt   the housing as a SHAPE for the central region: the polygon the wall is extruded\n"
              "                         from (before any extrusion) and the four corners of the exit opening, same frame and units\n"
