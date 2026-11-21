@@ -145,8 +145,25 @@ field_to_machine_frame(e_lvl, os.path.join(OUT, "efield_fine_best_baseline.pickl
                        label="levelled E-field of {} (machine frame)".format(os.path.basename(RUN)))
 stamp("  E-field: {} bases from {} at quads {} x vscale {:.4f}, shifted {:+.3f} mm, grid {} x {} x {} -> efield_fine_best_baseline.pickle".format(
     1 + len(quads_lv) // 2, basis_dir, [round(q) for q in quads_lv[0::2]], vscale, 1e3 * shift, len(g["x"]), len(g["y"]), len(g["z"])))
+# 3b. analytic MAGNETIC quads of the levelling (SCLevel --bquads, 2026-10-20): they turn with the assembly, so with the
+#     exported R; Baseline frame (G sign flipped, z mirrored), and the tracking-frame spec beside it
+mq = lv.get("bquads_set")
+if mq:
+    import pickle  # noqa: E402
+    from spyral_inflector.tracking.magquads import baseline_spec, tracking_spec  # noqa: E402
+    with open(state, "rb") as _fh:                     # the quads move with the assembly: the build's lab shift + the levelling shift
+        _sl = pickle.load(_fh).get("shift_lab")
+    dz_q = (float(_sl[2]) if _sl is not None else float(dz0)) + float(shift)
+    with open(os.path.join(OUT, "magquads_baseline.json"), "w") as fh:
+        json.dump({"set": mq, "rotation_deg": R, "dz_m": dz_q, "baseline": baseline_spec(mq, R, dz_q), "tracking": tracking_spec(mq, R, dz_q)},
+                  fh, indent=2)
+    stamp("  magnetic quads (turned by R {:+.3f} deg, shifted {:+.3f} mm) -> magquads_baseline.json: ".format(R, 1e3 * dz_q) + "; ".join(
+        "{} iron {:.2f}..{:.2f} mm, G {:+.3f} T/m (deck sign), L_eff {:.1f} mm".format(
+            q["quad"], q["iron_bcs_mm_placed"][0], q["iron_bcs_mm_placed"][1], q["G_T_per_m"], q["L_eff_mm"])
+        for q in tracking_spec(mq, R, dz_q)["layout"]))
 with open(os.path.join(OUT, "levelled_export.json"), "w") as fh:
     json.dump({"run": RUN, "level": LVL, "basis": basis_dir, "quads": quads_lv, "quad_rotation_deg": list(a.quads), "vscale": vscale,
+               "magquads": ("magquads_baseline.json" if mq else None),
                "t_exit_deg": t_exit, "dz_m": dz, "dz0_m": dz0, "shift_z_m": shift, "rotation_deg": R, "rotation_run_deg": R_run,
                "efield": "efield_fine_best_baseline.pickle", "efield_zshift_mm": 0.0, "housing": "steps_baseline_mm/002_Housing.stp",
                "housing_outline": ("steps_baseline_mm/" + HOUSING_OUTLINE_NAME) if has_outline else None}, fh, indent=2)
@@ -160,7 +177,7 @@ for fn in ("handoff_vac_all_level.h5", "handoff_sc_all_level.h5"):
         shutil.copyfile(src, os.path.join(OUT, fn))
         copied.append(fn)
 with open(os.path.join(OUT, "README.txt"), "w", encoding="utf-8") as fh:
-    fh.write("Baseline (machine) frame: right-handed, +z up, the beam enters from +z; azimuth counter-clockwise from above.\n"
+    fh.write(("Baseline (machine) frame: right-handed, +z up, the beam enters from +z; azimuth counter-clockwise from above.\n"
              "Space-charge-LEVELLED geometry of {}: exit truncation {:.3f} deg, assembly shifted {:+.3f} mm along the deck z "
              "(= {:+.3f} mm along the Baseline z) relative to the run's design orbit (dz {:+.2f} -> {:+.2f} mm).\n"
              "System rotation R = {:+.4f} deg about z (re-solved on the levelled geometry; the run had {:+.4f}); quads {} deg on top.\n"
@@ -172,7 +189,9 @@ with open(os.path.join(OUT, "README.txt"), "w", encoding="utf-8") as fh:
              "exit_plane_spec.json     the exit plate's outer face at R (unshifted z; add the shift for the machine-frame z)\n"
              "efield_fine_best_baseline.pickle   levelled E-field (spiral x vscale + quads), V/m on a metre grid, shift included (use HCHC60_EFIELD_ZSHIFT_MM = 0)\n"
              "levelled_export.json     quads, vscale, shift, R of this export\n"
+             + ("magquads_baseline.json   the analytic MAGNETIC quads (PyPATools MagneticQuadrupole specs, Baseline and tracking frame, turned by R)\n"
+                if mq else "") +
              "handoff_*_level.h5       openPMD hand-off at the electrode exit of the levelled full runs (vacuum / {cur_ma:g} mA), machine frame\n"
-             "Levelling report: {}\n".format(os.path.basename(RUN), t_exit, 1e3 * shift, -1e3 * shift, 1e3 * dz0, 1e3 * dz, R, R_run,
+             "Levelling report: {}\n").format(os.path.basename(RUN), t_exit, 1e3 * shift, -1e3 * shift, 1e3 * dz0, 1e3 * dz, R, R_run,
                                              " / ".join("{:+.1f}".format(q) for q in a.quads), os.path.join(RUN, "sc_level.md"), cur_ma=float(lv.get("current_ma", 8.0))))
 stamp("done: {} STEP files + {} hand-offs -> {}".format(len(files), len(copied), OUT))

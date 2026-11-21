@@ -62,6 +62,9 @@ def potentials(js, npz_path):
 
 rows = []
 for path, lab in zip(a.npz, labels):
+    if not os.path.exists(path):    # e.g. a no-space-charge run, no longer made by default (2026-11-07)
+        print("(skipped {}: {} does not exist)".format(lab, path))
+        continue
     js = json.load(open(path[:-4] + ".json"))
     d = np.load(path, allow_pickle=True)
     n = len(d["crossed"])

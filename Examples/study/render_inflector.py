@@ -46,6 +46,7 @@ p.add_argument("--rotation", type=float, default=None, help="assembly rotation [
 p.add_argument("--shift-z", type=float, default=None, help="levelling shift [m, deck z] (default: the run json's)")
 p.add_argument("--out", required=True, help="output stem; writes <stem>_render.png and <stem>_side.png")
 p.add_argument("--title", default=None)
+p.add_argument("--no-title", action="store_true", help="no figure titles (for slides, where the slide carries them)")
 p.add_argument("--mesh-mm", type=float, default=1.5)
 p.add_argument("--elev", type=float, default=22.0)
 p.add_argument("--azim", type=float, default=-58.0)
@@ -175,7 +176,8 @@ ax.view_init(elev=a.elev, azim=a.azim)
 ax.set_xlabel("x [mm]", fontsize=13)
 ax.set_ylabel("y [mm]", fontsize=13)
 ax.set_zlabel("height above midplane [mm]", fontsize=13)
-ax.set_title("{}\n{}".format(title, sub), fontsize=12)
+if not a.no_title:
+    ax.set_title("{}\n{}".format(title, sub), fontsize=12)
 for lab, col in (("transmitted ({})".format(n_ok), OK), ("lost ({})".format(n_lost), LOST)):
     ax.plot([], [], color=col, lw=1.5, label=lab)
 for lab, col in (("anode (+V)", "#d6614d"), ("cathode (-V)", "#4f8fc0"), ("quadrupole poles", "#f08a24"),
@@ -220,7 +222,8 @@ for k, (axis, lab) in enumerate(((0, "x [mm]"), (1, "y [mm]"))):
     ax.set_xlabel(lab, fontsize=12)
     ax.grid(True, alpha=0.25)
 axs[0].set_ylabel("height above midplane [mm]", fontsize=12)
-fig.suptitle("{}: side views\n{}".format(title, sub), fontsize=12)
+if not a.no_title:
+    fig.suptitle("{}: side views\n{}".format(title, sub), fontsize=12)
 fig.tight_layout()
 fig.savefig(a.out + "_side.png", dpi=120)
 plt.close(fig)

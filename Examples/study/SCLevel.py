@@ -11,8 +11,9 @@ is an exact translation of the assembly's field, design orbit and collision geom
 tracking time (bunch --shift-z), no solve. Newton iterations on a measured 2x2 Jacobian
 (finite differences --dt [deg], --ddz [m]), damped to --max-dt / --max-ddz per step, until
 |height| < --tol-z and |angle| < --tol-zp. With --final the levelled setting is run with every
-RFQ particle (core + injected tail) with space charge at --final-h cells and once in vacuum,
-both with hand-off files.
+RFQ particle (core + injected tail) with space charge at --final-h cells, with a hand-off file.
+No run without space charge unless --with-nosc (Daniel, 2026-11-07: "stop doing no space-charge
+runs"); at --current-ma 0 the zero-current run is the only one.
 
     python SCLevel.py --run <deck>\\Results\\triplet\\triplet1 --final
     python SCLevel.py --run <deck>\\Results\\final\\vfocus1_final --best-json basis\\scan2_fine.json --quads 16 24 --final
@@ -66,9 +67,13 @@ p.add_argument("--keep-quad-poles", dest="drop_quad_poles", action="store_false"
                     "isolation (QuadBases.py), so a spiral basis that keeps the poles is not the "
                     "combination that was validated. Measured effect on the spiral field of "
                     "dropping them, with the bounding plates kept: 0.003 %% of peak")
+p.add_argument("--bquads", default=None, metavar="JSON",
+               help="analytic MAGNETIC quads added to the B map in every bunch run (a quad set, tracking/magquads.py; it turns "
+                    "with the run's R). A run without electrostatic quads (knob n_quads = 0) needs no --best-json")
 p.add_argument("--final", action="store_true")
 p.add_argument("--final-h", type=float, default=0.002)
 p.add_argument("--final-resolve-every", type=int, default=8)
+p.add_argument("--with-nosc", action="store_true", help="--final also runs every particle with no space charge (off by default)")
 p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
 p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
 a = p.parse_args()
@@ -114,12 +119,17 @@ ENERGY = float(particle_rows(a.particles, core=True)[:, 8].mean())
 with open(os.path.join(BASIS0, "si_state_spiral.pickle"), "rb") as fh:
     st_spiral = pickle.load(fh)
 QROT = a.quads or [float(x) for x in (st_spiral.get("quad_rotation_deg") or [16.0, 24.0])]
-n_quads = int(knobs.get("n_quads", 2) or 2)
+n_quads = 2 if knobs.get("n_quads") is None else int(knobs["n_quads"])   # 0: no electrostatic quads (magquad runs)
 QROT = (QROT + [0.0] * n_quads)[:n_quads]
-bj = a.best_json or next((f for f in ("scan2_scan.json", "scan2_fine.json") if os.path.exists(os.path.join(BASIS0, f))), None)
-if bj is None:
-    raise SystemExit("no scan json with the quad setting found in " + BASIS0)
-best = jload(bj if os.path.isabs(bj) else os.path.join(RUN, bj) if os.path.exists(os.path.join(RUN, bj)) else os.path.join(BASIS0, bj))["best"]
+if n_quads == 0:
+    bj, best = "no electrostatic quads", {}
+else:
+    bj = a.best_json or next((f for f in ("scan2_scan.json", "scan2_fine.json") if os.path.exists(os.path.join(BASIS0, f))), None)
+    if bj is None:
+        raise SystemExit("no scan json with the quad setting found in " + BASIS0)
+    best = jload(bj if os.path.isabs(bj) else os.path.join(RUN, bj) if os.path.exists(os.path.join(RUN, bj)) else os.path.join(BASIS0, bj))["best"]
+BQUADS = os.path.abspath(a.bquads) if a.bquads else None
+BQUADS_SET = jload(BQUADS) if BQUADS else None
 quads = []                                    # (voltage, skew angle) per quad, N from the run
 for _i in range(1, n_quads + 1):
     quads += [best["q{}".format(_i)], best.get("alpha{}".format(_i), 0.0)]
@@ -137,6 +147,9 @@ stamp("SC LEVEL of {}: quads {} (from {}), basis rotation {}, R {:+.3f} deg; sta
       "{} mA, {} particles, {:.0f} mm cells; basis grid {:.1f} mm".format(
           os.path.basename(RUN), " ".join("{:+.0f}@{:g}".format(quads[2 * i], quads[2 * i + 1]) for i in range(len(quads) // 2)),
           os.path.basename(bj), QROT, R, t_exit0, 1e3 * dz0, a.current_ma, a.n, 1e3 * a.h, 1e3 * GRID_RES))
+if BQUADS_SET:
+    stamp("  magnetic quads from {}: G {} T/m, turns {} deg on top of R, gap centre b {:.2f} mm (Baseline)".format(
+        BQUADS, BQUADS_SET.get("G_T_per_m"), BQUADS_SET.get("alpha_deg"), float(BQUADS_SET.get("b_mm", float("nan")))))
 
 
 def geometry_for(t_exit):
@@ -159,8 +172,9 @@ def geometry_for(t_exit):
         stamp("  spiral basis field of that geometry")
         run_cmd(["-m", "spyral_inflector.tracking.bem_reload", "--tag", "spiral", "--step-dir", sdir, "--voltages", os.path.join(gdir, "voltages.csv"),
                  "--state", os.path.join(gdir, "state.pickle"), "--out-dir", bdir, "--res", GRID_RES, "--box"] + GRID_BOX +
-                ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R, "--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * n_quads +
-                ["--energy-mev", ENERGY] + (["--drop", "D*"] if a.drop_quad_poles else []),
+                ["--h", a.geo_h, "--bfield", a.bfield, "--rotate-all", R] +
+                ((["--rotate-quads"] + QROT + ["--quad-voltages"] + [0] * n_quads) if n_quads else []) +
+                ["--energy-mev", ENERGY] + (["--drop", "D*"] if a.drop_quad_poles and n_quads else []),
                 os.path.join(bdir, "log_basis_spiral.txt"))
     for fn in quad_basis_files:
         if not os.path.exists(os.path.join(bdir, fn)):
@@ -172,7 +186,7 @@ def bunch(bdir, sdir, tag, extra):
     cmd = ["-m", "spyral_inflector.tracking.bunch", "--tag", "spiral", "--reload-dir", bdir, "--step-dir", sdir,
            "--particles", a.particles, "--bfield", a.bfield, "--phi", PHI, "--out-dir", OUT, "--out-tag", tag,
            "--basis-dir", bdir, "--superpose"] + quads + ["--current-ma", a.current_ma, "--vscale", "{:.6f}".format(a.vscale), "--handoff-frame", "machine",
-           "--handoff-distance", 0.0] + list(extra)
+           "--handoff-distance", 0.0] + (["--bquads", BQUADS] if BQUADS else []) + list(extra)
     run_cmd(cmd, os.path.join(OUT, "log_{}.txt".format(tag)))
 
 
@@ -241,17 +255,20 @@ stamp("levelled: exit truncation {:.3f} deg, dz {:+.2f} mm -> height {:+.2f} mm,
     t_exit, 1e3 * dz, 1e3 * cur["z"], 1e3 * cur["zp"], "converged" if converged else "not converged"))
 with open(os.path.join(OUT, "sc_level.json"), "w") as fh:
     json.dump({"vscale": a.vscale, "current_ma": a.current_ma, "n": a.n, "h_m": a.h, "resolve_every": a.resolve_every, "bfield": a.bfield, "particles": a.particles, "quads": quads, "quad_rotation_deg": QROT, "history": history, "t_exit_deg": t_exit, "dz_m": dz, "dz0_m": dz0,
-               "shift_z_m": dz - dz0, "converged": converged, "basis": cur["basis"]}, fh, indent=2)
+               "shift_z_m": dz - dz0, "converged": converged, "basis": cur["basis"],
+               "bquads": BQUADS, "bquads_set": BQUADS_SET}, fh, indent=2)
 
 # ---------------------------------------------------------------- final runs at the levelled setting
 final = {}
 if a.final:
     bdir = cur["basis"]
     sdir = STEPS0 if bdir == BASIS0 else os.path.join(os.path.dirname(bdir), "steps")
-    runs = [("vac_all_level", [])]
-    if a.current_ma > 0:      # at 0 mA the space-charge run IS the vacuum run; do not run it twice
-        runs.insert(0, ("sc_all_level", ["--sc", "--h", a.final_h, "--resolve-every", a.final_resolve_every,
-                                         "--sc-min-particles", 200]))
+    runs = []
+    if a.current_ma > 0:
+        runs.append(("sc_all_level", ["--sc", "--h", a.final_h, "--resolve-every", a.final_resolve_every,
+                                      "--sc-min-particles", 200]))
+    if a.current_ma <= 0 or a.with_nosc:      # at 0 mA the zero-current run is the only run
+        runs.append(("vac_all_level", []))
     for tag, extra in runs:
         if not os.path.exists(os.path.join(OUT, "bunch_{}.json".format(tag))):
             stamp("final run {}: every particle (core + injected tail) at truncation {:.3f} deg, dz {:+.2f} mm".format(tag, t_exit, 1e3 * dz))
@@ -269,6 +286,9 @@ L = ["# Space-charge levelling of {}".format(os.path.basename(RUN)), "",
      "transmitted core at 55 mm past the exit. Start: the run's design orbit (truncation {:.3f} deg, dz {:+.2f} mm).".format(
          " ".join("{:+.0f} V @ {:g} deg".format(quads[2 * i], quads[2 * i + 1]) for i in range(len(quads) // 2)), QROT, os.path.basename(bj),
          a.current_ma, a.n, 1e3 * a.h, t_exit0, 1e3 * dz0), "",
+     ("Magnetic quads (analytic, added to the B map, turning with R): G {} T/m, turns {} deg on top of R, gap centre b = {:.2f} mm "
+      "(Baseline), from `{}`.".format(BQUADS_SET.get("G_T_per_m"), BQUADS_SET.get("alpha_deg"), float(BQUADS_SET.get("b_mm", float("nan"))),
+                                      BQUADS) if BQUADS_SET else "No magnetic quads."), "",
      "| evaluation | exit trunc [deg] | dz [mm] | V [V] | height [mm] | angle [mrad] | rms height | rms angle | transmission |",
      "|---|---|---|---|---|---|---|---|---|"]
 for m in history:
@@ -279,7 +299,7 @@ L += ["", "**Levelled: exit truncation {:.3f} deg, dz {:+.2f} mm (shift {:+.2f} 
     t_exit, 1e3 * dz, 1e3 * (dz - dz0), 1e3 * cur["z"], 1e3 * cur["zp"], "converged" if converged else "not converged")]
 if final:
     L += ["", "## Every particle at the levelled setting", "", "| run | transmitted | core | tail | height [mm] | angle [mrad] | rms angle |", "|---|---|---|---|---|---|---|"]
-    for tag, label in ([("vac_all_level", "vacuum")] +
+    for tag, label in ([("vac_all_level", "no space charge")] +
                        ([("sc_all_level", "{:g} mA".format(a.current_ma))] if a.current_ma > 0 else [])):
         m = final.get(tag)
         if not m:
@@ -288,7 +308,8 @@ if final:
         L.append("| {} | {:.2f} % | {} | {} | {:+.2f} | {:+.1f} | {:.1f} |".format(
             label, 100 * m["transmission"], "{:.2f} %".format(100 * t["core_transmission"]) if t else "-",
             "{:.2f} %".format(100 * t["tail_transmission"]) if t else "-", 1e3 * m["z"], 1e3 * m["zp"], 1e3 * m["zp_rms"]))
-    L += ["", "Hand-off files: `sc_level/handoff_sc_all_level.h5`, `sc_level/handoff_vac_all_level.h5` (machine frame, electrode exit).",
+    L += ["", "Hand-off files: {} (machine frame, electrode exit).".format(
+              ", ".join("`sc_level/handoff_{}.h5`".format(t) for t in ("sc_all_level", "vac_all_level") if t in final)),
           "The levelled geometry: the STEP files of `sc_level/{}/steps` (exit truncation {:.3f} deg) shifted by {:+.2f} mm along z; "
           "the exit plate moves with it, so the plate-rule rotation should be re-solved before a Baseline export.".format(
               "t{:.3f}".format(t_exit) if abs(t_exit - t_exit0) > 1e-9 else "..", t_exit, 1e3 * (dz - dz0))]

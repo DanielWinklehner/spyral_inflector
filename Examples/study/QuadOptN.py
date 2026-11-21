@@ -41,6 +41,9 @@ p.add_argument("--quads", type=float, nargs="+", required=True, help="basis orie
 p.add_argument("--seed-q", type=float, nargs="+", required=True, help="start voltages [V], one per quad")
 p.add_argument("--seed-alpha", type=float, nargs="+", default=None, help="start extra rotations [deg] (default 0)")
 p.add_argument("--q-span", type=float, default=2500.0, help="bounds: seed +- this [V]")
+p.add_argument("--q-max", type=float, default=None,
+               help="hard limit |V| <= this on every quad [V]: the bounds are clipped to it and a seed beyond it is pulled onto it "
+                    "(Daniel 2026-10-24: quads at or below 10 kV)")
 p.add_argument("--alpha-span", type=float, default=15.0, help="bounds: seed +- this [deg]")
 p.add_argument("--maxfun", type=int, default=60)
 p.add_argument("--rhobeg", type=float, default=0.15, help="initial trust region, fraction of the bound ranges")
@@ -51,6 +54,14 @@ p.add_argument("--w-z100", type=float, default=0.0)
 p.add_argument("--w-hv", type=float, default=0.0,
                help="weight of the fraction lost on HV electrodes, spiral electrodes AND quad poles (1 point = 1 unit): Daniel wants the "
                     "losses on grounded apertures, so pushing them from the spiral onto a quad pole must not count as a gain")
+p.add_argument("--w-loss", type=float, default=0.0,
+               help="weight of a residual on ALL particles lost, w * 100 * (1 - T) (one point = one unit), on top of --w-hv's extra "
+                    "weight for HV losses. 2026-10-23: with the denser WARP beam the space-charge loss sits on the GROUNDED SI entrance "
+                    "aperture, which --w-hv cannot see and the one-sided floor does not reward. 0 = off")
+p.add_argument("--w-dt", type=float, default=0.0,
+               help="weight of the rms RF phase at the hand-off, wrapped around the median, / 10 deg (FullOpt's unit). 0 = off")
+p.add_argument("--shift-z", type=float, default=None,
+               help="levelling shift of the assembly at tracking time [m]; default: the run's sc_level/sc_level.json shift_z_m, else 0")
 p.add_argument("--n", type=int, default=4000)
 p.add_argument("--h", type=float, default=0.004)
 p.add_argument("--resolve-every", type=int, default=10)
@@ -105,14 +116,22 @@ if missing:
     raise SystemExit("missing basis fields in {}: {} (TripletScan --skew-bases solves the skew ones)".format(BDIR, ", ".join(missing)))
 R = jload(os.path.join(RUN, "exit_plane.json"))["rotation_deg"]
 PHI = 90.0 + R
+_lvl = os.path.join(RUN, "sc_level", "sc_level.json")
+SHIFT_Z = a.shift_z if a.shift_z is not None else (float(jload(_lvl).get("shift_z_m", 0.0)) if os.path.exists(_lvl) else 0.0)
 NAMES = ["q{}".format(i + 1) for i in range(NQ)] + ["alpha{}".format(i + 1) for i in range(NQ)]
-x0 = np.array(list(a.seed_q) + seed_alpha, dtype=float)
-LO = np.array([q - a.q_span for q in a.seed_q] + [s - a.alpha_span for s in seed_alpha])
-HI = np.array([q + a.q_span for q in a.seed_q] + [s + a.alpha_span for s in seed_alpha])
+seed_q = [float(np.clip(q, -a.q_max, a.q_max)) for q in a.seed_q] if a.q_max else list(a.seed_q)
+x0 = np.array(seed_q + seed_alpha, dtype=float)
+LO = np.array([q - a.q_span for q in seed_q] + [s - a.alpha_span for s in seed_alpha])
+HI = np.array([q + a.q_span for q in seed_q] + [s + a.alpha_span for s in seed_alpha])
+if a.q_max:
+    LO[:NQ], HI[:NQ] = np.maximum(LO[:NQ], -a.q_max), np.minimum(HI[:NQ], a.q_max)
 stamp("QUAD OPT of {}: {} quads at basis rotation {} on top of R {:+.3f} deg; {} mA, {} core particles, {:.0f} mm cells; "
-      "knobs {}; seed {}; bounds q +-{:.0f} V, alpha +-{:.0f} deg; weights angle {:g}, z100 {:g}, HV loss {:g}; DFO-LS maxfun {}".format(
+      "knobs {}; seed {}; bounds q +-{:.0f} V{}, alpha +-{:.0f} deg; weights angle {:g}, z100 {:g}, HV loss {:g}, all losses {:g}, "
+      "phase {:g}; levelling shift {:+.3f} mm; DFO-LS maxfun {}".format(
           os.path.basename(RUN), NQ, list(a.quads), R, a.current_ma, a.n, 1e3 * a.h, NAMES,
-          ", ".join("{} {:g}".format(n, v) for n, v in zip(NAMES, x0)), a.q_span, a.alpha_span, a.w_angle, a.w_z100, a.w_hv, a.maxfun))
+          ", ".join("{} {:g}".format(n, v) for n, v in zip(NAMES, x0)), a.q_span,
+          " clipped to |V| <= {:.0f} V (seed was {})".format(a.q_max, list(a.seed_q)) if a.q_max else "", a.alpha_span, a.w_angle,
+          a.w_z100, a.w_hv, a.w_loss, a.w_dt, 1e3 * SHIFT_Z, a.maxfun))
 
 CACHE = os.path.join(OUT, "evals.json")
 evals = jload(CACHE) if os.path.exists(CACHE) else []
@@ -152,7 +171,8 @@ def measure(out_dir, tag):
             th = th[np.isfinite(th)]
             f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or 32.8) * 1e6
             if len(th) >= 100:
-                dt_rms_deg = float(360.0 * f_rf * th.std())
+                ph = 360.0 * f_rf * th                  # wrapped around the median (2026-10-23, as FullOpt / beam_report)
+                dt_rms_deg = float(((ph - np.median(ph) + 180.0) % 360.0 - 180.0).std())
     else:
         zp_h_rms, z100 = float(zp.std()), z + 0.1 * zp
     n_all = float(s["n_particles"])
@@ -169,7 +189,7 @@ T_FLOOR = None
 
 
 def residuals(m):
-    nres = 2 + (a.w_z100 > 0) + (a.w_hv > 0)
+    nres = 2 + (a.w_z100 > 0) + (a.w_hv > 0) + (a.w_loss > 0) + (a.w_dt > 0)
     if m is None:
         return np.full(nres, 10.0)
     r = [a.w_angle * 1e3 * m["zp_h_rms"] / 3.0, max(0.0, (T_FLOOR or 0.0) - m["transmission"]) / 0.01]
@@ -177,6 +197,10 @@ def residuals(m):
         r.append(a.w_z100 * 1e3 * m["z100_rms"] / 5.0)
     if a.w_hv > 0:
         r.append(a.w_hv * 100.0 * m["f_lost_hv"])
+    if a.w_loss > 0:
+        r.append(a.w_loss * 100.0 * (1.0 - m["transmission"]))
+    if a.w_dt > 0:
+        r.append(a.w_dt * m["dt_rms_deg"] / 10.0)
     return np.array(r)
 
 
@@ -200,7 +224,7 @@ def evaluate(x):
                  "--particles", a.particles, "--bfield", a.bfield, "--phi", PHI, "--out-dir", edir, "--out-tag", tag,
                  "--basis-dir", BDIR, "--superpose"] + SUPER + ["--current-ma", a.current_ma, "--handoff-frame", "machine",
                  "--handoff-distance", 0.0, "--n", a.n] + (["--sc"] if a.current_ma > 0 else []) +
-                ["--h", a.h, "--resolve-every", a.resolve_every, "--shift-z", "0.0000000000", "--vscale", "{:.6f}".format(a.vscale),
+                ["--h", a.h, "--resolve-every", a.resolve_every, "--shift-z={:.10f}".format(SHIFT_Z), "--vscale", "{:.6f}".format(a.vscale),
                  "--no-plot"], os.path.join(edir, "log_bunch.txt"))
         m = measure(edir, tag)
     except Exception as exc:
