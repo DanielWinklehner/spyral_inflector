@@ -2,7 +2,8 @@
 
 Compared by content, file by file (relative paths):
 
-    .npz          every array: dtype, shape and every bit (NaN equal to NaN)
+    .npz          every array: dtype, shape and every bit (NaN equal to NaN); the wall-clock column of the
+                  space-charge log (sc_log) is skipped
     .json         every number exactly; strings after replacing each folder's own root by <ROOT>; keys that hold
                   wall-clock times (--ignore-key) are skipped
     .h5           every dataset bit for bit and every attribute (strings rooted as for json)
@@ -31,6 +32,8 @@ TIME_KEYS = (r"(^|_)(time|times|elapsed|wall|timestamp|date|started|finished|dur
              r"|^(potential|solve|setup|assembly)_s$|^t_(setup|solve|run)")
 # identities that are new in every process: the memo uuid of PyPATools' cached interpolators
 UNSTABLE_KEYS = r"__uuid$"
+# wall-clock columns of npz arrays: the bunch's space-charge log (step, n, phi min, phi max, E max, E median, wall s)
+TIME_COLUMNS = {"sc_log": (6,)}
 SKIP = ("log*.txt", "*.png", "*.log", "*.pyc")
 
 
@@ -148,7 +151,13 @@ def compare_file(d, rel, fa, fb):
     ext = os.path.splitext(rel)[1].lower()
     if ext == ".npz":
         with np.load(fa, allow_pickle=True) as za, np.load(fb, allow_pickle=True) as zb:
-            d.value({k: za[k] for k in za.files}, {k: zb[k] for k in zb.files}, rel)
+            va, vb = {k: za[k] for k in za.files}, {k: zb[k] for k in zb.files}
+        for k, cols in TIME_COLUMNS.items():
+            for v in (va, vb):
+                if k in v and v[k].ndim == 2 and v[k].shape[1] > max(cols):
+                    v[k] = v[k].copy()
+                    v[k][:, list(cols)] = 0.0
+        d.value(va, vb, rel)
     elif ext == ".json":
         with open(fa, encoding="utf-8") as ha, open(fb, encoding="utf-8") as hb:
             d.value(json.load(ha), json.load(hb), rel)

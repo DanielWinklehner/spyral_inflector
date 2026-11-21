@@ -70,6 +70,14 @@ def test_object_graphs_and_wall_clock_keys(tmp_path):
     assert any("t_ref_s" in d for d in compare_dirs(tmp_path / "a", tmp_path / "c")[0])   # a physics time is compared
 
 
+def test_space_charge_log_wall_column(tmp_path):
+    for name, wall, phi in (("a", 0.61, 341.9), ("b", 0.64, 341.9), ("c", 0.64, np.nextafter(341.9, 400.0))):
+        os.makedirs(tmp_path / name)
+        np.savez(tmp_path / name / "bunch.npz", sc_log=np.array([[0.0, 1.0, -2e-11, phi, 1.9, 1.9, wall]]))
+    assert compare_dirs(tmp_path / "a", tmp_path / "b")[0] == []           # only the solve's wall time differs
+    assert any("sc_log" in d for d in compare_dirs(tmp_path / "a", tmp_path / "c")[0])
+
+
 def test_cli_paths_and_config(clean_env, capsys):
     root = os.fspath(clean_env)
     paths = write(os.path.join(root, "paths.toml"), "[roots]\nwork = '{}'\n".format(os.path.join(root, "work")))
