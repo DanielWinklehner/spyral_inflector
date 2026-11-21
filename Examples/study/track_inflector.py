@@ -15,7 +15,7 @@ from spyral_inflector.tracking.handoff import (save_handoff_openpmd, save_snapsh
 PROJECT = os.environ.get("SI_DECK") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 STEP_DIR = os.path.join(PROJECT, "Geometry", "final_steps")
 PARTICLES = os.path.join(PROJECT, "Particles", "TenThousandRFQParticles.txt")
-BFIELD = os.path.join(PROJECT, "Fields", "HCHC-60_CentralBField_zflipped.pickle")
+BFIELD = os.environ.get("SI_BFIELD") or os.path.join(PROJECT, "Fields", "bfield.pickle")   # scripts set ti.BFIELD
 
 # voltages of the original deck (only used by load_assembly(); collision checks ignore them)
 VOLTAGES = {
@@ -33,4 +33,4 @@ def load_particles(n_target, seed=20260905):
 
 def load_assembly():
     """PyElectrodeAssembly from the STEP files in the module-level STEP_DIR."""
-    return load_step_assembly(STEP_DIR, VOLTAGES, name="HCHC-60 spiral inflector")
+    return load_step_assembly(STEP_DIR, VOLTAGES, name="spiral inflector")

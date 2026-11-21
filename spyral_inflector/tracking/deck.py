@@ -1,5 +1,8 @@
 """Inputs of a spiral-inflector tracking run: the RFQ particle file, the STEP electrode
-assembly, the field maps, and the naming conventions of the HCHC-60 deck.
+assembly, the field maps, and the electrode naming conventions of the exported geometry.
+
+The beam species, the RF and the start plane are machine settings (spyral_inflector.machine), not
+constants of this module.
 
 Electrode names follow the deck's STEP export: ``SI_Anode``/``SI_Cathode`` (spiral
 electrodes), ``Housing``, ``Entrance_Aperture``, the grounded quad plates ``ent0``/``ext0``/
@@ -16,12 +19,9 @@ from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
 from PyPATools.field import Field
 from PyPATools.species import IonSpecies
 
-# m, where the RFQ bunch starts (upstream of the first quad plate). SI_Z_START overrides it for a
-# whole run (every subprocess inherits it): HCHC-1.5 moved the RFQ exit to 270 mm, 2026-10-15.
-Z_START = float(os.environ.get("SI_Z_START", "-0.275"))
-SPECIES = "H2_1+"
+from .. import machine
+
 CLIGHT = 299792458.0
-RF_FREQ_HZ = 32.8e6         # cyclotron RF: one bunch carries I / f_RF of charge
 
 MAX_QUADS = 4               # the generator names the poles of quad i D<4i>..D<4i+3>
 
@@ -171,18 +171,21 @@ def particle_rows(path, core=True):
     # 2026-10-23: every particle is placed with its OWN beta*lambda, as dst_rows does. The text exports carry
     # z = -phase/360 * beta*lambda at the mean energy of ALL particles (tail included), which put a 67 keV core
     # particle 2.6 % too close to the start plane (WARP 10 mA V1.10 export: 1.9 deg rms of arrival-time error)
-    gamma = 1.0 + data[:, 8] / IonSpecies(SPECIES).mass_mev
-    data[:, 4] = -data[:, 6] / 360.0 * np.sqrt(1.0 - 1.0 / gamma ** 2) * CLIGHT / RF_FREQ_HZ * 1e3
+    gamma = 1.0 + data[:, 8] / IonSpecies(machine.species()).mass_mev
+    data[:, 4] = -data[:, 6] / 360.0 * np.sqrt(1.0 - 1.0 / gamma ** 2) * CLIGHT / machine.rf_hz() * 1e3
     return data[core_selection(data)] if core else data
 
 
-def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES, core=True):
+def load_particles(path, n, seed=20260905, z_start=None, species=None, core=True):
     """Read an RFQ output file (TraceWin .dst, or the text format x(mm) x'(mrad) y(mm)
     y'(mrad) z(mm) z'(mrad) Phase(deg) Time(s) Energy(MeV) Loss) and draw n particles from
     the unlost ones without replacement; n at or above the file size takes every particle once.
 
     Returns r (n, 3) [m], v (n, 3) [m/s], the IonSpecies and the raw rows drawn. The
-    bunch starts at z_start with the file's z as the longitudinal spread."""
+    bunch starts at z_start with the file's z as the longitudinal spread. z_start and
+    species default to the machine settings."""
+    z_start = machine.z_start() if z_start is None else z_start
+    species = machine.species() if species is None else species
     data = particle_rows(path, core=core)
     rng = np.random.default_rng(seed)
     if n >= len(data):
@@ -201,7 +204,7 @@ def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES, cor
     return r, v, ion, data
 
 
-def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SPECIES, rf_mhz=32.8, inject_core=False):
+def load_particles_with_tail(path, n, seed=20260905, z_start=None, species=None, rf_mhz=None, inject_core=False):
     """Every particle of an RFQ file: the core (|phase| <= 180 deg and energy at least half
     the median) placed as load_particles places it -- a spatial bunch at z_start with the
     phase as longitudinal spread -- and the unaccelerated tail as particles to be injected
@@ -217,7 +220,11 @@ def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SP
     injection ramp; see the TODO in tracking/bunch.py.
 
     Returns r, v, ion, rows, t_inject [s] (0 for the core unless inject_core) and is_tail.
-    n below the file size draws n particles at random from the whole file."""
+    n below the file size draws n particles at random from the whole file. z_start, species
+    and rf_mhz default to the machine settings."""
+    z_start = machine.z_start() if z_start is None else z_start
+    species = machine.species() if species is None else species
+    rf_mhz = machine.rf_mhz() if rf_mhz is None else rf_mhz
     data = particle_rows(path, core=False)
     rng = np.random.default_rng(seed)
     if n < len(data):

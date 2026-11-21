@@ -10,8 +10,8 @@ exit opening, 19 mm gap, dz +3.50 mm already baked into the STEP files):
         --out "..\\Results\\jarrett_pg5L" --q1 6575 --q2 -8450 --rotate-quads 16 24 --spiral-voltage 11594.558 --sc
 
 Inputs it needs from the deck: the STEP folder, the run folder's voltages.csv and state.pickle
-(design orbit of that geometry), the B-field map (Fields/HCHC-60_CentralBField_z-40to5cm_1mm.pickle)
-and the Bevatech core beam (Particles/MIT RFQ Beamdynamics/ext3_exit_core_as_txt.txt); the
+(design orbit of that geometry), the B-field map (--bfield)
+and the injected core beam (--particles); the
 scripts TrackFromStep.py, BunchTrack.py, BunchTrackSC.py, track_inflector.py, exit_metrics.py
 and plot_geometry_trajectories.py next to this one; packages py_electrodes, PyPATools
 (openPMD writer), bempp-cl, warp. The beam angle is 90 deg (RFQ mounting angle); the design
@@ -38,8 +38,8 @@ parser.add_argument("--rotate-quads", type=float, nargs=2, default=[0.0, 0.0], m
 parser.add_argument("--spiral-voltage", type=float, required=True, help="spiral electrode voltage [V] (anode +V, cathode -V)")
 parser.add_argument("--phi", type=float, default=90.0, help="rotation of the input beam about z [deg]")
 parser.add_argument("--n", type=int, default=43969, help="particles (the core file has 43,969)")
-parser.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit_core_as_txt.txt"))
-parser.add_argument("--bfield", default=os.path.join(DECK, "Fields", "HCHC-60_CentralBField_z-40to5cm_1mm.pickle"))
+parser.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
+parser.add_argument("--bfield", required=True, help="the B map (field pickle)")
 parser.add_argument("--res", type=float, default=0.0025, help="BEM potential grid resolution [m]")
 parser.add_argument("--sc", action="store_true", help="also run with PyAMG space charge")
 parser.add_argument("--h", type=float, default=0.0015, help="space-charge cell size [m] (2 mm reads +1.9, 1.5 mm +1.3, 1 mm +0.8 points above converged)")

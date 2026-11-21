@@ -214,10 +214,10 @@ def write_housing_outline(path, outer, aperture, curves=None, frame="deck", unit
     """
     outer = np.asarray(outer, dtype=float).reshape(-1, 2)
     aperture = np.asarray(aperture, dtype=float).reshape(-1, 3)
-    machine = os.environ.get("SI_MACHINE", "HCHC60")             # the file-name tag of the deck that runs
-    machine = {"HCHC60": "HCHC-60", "HCHC15": "HCHC-1.5"}.get(machine, machine)
+    from .. import machine
+    label = machine.name()                                       # the display name of the machine, if set
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write("# " + machine + " spiral inflector -> central region: the housing outline.\n"
+        fh.write("# " + (label + " " if label else "") + "spiral inflector -> central region: the housing outline.\n"
                  "# outer     the outline the housing wall is extruded from, BEFORE any\n"
                  "#           extrusion: one 'x y' per point, counter-clockwise, not closed.\n"
                  "# curves    how to join them: 'kind i0 i1', kind line|spline, indices into\n"

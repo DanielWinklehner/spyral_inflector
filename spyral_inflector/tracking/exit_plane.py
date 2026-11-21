@@ -92,7 +92,7 @@ def outer_face(steps_dir, state, corridor=0.045, ahead=(-0.005, 0.070), align=0.
     s = fc @ n
     # The plate's two faces are the two OFFSETS that carry the most area (a flat face's triangles
     # all sit at one offset; face_tol separates faces). Splitting at the midpoint of the offset
-    # range instead let a single stray parallel sliver decide the outer face: on the HCHC-1.5 t3
+    # range instead let a single stray parallel sliver decide the outer face: on one
     # wall (2026-10-16) an 11 mm2 triangle 4.8 mm beyond the plate's 3,300 mm2 outer face became
     # "the outer face", read the 2.00 mm plate as 5.81 mm, moved the crossing 4.8 mm downstream
     # and turned the rotation fixed point 3.4 deg away from the clean build of the same shape.
@@ -112,7 +112,7 @@ def outer_face(steps_dir, state, corridor=0.045, ahead=(-0.005, 0.070), align=0.
             "orbit_exit": p0, "orbit_exit_azimuth_deg": float(np.degrees(np.arctan2(p0[1], p0[0])))}
 
 
-def rotation_for_gap(point, normal, gap_azimuth_deg=34.0, half_gap=5.0e-3):
+def rotation_for_gap(point, normal, gap_azimuth_deg, half_gap):
     """Rotation about z [deg] that puts point + half_gap * normal on the radial plane at
     gap_azimuth_deg, i.e. the exit face half a gap before the gap along its own normal."""
     q = np.asarray(point, dtype=float) + half_gap * np.asarray(normal, dtype=float)
@@ -120,7 +120,7 @@ def rotation_for_gap(point, normal, gap_azimuth_deg=34.0, half_gap=5.0e-3):
     return float((r + 180.0) % 360.0 - 180.0)
 
 
-def rotation_parallel_to_gap(normal, gap_azimuth_deg=24.0):
+def rotation_parallel_to_gap(normal, gap_azimuth_deg):
     """Rotation about z [deg] that turns the exit plate PARALLEL to the gap's radial plane.
 
     That plane contains the axis and the radial direction at `gap_azimuth_deg`, so its normal
@@ -144,7 +144,7 @@ def plate_corners(steps_dir):
     The simplified wall is a spline plus the straight plate (see housing_outline.py), so the
     plate's two endpoints are its corners. `outer` is the one at the larger radius. Since the
     outline gained straight step edges at the plate ends (sub-mm lines between the plate and
-    the spline), the plate is the LONGEST straight segment, not the first: on HCHC-1.5 t1nr
+    the spline), the plate is the LONGEST straight segment, not the first: on one design
     the first line was the 0.8 mm step edge at r 37 mm, which put R 23 deg off.
     """
     from .export import HOUSING_OUTLINE_NAME, read_housing_outline
@@ -160,7 +160,7 @@ def plate_corners(steps_dir):
     return (a, b) if np.hypot(*a) >= np.hypot(*b) else (b, a)
 
 
-def rotation_for_corner(corner_xy, gap_azimuth_deg=24.0, offset_mm=3.25, r_near=0.0):
+def rotation_for_corner(corner_xy, gap_azimuth_deg, offset_mm, r_near=0.0):
     """Rotation about z [deg] putting a housing corner on a line PARALLEL to the gap's radial
     ray and `offset_mm` to the +x side of it.
 
@@ -189,8 +189,8 @@ def rotation_for_corner(corner_xy, gap_azimuth_deg=24.0, offset_mm=3.25, r_near=
     return min(cands, key=lambda R: abs(R - r_near))
 
 
-def exit_plane_spec(steps_dir, state, gap_azimuth_deg=34.0, half_gap=5.0e-3, out_json=None, log=print,
-                    rule="offset", corner_offset_mm=3.25, corner_which="outer", r_near=0.0):
+def exit_plane_spec(steps_dir, state, gap_azimuth_deg, half_gap, out_json=None, log=print,
+                    rule="offset", corner_offset_mm=None, corner_which="outer", r_near=0.0):
     """Measure the outer face, solve the rotation and describe the exit plane at that
     rotation in the deck frame and in the Baseline (machine) frame; optionally write it.
 
@@ -212,6 +212,8 @@ def exit_plane_spec(steps_dir, state, gap_azimuth_deg=34.0, half_gap=5.0e-3, out
     elif rule == "corner":
         outer_c, inner_c = plate_corners(steps_dir)
         corner = outer_c if corner_which == "outer" else inner_c
+        if corner_offset_mm is None:
+            raise ValueError("exit_plane_spec: rule 'corner' needs corner_offset_mm")
         R = rotation_for_corner(corner, gap_azimuth_deg, corner_offset_mm, r_near=r_near)
     else:
         raise ValueError("unknown exit-plane rule {!r}".format(rule))
@@ -291,10 +293,10 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--steps", required=True)
     p.add_argument("--state", required=True)
-    p.add_argument("--gap-azimuth", type=float, default=34.0)
-    p.add_argument("--half-gap", type=float, default=5.0e-3, help="[m]")
+    p.add_argument("--gap-azimuth", type=float, required=True, help="first gap ray of the central region [deg]")
+    p.add_argument("--half-gap", type=float, required=True, help="half the accelerating gap [m]")
     p.add_argument("--rule", choices=("offset", "parallel", "corner"), default="offset")
-    p.add_argument("--corner-offset-mm", type=float, default=3.25)
+    p.add_argument("--corner-offset-mm", type=float, default=None, help="rule corner (required there) [mm]")
     p.add_argument("--corner", choices=("outer", "inner"), default="outer")
     p.add_argument("--r-near", type=float, default=0.0, help="rule corner: the branch nearest this rotation [deg]")
     p.add_argument("--out", default=None)

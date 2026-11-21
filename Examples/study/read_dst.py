@@ -7,7 +7,7 @@ six float64: x [cm], x' [rad], y [cm], y' [rad], phase [rad], kinetic energy [Me
 the file ends with the rest mass [MeV/c^2]. TraceWin's phase is omega*t relative to
 the reference particle, so a positive phase is a late particle: z = -phase * beta*lambda / 2pi.
 
-    python read_dst.py "../Particles/MIT RFQ Beamdynamics/ext3_exit.dst" --compare --export --core
+    python read_dst.py "../Particles/<beam>.dst" --compare --export --core
 """
 import argparse
 import json

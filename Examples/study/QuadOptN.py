@@ -29,6 +29,8 @@ import time
 
 import numpy as np
 
+from spyral_inflector import machine  # noqa: E402
+
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 DECK = os.environ.get("SI_DECK") or os.path.dirname(SCRIPTS)
 PY = sys.executable
@@ -67,7 +69,7 @@ p.add_argument("--h", type=float, default=0.004)
 p.add_argument("--resolve-every", type=int, default=10)
 p.add_argument("--current-ma", type=float, default=10.0)
 p.add_argument("--vscale", type=float, default=1.0)
-p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
+p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
 p.add_argument("--out-name", default="quad_opt")
 p.add_argument("--keep", action="store_true", help="keep every evaluation's npz (large)")
 a = p.parse_args()
@@ -169,7 +171,7 @@ def measure(out_dir, tag):
         if "handoff_time" in d.files:
             th = np.asarray(d["handoff_time"], dtype=float)[okh]
             th = th[np.isfinite(th)]
-            f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or 32.8) * 1e6
+            f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or machine.rf_mhz()) * 1e6
             if len(th) >= 100:
                 ph = 360.0 * f_rf * th                  # wrapped around the median (2026-10-23, as FullOpt / beam_report)
                 dt_rms_deg = float(((ph - np.median(ph) + 180.0) % 360.0 - 180.0).std())

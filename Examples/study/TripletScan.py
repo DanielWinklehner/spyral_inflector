@@ -48,7 +48,7 @@ p.add_argument("--quad-z1", type=float, default=None,
                help="quad 1 start z [m, deck frame, before the design-orbit shift] (default: the base run's); the plate in front of it "
                     "spans quad_z1 - plate_gap - plate_thickness .. quad_z1 - plate_gap")
 p.add_argument("--entrance-hole", type=float, default=None,
-               help="hole RADIUS of the first plate [m] (HCHC-1.5: the RFQ-cyclotron vacuum sleeve, 46 mm diameter, doubles as it)")
+               help="hole RADIUS of the first plate [m] (e.g. a vacuum sleeve that doubles as it)")
 p.add_argument("--aper-hole", type=float, default=None, help="hole RADIUS of the plates between the quads [m] (default: the base run's)")
 p.add_argument("--entrance-rect", type=float, nargs=3, default=None, metavar=("HALF_U", "HALF_W", "ANGLE_DEG"),
                help="RECTANGULAR first-plate hole (the vacuum-sleeve stand-in) instead of the round --entrance-hole: "
@@ -73,17 +73,17 @@ p.add_argument("--maxiter", type=int, default=4)
 p.add_argument("--geo-res", type=float, default=0.005)
 p.add_argument("--res", type=float, default=0.005)
 p.add_argument("--h", type=float, default=0.005)
-p.add_argument("--gap-azimuth", type=float, default=34.0)
+p.add_argument("--gap-azimuth", type=float, required=True, help="first gap ray of the central region [deg]")
 p.add_argument("--rotation-rule", choices=("offset", "parallel"), default="offset",
                help="offset: the plate's outer face lands half a gap before the gap's radial plane. "
                     "parallel: the plate is turned parallel to that plane instead (it then stands off it).")
-p.add_argument("--half-gap", type=float, default=0.005)
-p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
-p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
+p.add_argument("--half-gap", type=float, required=True, help="half the accelerating gap [m]")
+p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
+p.add_argument("--bfield", required=True, help="the B map (field pickle)")
 p.add_argument("--tag", default="scan")
 args = p.parse_args()
 
-RESULTS = os.environ.get("SI_RESULTS") or os.path.join(DECK, "Results")   # 2026-09-15: new runs on a local SSD (E:), not Dropbox
+RESULTS = os.environ.get("SI_RESULTS") or os.path.join(DECK, "Results")   # SI_RESULTS: a results root outside the deck
 OUT = os.path.join(RESULTS, "triplet", args.name)
 GEO, STEPS, BASIS = (os.path.join(OUT, d) for d in ("geometry", "steps", "basis"))
 os.makedirs(OUT, exist_ok=True)
@@ -110,7 +110,9 @@ def jload(fn):
         return json.load(fh)
 
 
-from spyral_inflector.tracking.deck import particle_rows, Z_START  # noqa: E402
+from spyral_inflector.tracking.deck import particle_rows  # noqa: E402
+from spyral_inflector import machine  # noqa: E402
+Z_START = machine.z_start()
 from spyral_inflector.tracking.geometry_point import build_geometry  # noqa: E402
 from spyral_inflector.tracking.exit_plane import exit_plane_spec  # noqa: E402
 

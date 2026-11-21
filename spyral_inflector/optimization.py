@@ -760,7 +760,7 @@ def optimize_trajectory(si, initial_guess=None, maxiter=15, solver="auto", vary_
                       Measured against the actual anode and cathode surface meshes.
       z_offset [m]    mean height of the outside part of the trajectory
       width    [m]    offset from the untruncated design orbit along the electrode
-                      width, over the same window. On the HCHC-60 deck this reaches
+                      width, over the same window. On one design this reached
                       8 mm without entrance truncation and is what the entrance
                       truncation actually controls; the gap-direction centering above
                       hardly responds to any of the three knobs, so without this

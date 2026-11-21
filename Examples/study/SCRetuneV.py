@@ -40,8 +40,8 @@ p.add_argument("--resolve-every", type=int, default=16)
 p.add_argument("--final-h", type=float, default=0.002)
 p.add_argument("--final-resolve-every", type=int, default=8)
 p.add_argument("--current-ma", type=float, default=8.0)
-p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
-p.add_argument("--bfield", default=None, help="default: the run's field (final1_baseline_1mm.pickle)")
+p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
+p.add_argument("--bfield", required=True, help="the B map (field pickle)")
 p.add_argument("--skip-final", action="store_true")
 a = p.parse_args()
 
@@ -50,7 +50,7 @@ BASIS, STEPS = os.path.join(RUN, "basis"), os.path.join(RUN, "steps")
 OUT = os.path.join(RUN, "sc_retune")
 os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, "log.txt"), "a", encoding="utf-8")
-BF = a.bfield or os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle")
+BF = a.bfield
 
 
 def stamp(msg):

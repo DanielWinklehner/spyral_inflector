@@ -28,7 +28,7 @@ import time
 
 import numpy as np
 
-DECK = os.environ.get("SI_DECK", r"D:\MIT Dropbox\Daniel Winklehner\Projects\IsoDAR\60 MeV Cyclotron\Spiral_inflector")
+DECK = os.environ.get("SI_DECK") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 
@@ -45,7 +45,7 @@ p.add_argument("--h", type=float, default=0.004)
 p.add_argument("--resolve-every", type=int, default=10)   # 10 since 2026-09-15 23:50 (was 16)
 p.add_argument("--current-ma", type=float, default=10.0)
 p.add_argument("--tol", type=float, default=0.05, help="transmission tolerance of the rankings (fraction below the best)")
-p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
+p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
 p.add_argument("--bfield", required=True)
 p.add_argument("--out-name", default="sc_grid")
 p.add_argument("--keep", action="store_true", help="keep every point's npz (large)")
@@ -78,6 +78,7 @@ def run_cmd(cmd, log_path):
         raise RuntimeError("{} failed (exit {}), see {}".format(cmd[0], r.returncode, log_path))
 
 
+from spyral_inflector import machine  # noqa: E402
 from spyral_inflector.tracking.deck import particle_rows  # noqa: E402
 
 geo0 = jload(os.path.join(RUN, "geometry", "summary.json"))
@@ -147,7 +148,7 @@ def measure(out_dir, tag):
         if "handoff_time" in d.files:
             th = np.asarray(d["handoff_time"], dtype=float)[okh]
             th = th[np.isfinite(th)]
-            f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or 32.8) * 1e6
+            f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or machine.rf_mhz()) * 1e6
             if len(th) >= 100:
                 dt_rms_deg = float(360.0 * f_rf * th.std())
     else:

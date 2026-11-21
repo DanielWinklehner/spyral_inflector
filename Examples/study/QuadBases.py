@@ -13,7 +13,7 @@ entrance aperture, the other quads' poles), which terminate the field. --validat
 result against the full-assembly bases of an existing run, on the beam corridor, against the
 ~1.4 % two honest re-solves of the same geometry differ by.
 
-    python QuadBases.py --run E:\\HCHC60\\Results\\triplet\\par24b --validate
+    python QuadBases.py --run <results>\\triplet\\<run> --validate
     python QuadBases.py --run <run> --out <basis dir> --res 0.0025 --h 0.004
 """
 import argparse
@@ -38,7 +38,7 @@ p.add_argument("--run", required=True, help="a finished run: <run>/steps, <run>/
 p.add_argument("--out", default=None, help="basis directory to write (default <run>/basis_iso)")
 p.add_argument("--quads", type=float, nargs="+", default=[16.0, 24.0, 24.0], help="quad rotations on top of R [deg]")
 p.add_argument("--rotation", type=float, default=None, help="R [deg] (default: the run's exit_plane.json)")
-p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "nocut_baseline_1mm.pickle"))
+p.add_argument("--bfield", required=True, help="the B map (field pickle)")
 p.add_argument("--res", type=float, default=0.0025)
 p.add_argument("--h", type=float, default=0.004)
 p.add_argument("--box", type=float, nargs=6, default=list(DEFAULT_BOX))

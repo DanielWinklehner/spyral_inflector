@@ -52,7 +52,7 @@ def main(argv=None):
     p.add_argument("--mesh-mm", type=float, default=1.5)
     p.add_argument("--elev", type=float, default=22.0)
     p.add_argument("--azim", type=float, default=-58.0)
-    p.add_argument("--current-ma", type=float, default=10.0)
+    p.add_argument("--current-ma", type=float, required=True, help="beam current [mA] (for the title)")
     p.add_argument("--zmin", type=float, default=-25.0, help="lowest height drawn [mm, BCS]; tracks continue past the exit")
     p.add_argument("--n-tracks", type=int, default=0,
                    help="draw this many evenly spaced recorded tracks (0 = all); 1000 on a full record picks the same particles "

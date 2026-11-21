@@ -14,6 +14,9 @@ started, and the hand-off plane crossing for the openPMD files).
 
     python -m spyral_inflector.tracking.bunch --tag final --reload-dir OUT --step-dir STEPS --particles core.txt \\
         --bfield B.pickle --phi 90 --n 43969 [--sc --h 0.0015 --current-ma 8] [--save-openpmd handoff.h5 --save-mode both]
+
+The species, the RF (unless --rf-mhz), the start plane and the timed injection come from the machine settings
+(spyral_inflector.machine).
 """
 import argparse
 import json
@@ -27,7 +30,8 @@ from PyPATools.field import Field, CompositeField
 from PyPATools.pusher import Pusher
 from PyPATools.trackers import Tracker
 
-from .deck import (Z_START, load_particles, load_particles_with_tail, orient_beam, load_step_assembly, mesh_assembly,
+from .. import machine
+from .deck import (load_particles, load_particles_with_tail, orient_beam, load_step_assembly, mesh_assembly,
                    drop_electrodes, load_bfield, load_state, superpose_basis, rotate_assembly, rotate_quads, shift_assembly)
 from .hooks import (ElectrodeCollision, ExitPlane, PlaneCrossing, TrajectoryRecorder, SnapshotRecorder, Envelope,
                     SpaceCharge, DelayedInjection, continue_design, _PD)
@@ -36,7 +40,7 @@ from .magquads import load_set, tracking_spec, add_to_bfield
 
 
 def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_tag=None, n=10000, phi=0.0, swap_xy=False,
-                sc=False, current_ma=8.0, rf_mhz=32.8, h=2.0e-3, pad=0.01, xy_max=None, resolve_every=8, tol=1e-5, gpu=True,
+                sc=False, current_ma=None, rf_mhz=None, h=2.0e-3, pad=0.01, xy_max=None, resolve_every=8, tol=1e-5, gpu=True,
                 nsteps=1900, dt=1.0e-10, coast=300, asym_steps=210, post_exit_steps=100, record=1000, exclude=(),
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
@@ -48,7 +52,8 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     tag names ef_itp_<tag>.pickle and si_state_<tag>.pickle in reload_dir. With
     superpose=(q1, a1, q2, a2) the vacuum field is instead summed from the basis solves
     of basis_dir (default reload_dir) and tag only names the design state. sc=True adds
-    PyAMG space charge (cell size h, current_ma at rf_mhz). save_openpmd writes the
+    PyAMG space charge (cell size h, current_ma at rf_mhz; rf_mhz defaults to the machine RF, current_ma is
+    required with sc or save_openpmd). save_openpmd writes the
     hand-off file(s) at handoff_distance of design path past the exit (0 = the electrode
     exit plane itself; save_mode plane, lab6d or both), in the deck frame or mirrored into
     the machine frame (handoff_frame). reference: a vacuum run's bunch json for the
@@ -64,6 +69,9 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     PyPATools spec in the tracking frame; a dict or a JSON file.
     """
     log = log or (lambda m: print(m, flush=True))
+    if current_ma is None and (sc or save_openpmd):
+        raise ValueError("track_bunch: current_ma is required with space charge or hand-off files")
+    rf_mhz = machine.rf_mhz() if rf_mhz is None else rf_mhz
     out_dir = out_dir or reload_dir
     out_tag = out_tag or ("{}_sc{:g}mA".format(tag, current_ma) if sc else tag)
     os.makedirs(out_dir, exist_ok=True)
@@ -74,10 +82,10 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("BUNCH TRACKING {}, tag '{}' -> '{}'".format(
         "WITH SPACE CHARGE ({:g} mA at {:g} MHz)".format(current_ma, rf_mhz) if sc else "(no space charge)", tag, out_tag))
     log("=" * 78)
-    # 2026-10-23 (Daniel): SI_INJECT_CORE=1 makes the timed injection from the start plane the default of every run of a
-    # chain -- a one-period WARP snapshot placed as a spatial bunch would put ~3 % of its particles past the sleeve's
-    # upstream face, some inside the plate, where no collision is ever detected
-    inject_core = bool(inject_core) or os.environ.get("SI_INJECT_CORE", "0") == "1"
+    # the machine setting inject_core makes the timed injection from the start plane the default of every run of a
+    # chain -- a one-period snapshot placed as a spatial bunch can put particles past an aperture plate's upstream
+    # face, some inside the plate, where no collision is ever detected
+    inject_core = bool(inject_core) or machine.inject_core()
     if stragglers:
         r0, v0, ion, raw, t_inject, is_tail = load_particles_with_tail(particles, n, seed=seed, rf_mhz=rf_mhz,
                                                                        inject_core=inject_core)
@@ -88,7 +96,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
             # the core alone, injected at the start plane at its own arrival time as well (the clock starts with the
             # earliest particle), so a core-only loop uses the same convention as its every-particle runs
             t_all = raw[:, 6] / 360.0 / (rf_mhz * 1e6)
-            r0[:, 2] = Z_START
+            r0[:, 2] = machine.z_start()
             t_inject = t_all - t_all.min()
     r0, v0 = orient_beam(r0, v0, phi, swap_xy)
     k_inject = np.rint(t_inject / dt).astype(int)
@@ -534,8 +542,8 @@ def main(argv=None):
     p.add_argument("--phi", type=float, default=0.0, help="rotate the input beam about z [deg]")
     p.add_argument("--swap-xy", action="store_true")
     p.add_argument("--sc", action="store_true", help="PyAMG space charge")
-    p.add_argument("--current-ma", type=float, default=8.0)
-    p.add_argument("--rf-mhz", type=float, default=32.8)
+    p.add_argument("--current-ma", type=float, default=None, help="beam current [mA]; required with --sc or --save-openpmd")
+    p.add_argument("--rf-mhz", type=float, default=None, help="RF [MHz] (default: the machine setting)")
     p.add_argument("--h", type=float, default=2.0e-3, help="Poisson cell size [m]")
     p.add_argument("--pad", type=float, default=0.01)
     p.add_argument("--xy-max", type=float, default=None)

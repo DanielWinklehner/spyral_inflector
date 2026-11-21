@@ -16,7 +16,7 @@ DFO-LS (noise-aware, bound-scaled) minimizes the sum of squares. Every evaluatio
 measurement. Writes <run>/full_opt.md and <run>/full_opt/best_knobs.json (knobs for RunFinalPush
 --knobs-json plus _truncations_deg, _dz_m, _q1, _q2).
 
-2026-10-21 (HCHC-1.5, after Barnard et al., PRAB 24, 023501 (2021), whose inflector C3 shaped the two field-gradient
+2026-10-21 (after Barnard et al., PRAB 24, 023501 (2021), whose inflector C3 shaped the two field-gradient
 profiles Q1(s), Q2(s) piecewise linearly on 3 nodes each and cut the rf phase spread from +-39 to +-22 deg):
   --profiles angling sigma   frees angling (Q2-type, the angled electrode faces) and/or the V-depth sigma (Q1-type) as
                              3-node PROFILES along the electrode, entrance / middle / exit of the truncated electrode,
@@ -50,7 +50,7 @@ profiles Q1(s), Q2(s) piecewise linearly on 3 nodes each and cut the rf phase sp
   --hold NAME..., --set NAME=VALUE, --bound NAME LO HI, --seed-only, --dry-run: see --help.
 
     python FullOpt.py --run <deck>\\Results\\final\\vfocus1_level --best-json basis\\scan2_coarse.json --maxfun 80
-    python FullOpt.py --run E:\\HCHC1.5\\Results\\triplet\\t1nr_circ_c2 --out-name prof1 --profiles angling sigma --free-aspect
+    python FullOpt.py --run <results>\\triplet\\<levelled run> --out-name prof1 --profiles angling sigma --free-aspect
                       --min-gap 8 --w-dt 3 --current-ma 10 --n 4000 --maxfun 60
 """
 import argparse
@@ -65,7 +65,7 @@ import time
 
 import numpy as np
 
-DECK = os.environ.get("SI_DECK", r"D:\MIT Dropbox\Daniel Winklehner\Projects\IsoDAR\60 MeV Cyclotron\Spiral_inflector")
+DECK = os.environ.get("SI_DECK") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 sys.path.insert(0, os.path.dirname(os.path.dirname(SCRIPTS)))
@@ -126,8 +126,8 @@ p.add_argument("--free-aspect", action="store_true",
 p.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
                help="override a seed value (knob units as logged), e.g. --set ang_mid=6; repeatable. For smoke tests: the "
                     "levelled reference is the right seed for an optimization")
-p.add_argument("--particles", default=None, help="RFQ file (default: the levelling's, else the deck's ext3_exit.dst)")
-p.add_argument("--bfield", default=None, help="magnet map (default: the levelling's, else the deck's final1_baseline_1mm.pickle)")
+p.add_argument("--particles", default=None, help="RFQ file (default: the levelling's)")
+p.add_argument("--bfield", default=None, help="magnet map (default: the levelling's)")
 p.add_argument("--core-only", action="store_true",
                help="the OLD loop: --n particles of the RFQ CORE only and core-only terms. Default since 2026-10-21: --n drawn at "
                     "random from the whole file (core + tail, bunch.py --stragglers) and every term over all of them")
@@ -185,7 +185,7 @@ p.add_argument("--min-gap", type=float, default=0.0,
                help="minimum anode-cathode distance [mm] (Daniel, 2026-10-15: the electrodes nearly touched at the exit end - a sure "
                     "spark). Measured exactly on the evaluation's solids; 0 = off")
 p.add_argument("--w-gap", type=float, default=10.0, help="weight of the one-sided gap residual: w * (min_gap - gap) per mm short")
-p.add_argument("--w-fit", type=float, default=0.0, help="weight of the pole-steel residual: conductor mesh vertices where |B| > 1.6 T in the magnet map, after R and dz (HCHC-1.5: the housing top rim sat 8 mm inside a hill at the HCHC-60 seed). 0 = off; 1 makes one vertex one unit")
+p.add_argument("--w-fit", type=float, default=0.0, help="weight of the pole-steel residual: conductor mesh vertices where |B| > 1.6 T in the magnet map, after R and dz (one design: the housing top rim sat 8 mm inside a hill at the HCHC-60 seed). 0 = off; 1 makes one vertex one unit")
 p.add_argument("--w-z100", type=float, default=0.0,
                help="weight of an aperture proxy residual: rms ballistic height 100 mm past the measurement plane (z + 0.1 z') / 5 mm. "
                     "0 (default) = off. The exit metrics alone do not rank designs for the cyclotron (2026-09-14: a variant gained 2.5 "
@@ -235,6 +235,7 @@ def run_cmd(cmd, log_path):
         raise RuntimeError("{} failed (exit {}), see {}".format(cmd[0], r.returncode, log_path))
 
 
+from spyral_inflector import machine  # noqa: E402
 from spyral_inflector.tracking.deck import particle_rows  # noqa: E402
 from spyral_inflector.tracking.geometry_point import build_geometry, rmtree_retry  # noqa: E402
 from PyPATools.field import Field  # noqa: E402
@@ -253,8 +254,10 @@ if os.path.exists(lvl):
     lvl_d = jload(lvl)
     t_exit_seed, dz_seed = float(lvl_d["t_exit_deg"]), float(lvl_d["dz_m"])
     VSCALE0 = float(lvl_d.get("vscale", 1.0))
-PARTICLES = a.particles or lvl_d.get("particles") or os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst")
-BFIELD = a.bfield or lvl_d.get("bfield") or os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle")
+PARTICLES = a.particles or lvl_d.get("particles")
+BFIELD = a.bfield or lvl_d.get("bfield")
+if not PARTICLES or not BFIELD:
+    p.error("the levelling records no particles/bfield: give --particles and --bfield")
 R = jload(os.path.join(RUN, "exit_plane.json"))["rotation_deg"]
 PHI = 90.0 + R
 ROT_BF = os.path.join(BASE, "bfield_rotated.pickle")
@@ -332,7 +335,7 @@ for item in a.set:
 # default bounds (the legacy ones for the legacy knobs)
 BOUND0 = {"tilt": (20, 42), "angling": (8, 22), "gamma": (3, 13), "sigma_mm": (0.2, 1.6), "t_ent": (0.1, 0.8), "t_exit": (0.3, 1.6),
           "dz_mm": (2.0, 7.0), "gap_mm": (16, 24), "vscale": (0.96, 1.06),
-          # 2026-10-21 profiles: signed, wider than the scalars (HCHC-1.5 brief: open the parameter space); the ends are bound
+          # 2026-10-21 profiles: signed, wider than the scalars (open the parameter space); the ends are bound
           # in practice by --min-gap (the end gap closes ~0.7 mm per degree of angling at aspect 2.4, less when narrow)
           "ang_ent": (-5, 30), "ang_q1": (-15, 30), "ang_mid": (-15, 15), "ang_q3": (-30, 15), "ang_exit": (-30, 5),
           "sig_ent_mm": (-1.0, 2.5), "sig_q1_mm": (-1.0, 2.5), "sig_mid_mm": (-1.0, 2.5), "sig_q3_mm": (-1.0, 2.5),
@@ -526,7 +529,7 @@ def measure(out_dir, tag, core_only=None):
             th = np.asarray(d["handoff_time"], dtype=float)[okh]
             fin = np.isfinite(th)
             th, core_h = th[fin], ~tail[okh][fin]
-            f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or 32.8) * 1e6
+            f_rf = float(s.get("rf_mhz") or s.get("rf_frequency_mhz") or machine.rf_mhz()) * 1e6
             if len(th) >= 100:
                 ph = 360.0 * f_rf * th
                 ref = np.median(ph[core_h]) if core_h.any() else np.median(ph)
@@ -584,11 +587,11 @@ def residuals(m):
     return np.array(r)
 
 
-# 2026-10-14 (HCHC-1.5): the BEM and the tracker know nothing about the magnet's iron, so an
+# 2026-10-14: the BEM and the tracker know nothing about the magnet's iron, so an
 # optimizer left to itself will happily put the housing into a pole. This counts the conductor
 # mesh vertices (the state pickle carries the mesh) that sit where |B| > B_IRON in the UNROTATED
 # map, after the system rotation R and the axial shift of this evaluation. The e071 seed on
-# HCHC-1.5 had 4 such vertices in the housing's top rim; its FullOpt must see them.
+# One design had 4 such vertices in the housing's top rim; its FullOpt must see them.
 B_IRON = 1.6
 _BF_FIT = None
 

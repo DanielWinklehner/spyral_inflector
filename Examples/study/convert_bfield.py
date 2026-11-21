@@ -1,4 +1,4 @@
-"""Convert a COMSOL h5part field map of the HCHC-60 magnet into the field pickle the
+"""Convert a COMSOL h5part field map of a cyclotron magnet into the field pickle the
 tracking scripts load, in the deck frame: beam travels in +z from the bore (negative z)
 to the median plane at z = 0, on-axis Bz negative (-0.891 T at the centre).
 
@@ -190,7 +190,7 @@ if args.fix_seams:
     print("  Bz at the origin: {:+.5f} T (was {:+.5f} T)".format(vals["z"][i0, j0, k0], bz_src))
 
 field = Field.from_arrays(grid={"x": x, "y": y, "z": z}, values=vals,
-                          label="HCHC-60 B-field, {} ({}seams fixed)".format(args.mode, "" if args.fix_seams else "no "),
+                          label="B-field, {} ({}seams fixed)".format(args.mode, "" if args.fix_seams else "no "),
                           dim=3, units="m", interpolator_backend="scipy")
 print("  deck grid: x {:+.4f}..{:+.4f}, y {:+.4f}..{:+.4f}, z {:+.4f}..{:+.4f}".format(x[0], x[-1], y[0], y[-1], z[0], z[-1]))
 print("  on-axis check:")

@@ -1,4 +1,4 @@
-# Windows environment of the HCHC-60 spiral-inflector study, exported with `conda env export --no-builds`
+# Windows environment of the spiral-inflector workflows, exported with `conda env export --no-builds`
 # from the working machine (Windows 11, NVIDIA RTX 4070 Ti SUPER, CUDA 13). The three project packages
 # (spyral_inflector, PyPATools, py_electrodes) are NOT listed: install them editable from their clones
 # after creating the environment, see Examples/study/README.md. torch/torchvision are not needed by the

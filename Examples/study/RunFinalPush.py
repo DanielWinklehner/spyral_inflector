@@ -1,7 +1,7 @@
 """The full spiral-inflector re-calculation for a new field map, one command, resumable.
 
     python RunFinalPush.py --name final1 --comsol "Fields/<export>.comsol"
-    python RunFinalPush.py --name rehearsal --bfield Fields/HCHC-60_CentralBField_z-40to5cm_1mm.pickle --quick
+    python RunFinalPush.py --name rehearsal --bfield Fields/<map>.pickle --particles <beam file> --quick
 
 Phases (each writes <out>/phase_N.done and is skipped on a re-run):
   1  convert the COMSOL text export (Baseline frame, as-is) to a pickle, fix the seams, validate
@@ -44,13 +44,13 @@ p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDes
 p.add_argument("--name", required=True)
 p.add_argument("--comsol", default=None, help="COMSOL text export in the Baseline frame (phase 1)")
 p.add_argument("--bfield", default=None, help="an existing field pickle instead of phase 1")
-p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
-p.add_argument("--gap-azimuth", type=float, default=34.0)
+p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
+p.add_argument("--gap-azimuth", type=float, required=True, help="first gap ray of the central region [deg]")
 p.add_argument("--rotation-rule", choices=("offset", "parallel"), default="offset",
                help="offset: the plate's outer face lands half a gap before the gap's radial plane. "
                     "parallel: the plate is turned parallel to that plane instead, and stands off it "
                     "by whatever the geometry gives (one rotation cannot do both).")
-p.add_argument("--half-gap", type=float, default=0.005, help="[m] along the exit face normal")
+p.add_argument("--half-gap", type=float, required=True, help="[m] along the exit face normal")
 p.add_argument("--no-q2-exit-plate", action="store_true",
                help="quad 2 terminated by the inflector entrance plate; its length is then derived at build time to end one plate_gap before it")
 p.add_argument("--quad-len2", type=float, default=None, help="override quad 2 length [m] (ignored with --no-q2-exit-plate)")
@@ -89,7 +89,7 @@ if args.quick:
 lo, hi = (args.phases.split("-") + [args.phases])[:2]
 PHASES = set(range(int(lo), int(hi) + 1))
 
-RESULTS = os.environ.get("SI_RESULTS") or os.path.join(DECK, "Results")   # 2026-09-15: new runs on a local SSD (E:), not Dropbox
+RESULTS = os.environ.get("SI_RESULTS") or os.path.join(DECK, "Results")   # SI_RESULTS: a results root outside the deck
 OUT = os.path.join(RESULTS, "final", args.name)
 os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, "log_run.txt"), "a", encoding="utf-8")
@@ -148,6 +148,7 @@ stamp("  truncations {} (None = free), dz {}, rotation rule '{}' at {:g} deg, qu
     args.rotation_rule, args.gap_azimuth, args.rank))
 
 from spyral_inflector.tracking.deck import particle_rows, load_bfield  # noqa: E402
+from spyral_inflector import machine  # noqa: E402
 from spyral_inflector.tracking.frames import to_deck_frame, rotate_bfield_z, bfield_frame  # noqa: E402
 from spyral_inflector.tracking.geometry_point import build_geometry, rmtree_retry  # noqa: E402
 from spyral_inflector.tracking.exit_plane import exit_plane_spec  # noqa: E402
@@ -180,7 +181,7 @@ if 1 in PHASES and not done(1):
     for zz in (-0.30, -0.25, -0.20, -0.15, -0.10, -0.05, 0.0):
         prof["{:+.2f}".format(zz)] = float(fd(np.array([[0.0, 0.0, zz]]))[0, 2])
     stamp("  deck-frame on-axis Bz: " + ", ".join("{} m: {:+.4f} T".format(k, v) for k, v in prof.items()))
-    # cell-to-cell jumps: iron inside the map shows as tesla-size steps (the HCHC-60 map has
+    # cell-to-cell jumps: iron inside the map shows as tesla-size steps (one map had
     # 2.5 T steps at r ~ 7 cm, |z| ~ 8 cm); the bore the beam uses has to be mT-level
     B = np.stack([np.asarray(fd.grid_values[k], float) for k in "xyz"], -1)
     Xg, Yg, Zg = np.meshgrid(*(np.asarray(fd.grid[k], float) for k in "xyz"), indexing="ij")
@@ -202,7 +203,7 @@ if 1 in PHASES and not done(1):
     stamp("  largest cell-to-cell |dB|: " + ", ".join("{}: {:.4f} T".format(k, v) for k, v in jumps.items()))
     if jumps["bore r<5cm, z<2cm"] > 0.05:
         stamp("  WARNING: tesla-size field steps inside the bore -- inspect the map before trusting the tracking")
-    old = os.path.join(DECK, "Fields", "HCHC-60_CentralBField_z-40to5cm_1mm.pickle")
+    old = os.environ.get("SI_PREVIOUS_BFIELD", "")       # an earlier map to compare the axis with (optional)
     cmp_ = None
     if os.path.exists(old) and os.path.abspath(old) != os.path.abspath(BFIELD):
         fo = Field.from_file(old)
@@ -334,7 +335,7 @@ if 10 in PHASES and not done(10):
     stamp("phase 10: exports in the Baseline frame (mm)")
     os.makedirs(EXP, exist_ok=True)
     files = steps_to_baseline_mm(STEPS, os.path.join(EXP, "steps_baseline_mm"), rotation_deg=R, quad_rotation=QUADS,
-                                 combined="{}_inflector_{}_baseline_mm.stp".format(os.environ.get("SI_MACHINE", "HCHC60"), args.name),
+                                 combined="{}inflector_{}_baseline_mm.stp".format(machine.tag() + "_" if machine.tag() else "", args.name),
                                  log=stamp)
     field_to_machine_frame(os.path.join(BASIS, "ef_itp_fine_best.pickle"), os.path.join(EXP, "efield_fine_best_baseline.pickle"))
     for fn in ("handoff_vac_all.h5", "handoff_sc_all.h5"):

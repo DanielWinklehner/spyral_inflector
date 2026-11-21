@@ -5,7 +5,7 @@ Pipeline: build_geometry (knobs -> optimized design particle -> STEP files + sta
 -> track_bunch (RFQ bunch, optional PyAMG space charge, openPMD hand-off files)
 -> exit_metrics / plots; run_final chains the last three for one geometry.
 """
-from .deck import (Z_START, SPECIES, CLIGHT, RF_FREQ_HZ, QUAD1, QUAD2, QUAD_SIGN, SPIRAL_NAMES, QUAD_NAMES,
+from .deck import (CLIGHT, QUAD1, QUAD2, QUAD_SIGN, SPIRAL_NAMES, QUAD_NAMES,
                    read_voltages, write_voltages, set_quad_voltages, set_spiral_voltage, load_state,
                    load_particles, read_dst, dst_rows, particle_rows, orient_beam, mean_energy_mev,
                    load_step_assembly, rotate_quads, mesh_assembly,
@@ -21,7 +21,7 @@ from .run_final import run_final
 from .plots import electrode_meshes, plot_geometry_trajectories, plot_side_view
 
 __all__ = [
-    "Z_START", "SPECIES", "CLIGHT", "RF_FREQ_HZ", "QUAD1", "QUAD2", "QUAD_SIGN", "SPIRAL_NAMES", "QUAD_NAMES",
+    "CLIGHT", "QUAD1", "QUAD2", "QUAD_SIGN", "SPIRAL_NAMES", "QUAD_NAMES",
     "read_voltages", "write_voltages", "set_quad_voltages", "set_spiral_voltage", "load_state",
     "load_particles", "read_dst", "dst_rows", "particle_rows", "orient_beam", "mean_energy_mev", "load_step_assembly", "rotate_quads", "mesh_assembly",
     "drop_electrodes", "with_fast_interpolator", "load_bfield", "superpose_basis",

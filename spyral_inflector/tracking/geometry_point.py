@@ -2,8 +2,8 @@
 set the spiral voltage (and the axial shift dz, unless fixed) for the design particle,
 and export the electrodes as STEP files with the design-orbit state the tracking needs.
 
-This is the geometry stage of the HCHC-60 study (GeometryPoint.py); the knob names and
-defaults are the deck's."""
+This is the geometry stage of the study workflows; DEFAULT_KNOBS is the generator's starting
+geometry, and every knob a design sets overrides it."""
 import csv
 import json
 import os
@@ -58,14 +58,13 @@ KNOB_HELP = {
                      "sigma, which is constant along the electrode, i.e. [s, s, s]",
     "anode_setback": "[m] the anode's exit end cut back this far along the gamma plane's normal; the cathode, the housing and "
                      "the exit plate keep the shared plane (needs gamma > 0). Optional, not in DEFAULT_KNOBS. "
-                     "A/B on HCHC-1.5 v6r60o_c1 (2026-11-17, 5 and 10 mm): no gain, the anode hits follow the new end",
+                     "An A/B at 5 and 10 mm showed no gain: the anode hits follow the new end",
     "anode_groove": "[w_center, width, depth, length(, ramp, edge, mesh_min, mesh_per_2pi)] [m]: a trough pressed into the "
                     "anode's facing surface, centred w_center from the design orbit (+ = larger radius), width = full "
                     "width at half depth, from length before the orbit end out through the exit; ramp (5 mm) the depth "
                     "rise, edge (width/2) each cosine shoulder; the anode is meshed from curvature (12 per 2 pi, >= 1 mm) "
                     "so the trough is resolved. Optional, not in DEFAULT_KNOBS (geometry.SIElectrode.groove_spec). "
-                    "PARKED (Daniel, 2026-11-21): the A/B on HCHC-1.5 v6r60o_c1 was worse (86.29 vs 87.49 %, the hits "
-                    "follow the trough); not used in new inflector designs",
+                    "PARKED: the one A/B was worse (the hits follow the trough); not used in new inflector designs",
 }
 
 
@@ -118,7 +117,8 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     from PyPATools.particles import ParticleDistribution
     from PyPATools.species import IonSpecies
     from ..spyral_inflector import SpiralInflector
-    from .deck import SPECIES, write_voltages
+    from .. import machine
+    from .deck import write_voltages
     from .export import HOUSING_OUTLINE_NAME, write_housing_outline
 
     log = log or (lambda m: print(m, flush=True))
@@ -166,7 +166,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     if anode_groove is not None:
         log("  ANODE GROOVE " + ", ".join("{} {:g} mm".format(key, 1e3 * val) if key != "mesh_per_2pi"
                                           else "{} {:g}".format(key, val) for key, val in anode_groove.items()))
-    ion = ParticleDistribution(species=IonSpecies(SPECIES))
+    ion = ParticleDistribution(species=IonSpecies(machine.species()))
     ion.set_mean_energy_z_mev(energy_mev)
     si = SpiralInflector(ion=ion, method="numerical", solver="bempp",
                          volt=k["volt"], gap=k["gap"], tilt=k["tilt"], dx=k["dx"], sigma=sigma_spec,

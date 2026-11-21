@@ -1,4 +1,4 @@
-# Ubuntu (x86_64) environment for the HCHC-60 spiral-inflector study: the same package set as
+# Ubuntu (x86_64) environment for the spiral-inflector workflows: the same package set as
 # environment-windows.yml with the Windows-only runtimes removed. Derived from the Windows
 # export, NOT yet tested on Linux -- expect to adjust the OpenCL and CUDA lines to the machine:
 #   * bempp-cl (BEM solve) needs an OpenCL platform: `pocl` (CPU) is listed; with an NVIDIA

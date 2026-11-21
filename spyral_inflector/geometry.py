@@ -950,8 +950,8 @@ class SIElectrode(PyElectrode):
     def groove_spec(cls, groove):
         """The groove knob as a dict of floats [m], or None (no groove, also for depth 0).
 
-        PARKED (Daniel, 2026-11-21): strictly opt-in and kept for reference; the one A/B (HCHC-1.5
-        v6r60o_c1, [-4, 9, 3, 40, 8, 3] mm) lost 1.2 points because the anode hits follow the trough.
+        PARKED (Daniel, 2026-11-21): strictly opt-in and kept for reference; the one A/B
+        ([-4, 9, 3, 40, 8, 3] mm) lost 1.2 points of transmission because the anode hits follow the trough.
 
         groove: [w_center, width, depth, length(, ramp, edge, mesh_min, mesh_per_2pi)] or a dict
         with those keys.
@@ -1926,7 +1926,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         elif hole_type == "ellipse":
             # drawn over local z = -0.025 .. +0.025, symmetric like the rectangle's box: which way local z ends up
             # pointing depends on the quarter turn face_angle takes (below), and a one-sided 0 .. 0.05 extrusion
-            # pointed DOWNSTREAM on HCHC-1.5 t1nr_c2 and never touched the wall (2026-10-20: a solid plate, 0.01 %)
+            # pointed DOWNSTREAM on one design and never touched the wall (2026-10-20: a solid plate, 0.01 %)
             geo_str += "Disk ({}) = {{ 0, 0, -0.025, {}, {} }};\n".format(500 + offset, 0.5 * a_cut + 5E-9, 0.5 * b_cut + 5E-9)
             geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(0.05, 500 + offset)
             sub_tool = "disk_out[1]"
@@ -2869,7 +2869,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             assy.add_electrode(D4)
         
 
-    # A grounded BEAM PIPE instead of the electrostatic quad line (2026-10-20, HCHC-1.5 with analytic magnetic quads):
+    # A grounded BEAM PIPE instead of the electrostatic quad line (2026-10-20, for analytic magnetic quads):
     # quadrupole_params["pipe"] = {"r_in", "wall", "z_top", "end_gap"} [m]. It runs from z_top -- where its upstream end
     # lands AFTER the lab-frame axial shift, e.g. the RFQ exit -- to end_gap short of the inflector entrance plate's
     # upstream face (no coincident faces). Lab-frame hardware like the quads: it takes only the axial shift and, like

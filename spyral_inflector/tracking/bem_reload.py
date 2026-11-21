@@ -19,7 +19,8 @@ import time
 import numpy as np
 
 from ..meshclean import clean_surface_mesh
-from .deck import (SPECIES, Z_START, read_voltages, set_quad_voltages, set_spiral_voltage, load_state,
+from .. import machine
+from .deck import (read_voltages, set_quad_voltages, set_spiral_voltage, load_state,
                    load_step_assembly, rotate_quads, rotate_assembly, shift_assembly, mesh_assembly, quad_index,
                    isolated_quad_drop, quad_names)
 
@@ -116,7 +117,8 @@ def _compare_mesh(assembly, state, log):
 def _quad_field_check(efield, state, volts, log, centres=None):
     """Transverse gradient at the centre of each quad, fitted over +-8 mm (a hyperbolic
     quad at aperture a gives G = 2 V / a^2). centres: [(label, z_centre, pole name), ...];
-    default: the two quads of the HCHC-60 deck at their historical positions."""
+    default (no quad poles in the assembly): two probe points at the positions these files have always used,
+    z = -0.2475 and -0.1675 m plus the state's shift, kept so reload files stay comparable."""
     out = {}
     dz = state.get("shift_lab", (0.0, 0.0, 0.0))[2]
     if centres is None:
@@ -270,7 +272,7 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     log("meshed: {} triangles in {:.1f} s".format(mesh["elems"].shape[1], time.time() - t0))
     mesh_cmp = _compare_mesh(assembly, state, log) if "mesh" in state else {}
 
-    ion = ParticleDistribution(species=IonSpecies(SPECIES))
+    ion = ParticleDistribution(species=IonSpecies(machine.species()))
     ion.set_mean_energy_z_mev(energy_mev)
     si = SpiralInflector(ion=ion, method="numerical", solver="bempp",
                          volt=12000.0, gap=0.019, tilt=31.0, dx=0.01, sigma=0.0022, vee_shape="parabolic", ns=100,
@@ -341,14 +343,15 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
     log("   outside z            ref {:+.3f}  new {:+.3f} mm".format(1e3 * z_ref, 1e3 * z_new))
     log("   max |dr| up to exit  {:.3f} mm, over the whole track {:.3f} mm".format(1e3 * dev[:min(i_ref, i_new) + 1].max(), 1e3 * dev.max()))
     # an on-axis particle from the bunch start, through the quadrupoles
-    r_ax, v_ax = si.fast_track(r_start=np.array([0.0, 0.0, Z_START]), v_start=np.array([0.0, 0.0, v0]), nsteps=nsteps_axis, dt=dt)
+    z_start = machine.z_start()
+    r_ax, v_ax = si.fast_track(r_start=np.array([0.0, 0.0, z_start]), v_start=np.array([0.0, 0.0, v0]), nsteps=nsteps_axis, dt=dt)
     i_ax, p_ax, a_ax = _exit_state(state, r_ax, v_ax)
     ang_ax, z_ax = _outside(r_ax, v_ax, _path_length(r_ax), i_ax)
     in_quads = (r_ax[:, 2] > -0.28) & (r_ax[:, 2] < -0.13)
     off_quads = np.linalg.norm(r_ax[in_quads, :2], axis=1)
     log("on-axis particle from z = {:+.3f} m: exit point {} mm, angle at plane {:+.3f} deg, outside angle {:+.3f} deg, "
         "outside z {:+.3f} mm; max transverse offset in the quads {:.4f} mm".format(
-            Z_START, np.round(1e3 * p_ax, 2), a_ax, ang_ax, 1e3 * z_ax, 1e3 * off_quads.max()))
+            z_start, np.round(1e3 * p_ax, 2), a_ax, ang_ax, 1e3 * z_ax, 1e3 * off_quads.max()))
     summary["test_particle"] = {"exit_point_ref_mm": (1e3 * p_ref).tolist(), "exit_point_new_mm": (1e3 * p_new).tolist(),
                                 "exit_point_diff_mm": 1e3 * float(np.linalg.norm(p_new - p_ref)),
                                 "exit_angle_ref_deg": a_ref, "exit_angle_new_deg": a_new,

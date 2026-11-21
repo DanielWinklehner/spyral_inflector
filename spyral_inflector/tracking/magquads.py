@@ -1,7 +1,7 @@
 """Analytic MAGNETIC quadrupoles in the injection line, added to the cyclotron's B map.
 
-Daniel, 2026-10-20 (HCHC-1.5): "do not include the physical models of the quads, instead, use the new analytic
-magnetic quad capability to simulate two quads." The lenses are PyPATools' MagneticQuadrupole (Enge fringes,
+The quads are not modelled as electrodes; the analytic magnetic quad capability stands in for them. The lenses
+are PyPATools' MagneticQuadrupole (Enge fringes,
 Maxwell-consistent to the order kept; documents/analytic_quadrupoles.md in PyPATools). Nothing of them is in the
 STEP assembly: they only add to the B field, so the electrostatic chain (bases, collisions, space charge) never
 sees them, and a grounded beam pipe (geometry knob ``pipe``) stops the beam instead of their poles.

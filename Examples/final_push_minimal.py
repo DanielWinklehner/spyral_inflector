@@ -1,6 +1,6 @@
 """The final-push pipeline end to end on synthetic inputs: a rehearsal that runs anywhere.
 
-This is Scripts/RunFinalPush.py of the HCHC-60 deck without the deck: the B-field map and
+This is Examples/study/RunFinalPush.py without a deck: the B-field map and
 the RFQ particle file are generated here (a cyclotron-like field in the Baseline frame, a
 Gaussian bunch with a slow, late tail), then the same eleven phases run at rehearsal
 settings, writing the same folders, files and report as the real run.
@@ -43,7 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STUDY = os.path.join(HERE, "study")
 PY = sys.executable
 
-# the HCHC-60 final-push knobs (Results/final/final1); aperture radius 47 mm is the library default
+# the final-push knobs of one design study; aperture radius 47 mm is the library default
 KNOBS = dict(volt=12000.0, gap=0.019, tilt=31.0, dx=0.01, sigma=0.0004, aspect=2.4, gamma=11.0, angling=7.0,
              quad_bore=0.018, quad_z1=-0.264, quad_z2=-0.194, quad_len=0.055, quad_len2=0.06, shared_plates=True,
              aper_hole=0.0175, entrance_hole=None, plate_gap=0.005, plate_thickness=0.005,
@@ -54,6 +54,9 @@ QUADS = (16.0, 24.0)          # the quads' own rotation on top of R
 BASE_PHI = 90.0               # beam rotation of the unrotated system
 RF_MHZ = 32.8
 E0_MEV = 0.0684               # H2+ from the RFQ, 34.2 keV/u
+# The machine of this rehearsal (spyral_inflector.machine reads it; every subprocess inherits it): H2+ at
+# RF_MHZ, the bunch starting 275 mm upstream of the median plane, the core placed as a spatial bunch.
+os.environ.update({"SI_SPECIES": "H2_1+", "SI_RF_MHZ": repr(RF_MHZ), "SI_Z_START": "-0.275", "SI_INJECT_CORE": "0"})
 
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--out", default=os.path.join(HERE, "final_push_minimal_out"))
@@ -128,7 +131,7 @@ def make_bfield(path, flutter, step=0.005):
     in the median plane (positive ions circulate counter-clockwise seen from +z).
 
     Axisymmetric part: Bz = B0 g(z) with g = 1 / (1 + (z / z0)^2), which reproduces the
-    HCHC-60 axis (-0.91 T at z = 0, -0.71 T at 50 mm); Br = -(r/2) B0 g'(z) and the r^2 term
+    axis of a compact cyclotron (-0.91 T at z = 0, -0.71 T at 50 mm); Br = -(r/2) B0 g'(z) and the r^2 term
     of Bz make it Maxwell-consistent to second order in r. On top a 3-fold flutter
     B = grad psi with psi = eps B0 (r^3 cos 3phi / r0^3) z g(z)^2 -- eps of the main field
     at r0 in the median plane, decaying with the main field away from it (the z g^2 factor

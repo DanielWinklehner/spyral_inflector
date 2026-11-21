@@ -2,7 +2,7 @@
 
 The housing used to be the convex hull of the electrode points offset outwards, written into
 the .geo one `Point` and one `Line` per vertex -- 94 of them, with 2-5 mm edges. Those edges
-pin the BEM mesh to about 4.7 mm however large `h` is, which on HCHC-60 made the housing 27 %
+pin the BEM mesh to about 4.7 mm however large `h` is, which on one design made the housing 27 %
 of the whole model (7108 of 26566 triangles) for a wall that has no detail in it at all.
 
 This module turns that polygon into two curves, the same way `cr_geom_build.py` does it for

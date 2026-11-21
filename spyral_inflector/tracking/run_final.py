@@ -39,14 +39,15 @@ def _wait(jobs):
 
 
 def run_final(step_dir, voltages, state, out, q1, q2, rotate_quads=(0.0, 0.0), spiral_voltage=None, particles=None, bfield=None,
-              phi=90.0, n=43969, res=0.0025, sc=False, h=1.5e-3, current_ma=8.0, rf_mhz=32.8, handoff=True, n_traj=300,
+              phi=90.0, n=43969, res=0.0025, sc=False, h=1.5e-3, current_ma=None, rf_mhz=None, handoff=True, n_traj=300,
               tag="final", python=None, handoff_distance=0.030, handoff_frame="deck", export_machine=False):
     """Solve + track + report for one geometry. voltages/state: the geometry build's
     voltages.csv and state.pickle (the spiral voltage defaults to the csv's anode voltage).
     handoff_distance 0 records the particles at the electrode exit plane; handoff_frame
     "machine" mirrors them into the machine frame; export_machine also writes the E-field
     map and the STEP solids mirrored into the machine frame (out/machine_frame/) for the
-    central region. Returns {"metrics": {run: exit metrics}, "report": path, ...}."""
+    central region. current_ma is required for space charge and the hand-off files; rf_mhz
+    defaults to the machine RF. Returns {"metrics": {run: exit metrics}, "report": path, ...}."""
     from .metrics import exit_metrics
     from .plots import electrode_meshes, plot_geometry_trajectories, plot_side_view
 
@@ -82,8 +83,9 @@ def run_final(step_dir, voltages, state, out, q1, q2, rotate_quads=(0.0, 0.0), s
 
     # 2. the core beam without and (optionally) with space charge, in parallel
     base = [python, "-m", "spyral_inflector.tracking.bunch", "--tag", tag, "--reload-dir", out, "--step-dir", step_dir, "--out-dir", out,
-            "--particles", particles, "--bfield", bfield, "--phi", str(phi), "--n", str(n), "--current-ma", str(current_ma),
-            "--rf-mhz", str(rf_mhz), "--record", str(max(n_traj, 1000)), "--handoff-distance", str(handoff_distance),
+            "--particles", particles, "--bfield", bfield, "--phi", str(phi), "--n", str(n)] + (
+            ["--current-ma", str(current_ma)] if current_ma is not None else []) + (
+            ["--rf-mhz", str(rf_mhz)] if rf_mhz is not None else []) + ["--record", str(max(n_traj, 1000)), "--handoff-distance", str(handoff_distance),
             "--handoff-frame", handoff_frame]
     jobs = []
     if not os.path.exists(os.path.join(out, "bunch_e_nosc.json")):
@@ -155,8 +157,8 @@ def main(argv=None):
     p.add_argument("--res", type=float, default=0.0025)
     p.add_argument("--sc", action="store_true")
     p.add_argument("--h", type=float, default=1.5e-3)
-    p.add_argument("--current-ma", type=float, default=8.0)
-    p.add_argument("--rf-mhz", type=float, default=32.8)
+    p.add_argument("--current-ma", type=float, default=None, help="beam current [mA]; required with --sc or the hand-off files")
+    p.add_argument("--rf-mhz", type=float, default=None, help="RF [MHz] (default: the machine setting)")
     p.add_argument("--no-handoff", action="store_true")
     p.add_argument("--n-traj", type=int, default=300)
     p.add_argument("--tag", default="final")

@@ -19,11 +19,13 @@ import pickle
 
 import numpy as np
 
+from spyral_inflector import machine
+
 M_H2P, QE, C = 3.3462e-27, 1.602176634e-19, 299792458.0
 p = argparse.ArgumentParser()
 p.add_argument("npz", nargs="+")
 p.add_argument("--labels", nargs="+", default=None)
-p.add_argument("--rf-mhz", type=float, default=32.8)
+p.add_argument("--rf-mhz", type=float, default=None, help="RF [MHz] (default: the machine setting)")
 a = p.parse_args()
 labels = a.labels or [os.path.basename(f) for f in a.npz]
 
@@ -62,7 +64,7 @@ for path, lab in zip(a.npz, labels):
     eu, bu, au = emit(u, up)
     E = 0.5 * M_H2P * speed ** 2 / QE / 1e3
     th = np.asarray(d["handoff_time"], float)[ok]
-    ph = 360.0 * a.rf_mhz * 1e6 * th
+    ph = 360.0 * (a.rf_mhz if a.rf_mhz is not None else machine.rf_mhz()) * 1e6 * th
     tail = d["is_tail"][ok]
     ref = np.median(ph[~tail]) if (~tail).any() else np.median(ph)
     phw = (ph - ref + 180.0) % 360.0 - 180.0
