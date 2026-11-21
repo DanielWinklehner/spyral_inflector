@@ -56,6 +56,16 @@ KNOB_HELP = {
                        "is the ramp [+a, 0, -a]. A dict is passed to the generator as it is (geometry._longitudinal_profile)",
     "sigma_profile": "[entrance, middle, exit, ...] V-depth [m] at the same nodes (Barnard's Q1(s)); signed; replaces the scalar "
                      "sigma, which is constant along the electrode, i.e. [s, s, s]",
+    "anode_setback": "[m] the anode's exit end cut back this far along the gamma plane's normal; the cathode, the housing and "
+                     "the exit plate keep the shared plane (needs gamma > 0). Optional, not in DEFAULT_KNOBS. "
+                     "A/B on HCHC-1.5 v6r60o_c1 (2026-11-17, 5 and 10 mm): no gain, the anode hits follow the new end",
+    "anode_groove": "[w_center, width, depth, length(, ramp, edge, mesh_min, mesh_per_2pi)] [m]: a trough pressed into the "
+                    "anode's facing surface, centred w_center from the design orbit (+ = larger radius), width = full "
+                    "width at half depth, from length before the orbit end out through the exit; ramp (5 mm) the depth "
+                    "rise, edge (width/2) each cosine shoulder; the anode is meshed from curvature (12 per 2 pi, >= 1 mm) "
+                    "so the trough is resolved. Optional, not in DEFAULT_KNOBS (geometry.SIElectrode.groove_spec). "
+                    "PARKED (Daniel, 2026-11-21): the A/B on HCHC-1.5 v6r60o_c1 was worse (86.29 vs 87.49 %, the hits "
+                    "follow the trough); not used in new inflector designs",
 }
 
 
@@ -144,12 +154,25 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
         log("  V-depth PROFILE {} mm, entrance -> exit (replaces the scalar sigma {:g} mm)".format(
             [round(1e3 * v, 4) for v in sigma_spec["values"]] if "values" in sigma_spec else sigma_spec, 1e3 * float(k["sigma"])))
 
+    # 2026-11-17: anode_setback [m], the anode's exit end cut back from the shared gamma plane (the cathode, the
+    # housing and the exit plate stay). Not in DEFAULT_KNOBS on purpose: runs without it keep their knob sets as they were.
+    anode_setback = float(k.get("anode_setback") or 0.0)
+    if anode_setback:
+        log("  ANODE SETBACK {:.2f} mm: the anode's exit cut moved back from the shared gamma plane".format(1e3 * anode_setback))
+    # 2026-11-17: anode_groove, an opt-in trough in the anode's facing surface near the exit (where the high-energy
+    # wing hits it). Not in DEFAULT_KNOBS either. Checked here, so a bad knob fails before the build.
+    from ..geometry import SIElectrode
+    anode_groove = SIElectrode.groove_spec(k.get("anode_groove"))
+    if anode_groove is not None:
+        log("  ANODE GROOVE " + ", ".join("{} {:g} mm".format(key, 1e3 * val) if key != "mesh_per_2pi"
+                                          else "{} {:g}".format(key, val) for key, val in anode_groove.items()))
     ion = ParticleDistribution(species=IonSpecies(SPECIES))
     ion.set_mean_energy_z_mev(energy_mev)
     si = SpiralInflector(ion=ion, method="numerical", solver="bempp",
                          volt=k["volt"], gap=k["gap"], tilt=k["tilt"], dx=k["dx"], sigma=sigma_spec,
                          vee_shape="parabolic", ns=100, aspect_ratio=k["aspect"], rotation=k["rotation"],
-                         debug=False, gammaAng=k["gamma"], anglingAng=angling_spec)
+                         debug=False, gammaAng=k["gamma"], anglingAng=angling_spec, anode_setback=anode_setback,
+                         anode_groove=anode_groove if anode_groove is not None else False)
     si.load_bfield(bfield=bfield)
     si.initialize()
     si.set_parameter(key="h", value=h)
@@ -242,6 +265,15 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
         if electrode.export(os.path.join(steps_dir, "{:03d}_{}.stp".format(i, names[i]))) != 0:
             raise RuntimeError("STEP export failed for {}".format(electrode.name))
     log("  exported {} STEP files -> {}".format(len(names), steps_dir))
+    if anode_groove is not None:
+        # STEP files carry no mesh sizes: every loader of this folder meshes the grooved anode from curvature
+        # (tracking.deck.load_step_assembly / mesh_assembly), as the build itself did
+        from .deck import MESH_REFINE_NAME
+        anode_name = [names[i] for i, e in enumerate(assembly.electrodes.values()) if e.name == "SI Anode"]
+        with open(os.path.join(steps_dir, MESH_REFINE_NAME), "w") as fh:
+            json.dump({nm: {"mesh_per_2pi": anode_groove["mesh_per_2pi"], "mesh_min": anode_groove["mesh_min"]}
+                       for nm in anode_name}, fh, indent=1)
+        log("  mesh refinement for the grooved anode ({}) -> {}".format(", ".join(anode_name), MESH_REFINE_NAME))
     # the negative space between the two spiral electrodes as an extra CAD object (Daniel, 2026-10-16); its
     # "_negative" suffix keeps every STEP-folder loader from taking it for an electrode. A failure here must not
     # stop a build.

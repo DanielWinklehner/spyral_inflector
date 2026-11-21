@@ -707,9 +707,10 @@ class SIElectrode(PyElectrode):
             np.dot(gamma_normal, plane_point),
         ]
 
-    def _gamma_tail_start(self, raw_geo):
+    def _gamma_tail_start(self, raw_geo, extra_length=0.0):
         """Index of the first loft section in the electrode's terminal region (the last
-        _GAMMA_TERMINAL_FRACTION of the path length) and the section spacings."""
+        _GAMMA_TERMINAL_FRACTION of the path length, plus extra_length [m] for a plane
+        set back into the electrode) and the section spacings."""
         upper_centers = np.mean(raw_geo[0:4, :, :], axis=0)
         segment_lengths = np.linalg.norm(
             np.diff(upper_centers, axis=0),
@@ -721,7 +722,7 @@ class SIElectrode(PyElectrode):
                 "Cannot bound the gamma cut on a zero-length electrode"
             )
 
-        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length
+        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length + max(0.0, float(extra_length))
         tail_start = raw_geo.shape[1] - 1
         accumulated_length = 0.0
         while tail_start > 0 and accumulated_length < target_tail_length:
@@ -729,7 +730,7 @@ class SIElectrode(PyElectrode):
             accumulated_length += segment_lengths[tail_start]
         return tail_start, segment_lengths
 
-    def _gamma_end_wire(self, sections, raw_geo, plane):
+    def _gamma_end_wire(self, sections, raw_geo, plane, extra_length=0.0):
         """Close the loft on the gamma plane.
 
         The five vertex tracks (the polylines through the same vertex of successive
@@ -751,7 +752,7 @@ class SIElectrode(PyElectrode):
         S = np.asarray(sections, dtype=float)                 # (n, 5, 3)
         D = (S - point) @ normal                              # signed; > 0 on the kept side
         n = len(sections)
-        tail_start, segment_lengths = self._gamma_tail_start(raw_geo)
+        tail_start, segment_lengths = self._gamma_tail_start(raw_geo, extra_length)
         pitch = np.concatenate([segment_lengths, segment_lengths[-1:]])
 
         # the first section with a vertex (nearly) on the plane or beyond it
@@ -825,7 +826,7 @@ class SIElectrode(PyElectrode):
 
     def _gamma_boolean_geo_str(
             self, electrode_volume, cutter_volume, raw_geo,
-            angle_at_segment, gamma_normal, plane_point):
+            angle_at_segment, gamma_normal, plane_point, extra_length=0.0):
         """Return a planar gamma cut confined to the electrode terminus."""
         bounds = np.ptp(np.asarray(raw_geo).reshape(-1, 3), axis=0)
         cut_size = max(1.0, 10.0 * np.linalg.norm(bounds))
@@ -876,7 +877,7 @@ class SIElectrode(PyElectrode):
         # physical terminus. A slab bounded only along the exit normal is not
         # sufficient for a curved inflector: the distant entrance can curl
         # back into that same slab.
-        tail_start, segment_lengths = self._gamma_tail_start(raw_geo)
+        tail_start, segment_lengths = self._gamma_tail_start(raw_geo, extra_length)
 
         terminal_sections = []
         for section_index in range(tail_start, raw_geo.shape[1]):
@@ -937,11 +938,176 @@ class SIElectrode(PyElectrode):
         )
         return geo_str
 
-            
+    # ------------------------------------------------------------------ groove (2026-11-17)
+    # An opt-in trough pressed into the FACING surface near the exit, where the high-energy wing
+    # of the beam hits the anode (Daniel: "Maybe we could do a groove there?"). Off by default:
+    # with groove=None the geo string is exactly what it was.
+    _GROOVE_KEYS = ("w_center", "width", "depth", "length", "ramp", "edge", "mesh_min", "mesh_per_2pi")
+    _GROOVE_HALF_SAMPLES = 24        # face samples per half (W1..W5, W5..W2) of a grooved section
+    _GROOVE_TAG_BASE = 20_000_000    # their point tags: + 1_000_000 on the cathode, + 100 per section
+
+    @classmethod
+    def groove_spec(cls, groove):
+        """The groove knob as a dict of floats [m], or None (no groove, also for depth 0).
+
+        PARKED (Daniel, 2026-11-21): strictly opt-in and kept for reference; the one A/B (HCHC-1.5
+        v6r60o_c1, [-4, 9, 3, 40, 8, 3] mm) lost 1.2 points because the anode hits follow the trough.
+
+        groove: [w_center, width, depth, length(, ramp, edge, mesh_min, mesh_per_2pi)] or a dict
+        with those keys.
+          w_center  lateral centre of the trough, measured from the design orbit along
+                    t x u (t the orbit tangent, u from the cathode toward the anode), signed so
+                    that + is toward LARGER radius (the frame of the anode hit maps)
+          width     full width at half depth across the face
+          depth     depth into the electrode, along the local face normal
+          length    the trough starts (depth 0) this far before the design-orbit end, measured
+                    along the orbit, and runs out through the exit end
+          ramp      length over which the depth rises from 0 to full (cosine); default 5 mm
+          edge      width of each cosine shoulder across the face (<= width); default width/2,
+                    i.e. a flat floor of width/2
+          mesh_min, mesh_per_2pi   the electrode is meshed with sizes from curvature (mesh_per_2pi
+                    elements per 2 pi of turning, not below mesh_min), so the trough is
+                    resolved at the BEM mesh size h; defaults 1 mm and 12
+        """
+        if groove is None or groove is False:       # False: SpiralInflector's default (it rejects None)
+            return None
+        if isinstance(groove, dict):
+            extra = set(groove) - set(cls._GROOVE_KEYS)
+            if extra:
+                raise ValueError("unknown groove keys {}; expected {}".format(sorted(extra), cls._GROOVE_KEYS))
+            g = {k: float(v) for k, v in groove.items() if v is not None}
+        else:
+            values = [float(v) for v in groove]
+            if not 4 <= len(values) <= len(cls._GROOVE_KEYS):
+                raise ValueError("groove needs [w_center, width, depth, length(, ramp, edge, mesh_min, "
+                                 "mesh_per_2pi)] [m], got {}".format(values))
+            g = dict(zip(cls._GROOVE_KEYS, values))
+        missing = [k for k in ("w_center", "width", "depth", "length") if k not in g]
+        if missing:
+            raise ValueError("groove is missing {}".format(missing))
+        if g["depth"] == 0.0:
+            return None
+        g.setdefault("ramp", 0.005)
+        g.setdefault("edge", 0.5 * g["width"])
+        g.setdefault("mesh_min", 0.001)
+        g.setdefault("mesh_per_2pi", 12.0)
+        if g["width"] <= 0.0 or g["depth"] < 0.0 or g["length"] <= 0.0:
+            raise ValueError("groove width and length must be > 0 and depth >= 0: {}".format(g))
+        if not 0.0 < g["edge"] <= g["width"]:
+            raise ValueError("groove edge must be in (0, width]: {}".format(g))
+        if not 0.0 < g["ramp"] <= g["length"]:
+            raise ValueError("groove ramp must be in (0, length]: {}".format(g))
+        if g["mesh_min"] <= 0.0 or g["mesh_per_2pi"] <= 0.0:
+            raise ValueError("groove mesh_min and mesh_per_2pi must be > 0: {}".format(g))
+        return g
+
+    @staticmethod
+    def _orbit_frame(raw_geo):
+        """The design orbit at the raw sections and its frame: O (orbit points), t (tangent),
+        w (t x u, u from the cathode face centre toward the anode's, signed toward larger
+        radius) and s_end (arc length before the orbit end)."""
+        O = 0.5 * (raw_geo[4] + raw_geo[9])
+        u = raw_geo[4] - raw_geo[9]
+        u /= np.linalg.norm(u, axis=1)[:, None]
+        t = np.gradient(O, axis=0)
+        t /= np.linalg.norm(t, axis=1)[:, None]
+        w = np.cross(t, u)
+        w /= np.linalg.norm(w, axis=1)[:, None]
+        r_hat = np.array([O[-1, 0], O[-1, 1], 0.0])
+        if np.dot(w[-1], r_hat) < 0.0:
+            w *= -1.0
+        seg = np.linalg.norm(np.diff(O, axis=0), axis=1)
+        s_end = np.concatenate([np.cumsum(seg[::-1])[::-1], [0.0]])
+        return O, t, w, s_end
+
+    @staticmethod
+    def _orbit_coordinates(X, frame):
+        """(s_end, w) of point X: the orbit point whose normal plane holds X (the nearest such
+        plane crossing; extrapolated past either end), its arc length before the orbit end and
+        X's lateral offset from it along w."""
+        O, t, w, s_end = frame
+        n = len(O)
+        f = np.einsum("ij,ij->i", X - O, t)
+        candidates = []
+        for j in range(n - 1):
+            if f[j] >= 0.0 > f[j + 1]:
+                candidates.append(j + f[j] / (f[j] - f[j + 1]))
+        if f[-1] >= 0.0:
+            candidates.append((n - 1) + f[-1] / np.linalg.norm(O[-1] - O[-2]))
+        if f[0] < 0.0:
+            candidates.append(f[0] / np.linalg.norm(O[1] - O[0]))
+
+        def at(A, q):
+            j = int(np.clip(np.floor(q), 0, n - 2))
+            return A[j] + (q - j) * (A[j + 1] - A[j])
+
+        q = min(candidates, key=lambda q: np.linalg.norm(X - at(O, q)))
+        w_q = at(w, q)
+        w_q /= np.linalg.norm(w_q)
+        return float(at(s_end, q)), float(np.dot(X - at(O, q), w_q))
+
+    @staticmethod
+    def _groove_factor(g, s, w):
+        """Depth fraction 0..1 at arc length s before the orbit end and lateral offset w."""
+        x = (g["length"] - s) / g["ramp"]
+        along = 0.0 if x <= 0.0 else (1.0 if x >= 1.0 else 0.5 * (1.0 - np.cos(np.pi * x)))
+        a = abs(w - g["w_center"])
+        inner = 0.5 * (g["width"] - g["edge"])
+        outer = 0.5 * (g["width"] + g["edge"])
+        across = 1.0 if a <= inner else (0.0 if a >= outer else 0.5 * (1.0 + np.cos(np.pi * (a - inner) / g["edge"])))
+        return along * across
+
+    def _grooved_face(self, section, frame, g):
+        """The facing parabola of one 5-point section sampled at 2N+1 points from W1 through W5
+        to W2, each pushed into the electrode along the local face normal by the groove depth
+        there. Returns (points, depths) or None when the groove does not reach this section."""
+        W1, W2, W3, W4, W5 = section
+        half_span = 0.5 * (W2 - W1)
+        sag = 0.5 * (W1 + W2) - W5
+        plane_n = np.cross(W2 - W1, W3 - W1)
+        plane_n /= np.linalg.norm(plane_n)
+        back_dir = np.cross(plane_n, W4 - W3)
+        back_dir /= np.linalg.norm(back_dir)
+        N = self._GROOVE_HALF_SAMPLES
+        points, depths, ws, ss = [], [], [], []
+        for eta in np.linspace(-1.0, 1.0, 2 * N + 1):
+            P = W5 + eta * half_span + eta ** 2 * sag
+            n_in = np.cross(plane_n, half_span + 2.0 * eta * sag)
+            n_in /= np.linalg.norm(n_in)
+            if np.dot(n_in, 0.5 * (W3 + W4) - P) < 0.0:
+                n_in = -n_in
+            s, w = self._orbit_coordinates(P, frame)
+            depth = g["depth"] * self._groove_factor(g, s, w)
+            if depth > 0.0:
+                room = abs(np.dot(W3 - P, back_dir))       # to the back face, across the plate
+                if depth > room - 0.5e-3:
+                    raise ValueError("the groove ({:.2f} mm) leaves less than 0.5 mm of the {:.2f} mm "
+                                     "plate".format(1e3 * depth, 1e3 * room))
+            points.append(P + depth * n_in)
+            depths.append(depth)
+            ws.append(w)
+            ss.append(s)
+        depths = np.asarray(depths)
+        if depths.max() <= 0.0:
+            return None
+        if depths[0] > 0.0 or depths[-1] > 0.0:
+            raise ValueError("the groove reaches the edge of the electrode face: at {:.1f} mm before the orbit end the "
+                             "face spans w {:+.2f}..{:+.2f} mm and the groove (w_center {:+.2f}, reaching +-{:.2f} mm) is "
+                             "{:.3f} / {:.3f} mm deep at its edges; move w_center or narrow it".format(
+                                 1e3 * np.mean(ss), 1e3 * min(ws[0], ws[-1]), 1e3 * max(ws[0], ws[-1]),
+                                 1e3 * g["w_center"], 0.5e3 * (g["width"] + g["edge"]), 1e3 * depths[0], 1e3 * depths[-1]))
+        return points, depths, (min(ws[0], ws[-1]), max(ws[0], ws[-1]))
+
     def create_geo_str(self, raw_geo, elec_type, h=0.005,
                        load=True, header=True, gammaAng = -1.0,
                        gamma_plane=None, angling = -1,
-                       vee_shape="linear"):
+                       vee_shape="linear", setback=0.0, groove=None):
+        """setback [m] (2026-11-17): THIS electrode's exit cut moves this far back along the
+        gamma plane's normal, into the electrode. The shared plane (returned by the anode,
+        passed to the cathode and to the gap volume) is not moved. Needs gammaAng > 0.
+
+        groove (2026-11-17): an opt-in trough in this electrode's facing surface near the exit,
+        see groove_spec(). Needs vee_shape "parabolic". None: no change at all."""
 
         f = self._offset
 
@@ -1019,6 +1185,17 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         else:
             boolean_gamma_plane = [None, None, None]
 
+        # This electrode's own cut plane: the shared one, or that plane moved back by setback.
+        setback = float(setback or 0.0)
+        own_plane = boolean_gamma_plane
+        if setback > 0.0:
+            if not apply_boolean_gamma:
+                raise ValueError("an electrode setback needs the gamma exit cut (gammaAng > 0)")
+            _n = np.asarray(boolean_gamma_plane[0], dtype=float)
+            _p = np.asarray(boolean_gamma_plane[1], dtype=float) + setback * _n
+            own_plane = [_n, _p, float(np.dot(_n, _p))]
+            print("SIElectrode {}: exit cut set back {:.2f} mm from the shared gamma plane".format(elec_type, 1e3 * setback))
+
         # The loft sections with the plate angling applied. In "wire" mode the gamma
         # plane closes the loft: sections[:n_loft] are lofted as they are, then one
         # section on the plane.
@@ -1028,7 +1205,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         ]
         n_loft, closing = num_sections, None
         if apply_boolean_gamma and self._GAMMA_CUT_MODE == "wire":
-            n_loft, closing = self._gamma_end_wire(sections, raw_geo, boolean_gamma_plane)
+            n_loft, closing = self._gamma_end_wire(sections, raw_geo, own_plane, extra_length=setback)
+            if setback > 0.0 and closing is None:
+                raise ValueError("the set-back exit plane ({:.2f} mm) does not cut the {} inside its terminal "
+                                 "region".format(1e3 * setback, elec_type))
         loft_sections = [(j, sections[j]) for j in range(n_loft)]
         if closing is not None:
             loft_sections.extend((n_loft + m, wire) for m, wire in enumerate(closing))
@@ -1038,8 +1218,36 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
                   "wire(s); strips {:.2f}..{:.2f} mm wide".format(elec_type, n_loft, num_sections, len(closing),
                                                                   _steps.min(), _steps.max()))
 
+        # The groove: on the sections it reaches, the facing spline runs through 2N+1 samples of
+        # the parabola pushed into the electrode (W5 itself moves with them); other sections
+        # keep their nine-point spline.
+        groove = self.groove_spec(groove)
+        grooved = {}
+        if groove is not None:
+            if vee_shape != "parabolic":
+                raise ValueError("an electrode groove needs vee_shape 'parabolic'")
+            frame = self._orbit_frame(np.asarray(raw_geo, dtype=float))
+            for j, section_points in loft_sections:
+                face = self._grooved_face(np.asarray(section_points, dtype=float), frame, groove)
+                if face is not None:
+                    grooved[j] = face
+            if not grooved:
+                raise ValueError("the groove {} reaches no section of the {}".format(groove, elec_type))
+            _max = 1e3 * max(float(d.max()) for _, d, _ in grooved.values())
+            _lo = 1e3 * max(e[0] for _, _, e in grooved.values())
+            _hi = 1e3 * min(e[1] for _, _, e in grooved.values())
+            print("SIElectrode {}: GROOVE w_center {:+.2f} mm, width {:.2f} mm (FWHM, shoulders {:.2f} mm), depth "
+                  "{:.2f} mm, from {:.1f} mm before the orbit end (ramp {:.1f} mm): {} of {} loft sections, deepest "
+                  "{:.2f} mm; the face spans at least w {:+.2f}..{:+.2f} mm there".format(
+                      elec_type, 1e3 * groove["w_center"], 1e3 * groove["width"], 1e3 * groove["edge"],
+                      1e3 * groove["depth"], 1e3 * groove["length"], 1e3 * groove["ramp"],
+                      len(grooved), len(loft_sections), _max, _lo, _hi))
+
         for j, section_points in loft_sections:
             W1, W2, W3, W4, W5 = section_points
+            if j in grooved:
+                _face_points = grooved[j][0]
+                section_points = list(section_points[:4]) + [_face_points[self._GROOVE_HALF_SAMPLES]]
 
             for point in section_points:
                 geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(
@@ -1058,7 +1266,21 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             # only the facing surface: sigma retains exactly the same meaning
             # as the edge-to-center sag, including a varying sigma(s).
             smooth_face_point_tags = None
-            if vee_shape == "parabolic":
+            if vee_shape == "parabolic" and j in grooved:
+                # grooved section: W1, the 2N-1 pushed samples with W5 at the middle, W2
+                N = self._GROOVE_HALF_SAMPLES
+                extra_tag_base = (self._GROOVE_TAG_BASE + (0 if elec_type == "anode" else 1_000_000) + 100 * j)
+                tags = []
+                for i, point in enumerate(_face_points):
+                    if i in (0, N, 2 * N):
+                        continue
+                    point_tag = extra_tag_base + i
+                    geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(point_tag, point[0], point[1], point[2], h)
+                    tags.append(point_tag)
+                base_point = j * 5
+                smooth_face_point_tags = ([base_point + 1 + f] + tags[:N - 1] + [base_point + 5 + f] + tags[N - 1:]
+                                          + [base_point + 2 + f])
+            elif vee_shape == "parabolic":
                 face_edge_1, face_edge_2, face_center = W1, W2, W5
                 edge_midpoint = 0.5 * (face_edge_1 + face_edge_2)
                 half_span = 0.5 * (face_edge_2 - face_edge_1)
@@ -1145,10 +1367,16 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             1 + f,
             new_loop - 1 + f,
         )
+        if grooved:
+            # mesh sizes from curvature resolve the trough; flat and gently curved surfaces keep h.
+            # Only this electrode's .geo carries these (each electrode is meshed on its own); STEP
+            # reloads get them from the steps folder's mesh_refine.json (tracking.deck).
+            geo_str += "Mesh.MeshSizeFromCurvature = {};\nMesh.MeshSizeMin = {};\n".format(
+                groove["mesh_per_2pi"], groove["mesh_min"])
 
         if apply_boolean_gamma and self._GAMMA_CUT_MODE == "boolean":
-            gamma_normal = np.asarray(boolean_gamma_plane[0], dtype=float)
-            plane_point = np.asarray(boolean_gamma_plane[1], dtype=float)
+            gamma_normal = np.asarray(own_plane[0], dtype=float)
+            plane_point = np.asarray(own_plane[1], dtype=float)
             cutter_volume = 9_000_000 + f
             geo_str += self._gamma_boolean_geo_str(
                 electrode_volume,
@@ -1157,6 +1385,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
                 angle_at_segment,
                 gamma_normal,
                 plane_point,
+                extra_length=setback,
             )
 
         
@@ -2335,7 +2564,14 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     cylinder_offset = 7000
 
     anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
-    _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng, vee_shape=vee_shape)
+    # anode_setback [m]: the anode's exit end cut back from the shared gamma plane (.get: older objects lack it)
+    # anode_groove: an opt-in trough in the anode's facing surface near the exit (SIElectrode.groove_spec; None: none)
+    anode_groove = analytic_pars.get("anode_groove")
+    _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng, vee_shape=vee_shape,
+                                                setback=float(analytic_pars.get("anode_setback", 0.0) or 0.0),
+                                                groove=anode_groove)
+    if SIElectrode.groove_spec(anode_groove) is not None:
+        print("generate_solid_assembly: the anode is GROOVED; the gap-volume export does not follow the groove")
     anode.color = "RED"
 
     cathode = SIElectrode(name="SI Cathode", voltage=-voltage, offset=cathode_offset)

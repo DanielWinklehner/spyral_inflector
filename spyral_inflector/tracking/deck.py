@@ -301,18 +301,50 @@ def find_cad(step_dir, name):
     return None
 
 
+# 2026-11-17: per-electrode mesh refinement of a STEP folder, {electrode name: {"mesh_per_2pi", "mesh_min" [m]}}, written
+# by a build with a grooved anode (geometry_point). STEP files carry no mesh sizes, so without it the groove would be
+# meshed (BEM and collisions) at the flat size h. Folders without the file mesh exactly as before.
+MESH_REFINE_NAME = "mesh_refine.json"
+
+
 def load_step_assembly(step_dir, voltages=None, name="spiral inflector from STEP"):
     """PyElectrodeAssembly from a folder of NNN_<Name>.stp (or older .step) files, one electrode each
-    (a combined *assembly* export and _negative solids in the same folder are skipped)."""
+    (a combined *assembly* export and _negative solids in the same folder are skipped). An electrode
+    named in the folder's mesh_refine.json carries that refinement to mesh_assembly()."""
     volts = read_voltages(voltages)
+    refine = {}
+    refine_fn = os.path.join(step_dir, MESH_REFINE_NAME)
+    if os.path.isfile(refine_fn):
+        with open(refine_fn) as fh:
+            refine = json.load(fh)
     assembly = PyElectrodeAssembly(name)
     for fn in electrode_cad_files(step_dir):
         ename = cad_name(fn)
         e = PyElectrode(name=ename, voltage=volts.get(ename, 0.0))
         if e.generate_from_file(os.path.join(step_dir, fn)) != 0:
             raise RuntimeError("could not load {}".format(fn))
+        if ename in refine:
+            e.mesh_refine = {k: float(v) for k, v in refine[ename].items()}
         assembly.add_electrode(e)
     return assembly
+
+
+def _generate_mesh_refined(e, h, refine):
+    """e.generate_mesh() with gmsh's mesh sizes from curvature switched on (py_electrodes opens a fresh
+    gmsh session per electrode, so the options are set just before its mesh.generate call)."""
+    import gmsh
+    original = gmsh.model.mesh.generate
+
+    def generate(dim=3):
+        gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", float(refine["mesh_per_2pi"]))
+        gmsh.option.setNumber("Mesh.MeshSizeMin", float(refine["mesh_min"]))
+        return original(dim)
+
+    gmsh.model.mesh.generate = generate
+    try:
+        return e.generate_mesh(brep_h=h) if h else e.generate_mesh()
+    finally:
+        gmsh.model.mesh.generate = original
 
 
 def rotate_quads(assembly, *alphas_deg):
@@ -348,7 +380,11 @@ def mesh_assembly(assembly, h=None):
     them lazily); returns the triangle count."""
     n_tri = 0
     for e in assembly.electrodes.values():
-        ok = e.generate_mesh(brep_h=h) if h else e.generate_mesh()
+        refine = getattr(e, "mesh_refine", None)
+        if refine:
+            ok = _generate_mesh_refined(e, h, refine)
+        else:
+            ok = e.generate_mesh(brep_h=h) if h else e.generate_mesh()
         if ok != 0 or e._gmsh_msh is None:
             raise RuntimeError("failed to mesh {}".format(e.name))
         n_tri += len(e._gmsh_msh["elements"])
