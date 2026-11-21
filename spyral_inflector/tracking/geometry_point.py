@@ -21,7 +21,7 @@ DEFAULT_KNOBS = dict(
     aper_hole=0.0125, entrance_hole=None, entrance_rect=None, exit_rects=None, plate_gap=0.001, plate_thickness=0.005,
     slot_width=0.015, slot_length=0.040, exit_opening=None, exit_circle=None,
     housing_gap=0.006, housing_thickness=0.004, top_distance=0.005, bottom_distance=0.010, rotation=0.0,
-    q2_exit_plate=True,
+    q2_exit_plate=True, pipe=None, angling_profile=None, sigma_profile=None,
 )
 KNOB_HELP = {
     "volt": "nominal spiral electrode voltage [V] (the optimizer scales it)", "gap": "electrode gap [m]",
@@ -47,7 +47,30 @@ KNOB_HELP = {
     "bottom_distance": "distance of the housing exit opening past the electrode end [m]",
     "rotation": "rotation of the whole inflector (electrodes, housing, apertures) about the axis [deg]; rotate the quads and the beam by the same angle",
     "q2_exit_plate": "False: no exit plate on quad 2, the inflector entrance aperture terminates it (set quad_len2 to reach it)",
+    "pipe": "[r_in, wall, z_top, end_gap] [m]: a grounded beam pipe from z_top (deck frame, where its upstream end lands after "
+            "the axial shift, e.g. the RFQ exit) to end_gap short of the inflector entrance plate; with n_quads = 0 it "
+            "replaces the electrostatic quad line (the magnetic quads are analytic, tracking/magquads.py)",
+    "angling_profile": "[entrance, middle, exit, ...] angling [deg] at nodes spread evenly over the electrode, from its entrance "
+                       "section (-1) to its exit section (+1) of the truncated electrode, linearly interpolated (Barnard et al., "
+                       "PRAB 24, 023501 (2021): Q2(s) on 3 nodes); signed; replaces the scalar angling, whose legacy meaning "
+                       "is the ramp [+a, 0, -a]. A dict is passed to the generator as it is (geometry._longitudinal_profile)",
+    "sigma_profile": "[entrance, middle, exit, ...] V-depth [m] at the same nodes (Barnard's Q1(s)); signed; replaces the scalar "
+                     "sigma, which is constant along the electrode, i.e. [s, s, s]",
 }
+
+
+def profile_spec(nodes, scalar):
+    """What the generator gets for angling or sigma: the scalar (legacy meaning) when there is no profile; a list of
+    node values spread evenly from the electrode's entrance (-1) to its exit (+1) as a sampled, linearly interpolated
+    profile; a dict as it is (geometry._longitudinal_profile reads all three)."""
+    if nodes is None:
+        return scalar
+    if isinstance(nodes, dict):
+        return dict(nodes)
+    values = [float(v) for v in nodes]
+    if len(values) < 2:
+        raise ValueError("a profile needs at least 2 nodes, got {}".format(values))
+    return {"kind": "samples", "values": values}
 
 
 def _sanitize(name):
@@ -95,25 +118,38 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
         k["quad_len2"] = k["quad_len"]
     if k.get("quad_len3") is None:
         k["quad_len3"] = k["quad_len"]
-    n_quads = int(k.get("n_quads", 2) or 2)
-    if k["shared_plates"]:
+    n_quads = 2 if k.get("n_quads") is None else int(k["n_quads"])     # 0: no electrostatic quads at all (2026-10-20)
+    if k["shared_plates"] and n_quads >= 2:
         k["quad_z2"] = k["quad_z1"] + k["quad_len"] + 2.0 * k["plate_gap"] + k["plate_thickness"]
         if n_quads >= 3:
             k["quad_z3"] = k["quad_z2"] + k["quad_len2"] + 2.0 * k["plate_gap"] + k["plate_thickness"]
-    z_starts = [k["quad_z1"], k["quad_z2"]] + ([k["quad_z3"]] if n_quads >= 3 else [])
-    lengths = [k["quad_len"], k["quad_len2"]] + ([k["quad_len3"]] if n_quads >= 3 else [])
+    z_starts = ([k["quad_z1"], k["quad_z2"]] + ([k["quad_z3"]] if n_quads >= 3 else [])) if n_quads else []
+    lengths = ([k["quad_len"], k["quad_len2"]] + ([k["quad_len3"]] if n_quads >= 3 else [])) if n_quads else []
+    pipe = ({"r_in": float(k["pipe"][0]), "wall": float(k["pipe"][1]), "z_top": float(k["pipe"][2]),
+             "end_gap": float(k["pipe"][3])} if k.get("pipe") else None)
     os.makedirs(out_dir, exist_ok=True)
     t_start = time.time()
     log("GEOMETRY: {}".format(k))
     log("  design energy {:.5f} MeV, truncations {} deg, dz {}".format(
         energy_mev, fix_truncations, "fixed at {:+.2f} mm".format(1e3 * fix_dz) if fix_dz is not None else "optimized"))
 
+    # 2026-10-21: angling and V-depth as PROFILES along the electrode (Barnard et al., PRAB 24, 023501 (2021), whose
+    # inflector C3 shaped Q1(s) and Q2(s) piecewise linearly on 3 nodes); a profile replaces its scalar
+    angling_spec = profile_spec(k.get("angling_profile"), k["angling"])
+    sigma_spec = profile_spec(k.get("sigma_profile"), k["sigma"])
+    if k.get("angling_profile") is not None:
+        log("  angling PROFILE {} deg, entrance -> exit (replaces the scalar angling {:g})".format(
+            angling_spec.get("values", angling_spec), float(k["angling"])))
+    if k.get("sigma_profile") is not None:
+        log("  V-depth PROFILE {} mm, entrance -> exit (replaces the scalar sigma {:g} mm)".format(
+            [round(1e3 * v, 4) for v in sigma_spec["values"]] if "values" in sigma_spec else sigma_spec, 1e3 * float(k["sigma"])))
+
     ion = ParticleDistribution(species=IonSpecies(SPECIES))
     ion.set_mean_energy_z_mev(energy_mev)
     si = SpiralInflector(ion=ion, method="numerical", solver="bempp",
-                         volt=k["volt"], gap=k["gap"], tilt=k["tilt"], dx=k["dx"], sigma=k["sigma"],
+                         volt=k["volt"], gap=k["gap"], tilt=k["tilt"], dx=k["dx"], sigma=sigma_spec,
                          vee_shape="parabolic", ns=100, aspect_ratio=k["aspect"], rotation=k["rotation"],
-                         debug=False, gammaAng=k["gamma"], anglingAng=k["angling"])
+                         debug=False, gammaAng=k["gamma"], anglingAng=angling_spec)
     si.load_bfield(bfield=bfield)
     si.initialize()
     si.set_parameter(key="h", value=h)
@@ -128,7 +164,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     si.set_parameter(key="make_housing", value=True)
     si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True, "gap": k["housing_gap"],
                                                   "thickness": k["housing_thickness"], "voltage": 0.0, "experimental": True})
-    si.set_parameter(key="make_quadrupoles", value=True)
+    si.set_parameter(key="make_quadrupoles", value=bool(z_starts) or pipe is not None)
     si.set_parameter(key="quadrupole_params", value={"a": k["quad_bore"], "b": k["quad_bore"], "radius": 0.04,
                                                      "z_starts": z_starts, "lengths": lengths,
                                                      "voltages": [3500] * len(z_starts), "aper_rad": 2.0 * k["aper_hole"],
@@ -141,7 +177,8 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
                                                         if k.get("entrance_rect") else {}),
                                                      **({"exit_hole_rects": [(2.0 * float(x[0]), 2.0 * float(x[1]), float(np.radians(float(x[2]))))
                                                                              if x else None for x in k["exit_rects"]]}
-                                                        if k.get("exit_rects") else {})})
+                                                        if k.get("exit_rects") else {}),
+                                                     **({"pipe": pipe} if pipe else {})})
     si.generate_geometry()
     log("  geometry generated ({:.0f} s)".format(time.time() - t_start))
 

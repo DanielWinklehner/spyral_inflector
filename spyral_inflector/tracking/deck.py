@@ -168,6 +168,11 @@ def particle_rows(path, core=True):
         return dst_rows(path, core=core)
     data = np.loadtxt(path, skiprows=1)
     data = data[data[:, 9] == 0]
+    # 2026-10-23: every particle is placed with its OWN beta*lambda, as dst_rows does. The text exports carry
+    # z = -phase/360 * beta*lambda at the mean energy of ALL particles (tail included), which put a 67 keV core
+    # particle 2.6 % too close to the start plane (WARP 10 mA V1.10 export: 1.9 deg rms of arrival-time error)
+    gamma = 1.0 + data[:, 8] / IonSpecies(SPECIES).mass_mev
+    data[:, 4] = -data[:, 6] / 360.0 * np.sqrt(1.0 - 1.0 / gamma ** 2) * CLIGHT / RF_FREQ_HZ * 1e3
     return data[core_selection(data)] if core else data
 
 
@@ -226,9 +231,18 @@ def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SP
     vz = speed / np.sqrt(1.0 + xp ** 2 + yp ** 2)
     v = np.column_stack([vz * xp, vz * yp, vz])
     t_all = phase / 360.0 / (rf_mhz * 1e6)
+    # 2026-10-23 (Daniel): a WARP export is a ONE-PERIOD snapshot of a DC beam -- the crossings of every recorded period
+    # folded into [-180, 180) deg -- in which the tail overlaps the main bunch, as the tail of the preceding bunches does in
+    # reality. Such a file (no particle beyond +-180 deg) is placed as one spatial snapshot, tail included: every particle
+    # at z = -phase/360 * its own beta*lambda (particle_rows), nothing injected later. TraceWin's tail, trailing up to
+    # thousands of degrees, is still injected at the plane at its arrival time.
+    snapshot = bool(np.all(np.abs(phase) <= 180.0))
     if inject_core:
         r = np.column_stack([x, y, np.full(len(x), float(z_start))])
         t_inject = t_all - t_all.min()            # the earliest particle starts the clock
+    elif snapshot:
+        r = np.column_stack([x, y, z_start + z])
+        t_inject = np.zeros(len(x))
     else:
         r = np.column_stack([x, y, z_start + np.where(is_tail, 0.0, z)])
         t_inject = np.where(is_tail, t_all, 0.0)

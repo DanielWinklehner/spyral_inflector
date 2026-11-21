@@ -2560,7 +2560,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # last_exit_plate=False: no exit plate on the last quad -- the inflector's entrance
         # aperture terminates it instead (lengthen that quad to reach it, less plate_gap)
         last_exit_plate = numerical_pars["quadrupole_params"].get("last_exit_plate", True)
-        if not last_exit_plate:
+        if not last_exit_plate and len(quad_volts):
             # the last quad then runs up to one plate_gap before the inflector entrance plate
             # (its quad-facing face); the lab-frame shift moves quads and inflector alike, so
             # the spacing set here survives the optimizer
@@ -2632,6 +2632,33 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             D4.color="RED"
             assy.add_electrode(D4)
         
+
+    # A grounded BEAM PIPE instead of the electrostatic quad line (2026-10-20, HCHC-1.5 with analytic magnetic quads):
+    # quadrupole_params["pipe"] = {"r_in", "wall", "z_top", "end_gap"} [m]. It runs from z_top -- where its upstream end
+    # lands AFTER the lab-frame axial shift, e.g. the RFQ exit -- to end_gap short of the inflector entrance plate's
+    # upstream face (no coincident faces). Lab-frame hardware like the quads: it takes only the axial shift and, like
+    # them, stays out of the design-orbit solve (optimize_trajectory's exclude_quadrupoles).
+    _pipe = numerical_pars["quadrupole_params"].get("pipe") if numerical_pars["make_quadrupoles"] else None
+    if _pipe:
+        _ap = numerical_pars["aperture_params"]
+        _z_face = trj[0][2] - _ap["top_distance"] - _ap["thickness"]
+        _sl = si.track_variables.get("shift_applied_lab")
+        _si = si.track_variables.get("shift_applied")
+        _dz_lab = 0.0 if _sl is None else float(np.asarray(_sl, dtype=float)[2])
+        _dz_inf = 0.0 if _si is None else float(np.asarray(_si, dtype=float)[2])
+        _z_top = float(_pipe["z_top"]) - _dz_lab
+        _z_end = _z_face + _dz_inf - _dz_lab - float(_pipe["end_gap"])
+        if not _z_end > _z_top:
+            raise ValueError("beam pipe of zero length: z {:+.4f} .. {:+.4f} m".format(_z_top, _z_end))
+        _r_out = float(_pipe["r_in"]) + float(_pipe["wall"])
+        pipe = SIHousingCylinder(parent=si, name="Beam Pipe", voltage=0.0)
+        pipe.create_geo_str(z_start=_z_top, z_end=_z_end, r_outer=_r_out, thickness=float(_pipe["wall"]),
+                            h=numerical_pars["h"], load=True, header=True)
+        pipe.color = "BLACK"
+        assy.add_electrode(pipe)
+        print("Beam pipe: r {:.2f} .. {:.2f} mm, z {:+.2f} .. {:+.2f} mm before the lab shift ({:+.2f} mm), {:.2f} mm short "
+              "of the entrance plate".format(1e3 * float(_pipe["r_in"]), 1e3 * _r_out, 1e3 * _z_top, 1e3 * _z_end,
+                                             1e3 * _dz_lab, 1e3 * float(_pipe["end_gap"])))
 
     if si.debug:
         assy.show(show_screen=True)

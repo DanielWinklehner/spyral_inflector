@@ -27,11 +27,12 @@ from PyPATools.field import Field, CompositeField
 from PyPATools.pusher import Pusher
 from PyPATools.trackers import Tracker
 
-from .deck import (load_particles, load_particles_with_tail, orient_beam, load_step_assembly, mesh_assembly,
+from .deck import (Z_START, load_particles, load_particles_with_tail, orient_beam, load_step_assembly, mesh_assembly,
                    drop_electrodes, load_bfield, load_state, superpose_basis, rotate_assembly, rotate_quads, shift_assembly)
 from .hooks import (ElectrodeCollision, ExitPlane, PlaneCrossing, TrajectoryRecorder, SnapshotRecorder, Envelope,
                     SpaceCharge, DelayedInjection, continue_design, _PD)
 from .handoff import save_handoff_openpmd, save_snapshot_openpmd
+from .magquads import load_set, tracking_spec, add_to_bfield
 
 
 def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_tag=None, n=10000, phi=0.0, swap_xy=False,
@@ -40,7 +41,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 superpose=None, vscale=1.0, basis_dir=None, unit=3500.0,
                 save_openpmd=None, save_mode="plane", handoff_distance=0.030, phase_reference="mean", handoff_frame="deck",
                 stragglers=False, inject_core=False, sc_min_particles=0, shift_z=0.0, snapshot_every=0, probe_z=(),
-                seed=20260905, reference=None, plot=True, log=None):
+                seed=20260905, reference=None, plot=True, bquads=None, log=None):
     """Track n particles of the RFQ file through the geometry; returns the summary dict
     and writes bunch_<out_tag>.json / .npz / .png into out_dir (default: reload_dir).
 
@@ -57,6 +58,10 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     sc_min_particles stops re-solving the space charge once fewer particles deposit.
     probe_z: z positions [m, tracking frame] of extra planes normal to +z; each particle's first crossing (state
     and time, interpolated within the step) goes into the npz as probe_state (K, N, 6) and probe_time (K, N).
+    superpose=() (no pairs) is the spiral basis alone times vscale: a geometry without electrostatic quads.
+    bquads: analytic MAGNETIC quadrupoles added to the B map on its grid (tracking/magquads.py): a quad set (G, turns
+    relative to the assembly, iron in the Baseline frame), which turns with the assembly's rotation_deg, or a ready
+    PyPATools spec in the tracking frame; a dict or a JSON file.
     """
     log = log or (lambda m: print(m, flush=True))
     out_dir = out_dir or reload_dir
@@ -69,14 +74,22 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("BUNCH TRACKING {}, tag '{}' -> '{}'".format(
         "WITH SPACE CHARGE ({:g} mA at {:g} MHz)".format(current_ma, rf_mhz) if sc else "(no space charge)", tag, out_tag))
     log("=" * 78)
-    if inject_core and not stragglers:
-        raise SystemExit("--inject-core needs --stragglers: it is a property of the whole file's arrival times")
+    # 2026-10-23 (Daniel): SI_INJECT_CORE=1 makes the timed injection from the start plane the default of every run of a
+    # chain -- a one-period WARP snapshot placed as a spatial bunch would put ~3 % of its particles past the sleeve's
+    # upstream face, some inside the plate, where no collision is ever detected
+    inject_core = bool(inject_core) or os.environ.get("SI_INJECT_CORE", "0") == "1"
     if stragglers:
         r0, v0, ion, raw, t_inject, is_tail = load_particles_with_tail(particles, n, seed=seed, rf_mhz=rf_mhz,
                                                                        inject_core=inject_core)
     else:
         r0, v0, ion, raw = load_particles(particles, n, seed=seed)
         t_inject, is_tail = np.zeros(len(r0)), np.zeros(len(r0), dtype=bool)
+        if inject_core:
+            # the core alone, injected at the start plane at its own arrival time as well (the clock starts with the
+            # earliest particle), so a core-only loop uses the same convention as its every-particle runs
+            t_all = raw[:, 6] / 360.0 / (rf_mhz * 1e6)
+            r0[:, 2] = Z_START
+            t_inject = t_all - t_all.min()
     r0, v0 = orient_beam(r0, v0, phi, swap_xy)
     k_inject = np.rint(t_inject / dt).astype(int)
     # TODO (Daniel, 2026-09-13): with inject_core the particles still upstream of the start plane are absent from
@@ -91,7 +104,11 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("  particles      : {:,d} (file has {:,d} unlost) from {}{}{}".format(
         len(r0), len(raw), os.path.basename(particles), ", x and y swapped" if swap_xy else "",
         ", rotated {:+.1f} deg".format(phi) if phi else ""))
-    if injector is not None:
+    if injector is not None and not is_tail.any():
+        log("  injection      : {:,d} core particles injected at z = {:+.3f} m at their own arrival time over {:.1f} ns "
+            "(steps {:,d}..{:,d})".format(len(r0), r0[:, 2].mean(), 1e9 * (t_inject.max() - t_inject.min()), int(k_inject.min()),
+                                          int(k_inject.max())))
+    elif injector is not None:
         log("  RFQ tail       : {:,d} unaccelerated particles ({:.1f}..{:.1f} keV) injected at z = {:+.3f} m at their arrival, "
             "{:.1f}..{:.1f} ns after the core (steps {:,d}..{:,d}); {:,d} core particles {}".format(
                 int(is_tail.sum()), 1e3 * raw[is_tail, 8].min(), 1e3 * raw[is_tail, 8].max(), r0[is_tail, 2].mean(),
@@ -100,6 +117,11 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                 "injected at the same plane over {:.1f} ns (steps {:,d}..{:,d})".format(
                     1e9 * (t_inject[~is_tail].max() - t_inject[~is_tail].min()), int(k_inject[~is_tail].min()),
                     int(k_inject[~is_tail].max())) if inject_core else "placed as a spatial bunch"))
+    elif is_tail.any():
+        log("  RFQ tail       : {:,d} unaccelerated particles ({:.1f}..{:.1f} keV) placed with the core as one spatial snapshot "
+            "(a one-period file: the tail of the preceding bunches overlaps the main bunch), z {:+.4f}..{:+.4f} m".format(
+                int(is_tail.sum()), 1e3 * raw[is_tail, 8].min(), 1e3 * raw[is_tail, 8].max(), r0[is_tail, 2].min(),
+                r0[is_tail, 2].max()))
     log("  B-field        : {}".format(os.path.basename(bfield)))
     log("  mean energy    : {:.6f} MeV, start centroid {} m, z range {:+.4f}..{:+.4f} m".format(
         raw[:, 8].mean(), np.round(r0.mean(axis=0), 5), r0[:, 2].min(), r0[:, 2].max()))
@@ -131,9 +153,26 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     log("  electrodes     : {} ({:,d} triangles)".format(len(assembly.electrodes), n_tri))
 
     b_field = load_bfield(bfield)
-    if superpose:
-        if len(superpose) % 2 or len(superpose) < 4:
-            raise ValueError("superpose needs (q1, a1, q2, a2[, q3, a3]), got {}".format(superpose))
+    bquad_spec = None
+    if bquads:
+        # 2026-10-20: analytic magnetic quads instead of the electrostatic ones. They turn with the assembly (R) and,
+        # since 2026-10-21, move with its axial shifts like the ESQs did: the build's lab shift (shift_lab of the
+        # design state, which bem_reload records from then on) plus the tracking-time shift_z
+        _set = load_set(bquads)
+        _sl = _st0.get("shift_lab")
+        if "quads" not in _set and _sl is None:
+            raise SystemExit("--bquads: {} has no shift_lab (the build's axial lab shift); re-solve the basis with the current "
+                             "bem_reload, or add it from the geometry's state.pickle".format(state_fn))
+        dz_q = (float(np.asarray(_sl, dtype=float)[2]) if _sl is not None else 0.0) + float(shift_z)
+        bquad_spec = tracking_spec(_set, rot_all, dz=dz_q)
+        if "quads" in _set:
+            log("  magnetic quads : a ready spec in the tracking frame, placed as given (no turn, no shift)")
+        else:
+            log("  magnetic quads : turned by R {:+.4f} deg, shifted {:+.3f} mm along z with the assembly".format(rot_all, 1e3 * dz_q))
+        b_field = add_to_bfield(b_field, bquad_spec, log=log)
+    if superpose is not None:
+        if len(superpose) % 2:
+            raise ValueError("superpose needs (q1, a1, q2, a2[, q3, a3]) pairs or none, got {}".format(superpose))
         bdir = basis_dir or reload_dir
         e_vac = superpose_basis(bdir, *superpose, vscale=vscale, unit=unit)
         efield_fn = "superposed from {}: spiral x{:.4f}, ".format(bdir, vscale) + ", ".join(
@@ -232,9 +271,10 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                       terminators=[exit_plane, collision, handoff] + probes,
                       recorders=[envelope, trajectories] + [s for s in (snapshot, snaps) if s is not None])
     n_run = nsteps
-    if injector is not None:
-        # the run has to outlive the last injection plus the slowest tail particle's transit
-        slowest = float(np.linalg.norm(v0[is_tail], axis=1).min() / np.linalg.norm(v0[~is_tail], axis=1).mean())
+    if injector is not None or is_tail.any():
+        # the run has to outlive the last injection plus the slowest tail particle's transit (a snapshot run with a slow
+        # tail too: without an injector it still stops as soon as every particle is resolved)
+        slowest = float(np.linalg.norm(v0[is_tail] if is_tail.any() else v0, axis=1).min() / np.linalg.norm(v0[~is_tail], axis=1).mean())
         n_run = int(k_inject.max() + np.ceil(nsteps / max(slowest, 0.2)))
         log("  run length     : {:,d} steps ({:,d} for the core alone; last injection at step {:,d}, slowest tail particle "
             "at {:.2f} of the core speed)".format(n_run, nsteps, int(k_inject.max()), slowest))
@@ -259,7 +299,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
     n_lost = int((collision.hit_electrode >= 0).sum())
     n_neither = int(len(r0) - crossed.sum() - n_lost)
     tail_info = None
-    if injector is not None:
+    if is_tail.any():
         tl = is_tail
         tail_losses = {name: int(((collision.hit_electrode == i) & tl).sum())
                        for i, name in ((i, assembly.electrodes[u].name) for i, u in index_map.items())}
@@ -271,7 +311,7 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
                      "tail_loss_z_mean_by_electrode": {name: float(np.mean(collision.hit_point[(collision.hit_electrode == i) & tl, 2]))
                                                        for i, name in ((i, assembly.electrodes[u].name) for i, u in index_map.items())
                                                        if ((collision.hit_electrode == i) & tl).any()},
-                     "tail_never_injected": int(injector.pending.sum()),
+                     "tail_never_injected": int(injector.pending.sum()) if injector is not None else 0,
                      "tail_inject_ns": [float(1e9 * t_inject[tl].min()), float(1e9 * t_inject[tl].max())],
                      "tail_energy_kev": [float(1e3 * raw[tl, 8].min()), float(1e3 * raw[tl, 8].max())],
                      "n_run_steps": int(n_run), "sc_solves_skipped": int(sc_obj.n_skipped) if sc_obj else 0}
@@ -293,13 +333,17 @@ def track_bunch(reload_dir, tag, step_dir, particles, bfield, out_dir=None, out_
         "exit_offset_mean_m": float(np.nanmean(exit_plane.offset[crossed])) if crossed.any() else None,
         "voltages": state["electrode_voltages"], "efield": efield_fn, "particles": particles, "step_dir": step_dir,
         "assembly_rotation_deg": rot_all, "shift_z_m": shift_z, "vscale": vscale,
-        "phi_deg": phi, "swap_xy": bool(swap_xy), "nsteps": nsteps, "dt": dt, "wall_time_s": wall, "pusher": pusher_alg, "sc_move": bool(sc_obj.move) if sc_obj else None,
+        "phi_deg": phi, "swap_xy": bool(swap_xy), "nsteps": nsteps, "dt": dt, "wall_time_s": wall, "pusher": pusher_alg,
+        "inject_core": bool(inject_core), "sc_move": bool(sc_obj.move) if sc_obj else None,
         "tail": tail_info,
     }
-    if superpose:
-        summary["superpose"] = {"q1": superpose[0], "alpha1": superpose[1], "q2": superpose[2], "alpha2": superpose[3],
-                                "quads": [[superpose[2 * i], superpose[2 * i + 1]] for i in range(len(superpose) // 2)],
+    if superpose is not None:
+        summary["superpose"] = {"quads": [[superpose[2 * i], superpose[2 * i + 1]] for i in range(len(superpose) // 2)],
                                 "vscale": vscale, "unit": unit, "basis_dir": basis_dir or reload_dir}
+        if len(superpose) >= 4:
+            summary["superpose"].update(q1=superpose[0], alpha1=superpose[1], q2=superpose[2], alpha2=superpose[3])
+    if bquad_spec is not None:
+        summary["bquads"] = bquad_spec
     if sc_obj:
         sc_info.update({"n_solves": sc_obj.n_solves, "solve_time_s": sc_obj.solve_time,
                         "phi_min_V": float(min(r[2] for r in sc_obj.log)), "phi_max_V": float(max(r[3] for r in sc_obj.log)),
@@ -505,7 +549,10 @@ def main(argv=None):
     p.add_argument("--post-exit-steps", type=int, default=100)
     p.add_argument("--record", type=int, default=1000)
     p.add_argument("--exclude", default="", help="comma-separated electrode names to drop")
-    p.add_argument("--superpose", type=float, nargs="+", default=None, metavar="X", help="Q1 A1 Q2 A2 [Q3 A3]: voltage and rotation per quad")
+    p.add_argument("--superpose", type=float, nargs="*", default=None, metavar="X",
+                   help="Q1 A1 Q2 A2 [Q3 A3]: voltage and rotation per quad; no values = the spiral basis alone (no ESQs)")
+    p.add_argument("--bquads", default=None, metavar="JSON",
+                   help="analytic magnetic quads added to the B map (tracking/magquads.py): a quad set or a PyPATools spec")
     p.add_argument("--vscale", type=float, default=1.0)
     p.add_argument("--basis-dir", default=None)
     p.add_argument("--unit", type=float, default=3500.0)
@@ -539,7 +586,7 @@ def main(argv=None):
                        handoff_distance=a.handoff_distance, phase_reference=a.phase_reference, handoff_frame=a.handoff_frame,
                        stragglers=a.stragglers, inject_core=a.inject_core, sc_min_particles=a.sc_min_particles, shift_z=a.shift_z,
                        snapshot_every=a.snapshot_every, probe_z=a.probe_z or (), seed=a.seed, reference=a.reference,
-                       plot=not a.no_plot)
+                       plot=not a.no_plot, bquads=a.bquads)
 
 
 if __name__ == "__main__":

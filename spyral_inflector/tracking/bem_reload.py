@@ -305,6 +305,8 @@ def solve_step_assembly(step_dir, voltages, state, out_dir, tag, bfield, res=0.0
         pickle.dump({"trj_design": state["trj_design"], "v_design": state["v_design"], "voltage": state.get("voltage"),
                      "electrode_voltages": electrode_voltages, "rotation_deg": float(rotate_all or 0.0),
                      "shift_all_m": float(shift_all or 0.0),
+                     # the build's axial lab shift (quads, plates, pipe; + shift_all): analytic magnetic quads move with it
+                     "shift_lab": (None if state.get("shift_lab") is None else np.asarray(state["shift_lab"], dtype=float)),
                      "quad_rotation_deg": [float(a) for a in rotate] if rotate else []}, fh)
     log("wrote {} and si_state_{}.pickle".format(ef_fn, tag))
     quad_check = _quad_field_check(efield, state, volts, log, centres=quad_centres(assembly) or None)
