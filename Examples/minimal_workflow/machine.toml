@@ -1,0 +1,10 @@
+# An example machine: what the inflector chain needs to know about the cyclotron and its injector
+# (spyral_inflector.machine). One such file per machine; its design files include it.
+
+[machine]
+name = "Example cyclotron"  # headers of exported files (optional)
+tag = "EX"                  # exported file names (optional)
+species = "H2_1+"           # PyPATools species name
+rf_mhz = 32.8               # cyclotron RF: one bunch carries I / f_RF of charge
+z_start_m = -0.10           # where the injected bunch starts, deck frame [m] (upstream: negative)
+inject_core = false         # true: every particle injected at the start plane at its own arrival time

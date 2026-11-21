@@ -7,7 +7,7 @@ STEP export of the result.
 
 ## Requirements
 
-- Python 3.10+, numpy, scipy, matplotlib
+- Python 3.11+ (tomllib), numpy, scipy, matplotlib
 - [PyPATools](https://github.com/DanielWinklehner/PyPATools) (ions, particle
   distributions, fields, pushers, trackers)
 - [py_electrodes](https://github.com/DanielWinklehner/py_electrodes), master from
@@ -134,6 +134,8 @@ and keeps Bz; for a median-plane-symmetric magnet the two maps are the same numb
 
 ## Examples
 
+- `Examples/minimal_workflow/`: the workflow plumbing (paths file, machine and design config, generated
+  field and beam, analytic design) in seconds; see the Workflows section.
 - `Examples/hchc60_deck.py`: the IsoDAR HCHC-60 deck (apertures, housing, quadrupole
   doublet, field map, optimizer, STEP export) with comments where it differs from
   the earlier generation script.
@@ -146,10 +148,15 @@ and keeps Bz; for a median-plane-symmetric magnet the two maps are the same numb
   tail injected by phase, Baseline-frame exports, plots, report) on a synthetic field map
   and a synthetic RFQ file, so it runs without the deck's data. About an hour on a GPU machine.
 - `Examples/analytical_test.py`, `bempp_test.py`, `bempp_test_jm.py`: older tests.
+- `Examples/study/`: the study scripts (scans, optimizations, retunes) on top of the package; see its README.
+
+`hchc60_deck.py`, `hchc60_pg5L_final.py` and `final_push_minimal.py` call the tracking stages directly, so they
+need the machine settings in the environment (`final_push_minimal.py` sets its own; for the other two set
+`SI_SPECIES`, `SI_RF_MHZ` and `SI_Z_START`, the variables of `spyral_inflector.machine`, in the environment).
 
 ## Bunch tracking through an exported geometry (`spyral_inflector.tracking`)
 
-The HCHC-60 study's tracking pipeline lives in the package: `build_geometry` (knobs ->
+The tracking pipeline lives in the package: `build_geometry` (knobs ->
 optimized design particle -> STEP files + design state), `solve_step_assembly` (bempp field
 of the STEP assembly at the final voltages, quads optionally rotated), `track_bunch` (the RFQ
 bunch through the geometry, optional PyAMG space charge, openPMD hand-off files for the
@@ -168,3 +175,36 @@ as a bunch, the tail particles are injected at the start plane at their own arri
 (`hooks.DelayedInjection`), so the run also says where they end up. `deck.py` holds the
 particle-file readers (TraceWin .dst or the 10-column text file) and the STEP loader.
 `Examples/final_push_minimal.py` exercises all of it on synthetic inputs.
+
+## Workflows: machines, designs and the levelling chain (`spyral_inflector.workflows`)
+
+The package has no built-in machine and no disk layout. Three small TOML files describe a study:
+
+- a **paths file**, one per computer: where the disk roots are (`[roots]`, e.g. `work = '/data/work'`). It is found
+  from `--paths`, then the environment variable `MACHINE_PATHS` (shared with the other packages that read the same
+  format), then `SPYRAL_INFLECTOR_PATHS`, then `~/.config/spyral_inflector/paths.toml`. Configs write `${work}/...`;
+  an unknown `${name}` is an error that names the file read, and absolute paths keep working.
+- a **machine config** (`[machine]`): beam species, cyclotron RF, start plane of the injected bunch, whether every
+  particle is injected at its arrival time, and optional name/tag for exported files. `spyral_inflector.machine`
+  reads them; a setting a computation needs and nobody gave is an error, never a silent default.
+- a **design config** per design: `include = ["machine.toml"]`, then `[run]` (results root, source run, optimizer
+  winner, quads), `[inputs]` (B map, beam file, current), `[rotation]` (the plate rule and its parameters),
+  `[reports]` and optional extra arguments per step (`[steps]`). See the docstring of `workflows.config`.
+
+```bash
+spyral-inflector chain --config design.toml [--paths paths.toml] [--dry-run] [--results <dir>]
+spyral-inflector [--config design.toml] <step> [step arguments]    # one step with the config's machine settings
+spyral-inflector paths                                              # which paths file is read, and its roots
+spyral-inflector compare <run A> <run B>                            # bit-for-bit comparison of two run folders
+```
+
+(`python -m spyral_inflector ...` is the same command.) The chain levels one design: per pass `rotate` (rotation
+fixed point of the corner rule and the basis solves), `level` (exit truncation and dz on the space-charge
+centroid), `export` (Baseline-frame export, R re-solved on the levelled STEP set), repeated until R moves by less
+than `dr_tol_deg`; then `level --final` (every particle, with space charge), `export`, the electrode-gap check,
+`report`, `phase` and `render`. Each step is a module of `spyral_inflector.workflows` with its own `--help`
+(`rotate`, `level`, `export`, `ab`, `export-ab`, `gap`, `report`, `phase`, `render`, `probe`, `probe-files`,
+`handoff-direction`) and runs as its own process, the machine settings in its environment.
+
+`Examples/minimal_workflow/` is a worked example on generated inputs (a field map and a beam it writes itself,
+an analytic design), with a `paths.example.toml`; it runs in seconds and is part of the test suite (`pytest tests`).

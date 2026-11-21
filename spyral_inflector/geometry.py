@@ -1,6 +1,7 @@
 from py_electrodes.py_electrodes import *  # From py_electrodes we also get HAVE_GMSH and GMSH_EXE
 import matplotlib.pyplot as plt
 from .vector import Vector
+from .housing_outline import build_wall, clearance_report, polygon_wall
 from PyPATools.particles import ParticleDistribution
 import numpy as np
 
@@ -706,9 +707,10 @@ class SIElectrode(PyElectrode):
             np.dot(gamma_normal, plane_point),
         ]
 
-    def _gamma_tail_start(self, raw_geo):
+    def _gamma_tail_start(self, raw_geo, extra_length=0.0):
         """Index of the first loft section in the electrode's terminal region (the last
-        _GAMMA_TERMINAL_FRACTION of the path length) and the section spacings."""
+        _GAMMA_TERMINAL_FRACTION of the path length, plus extra_length [m] for a plane
+        set back into the electrode) and the section spacings."""
         upper_centers = np.mean(raw_geo[0:4, :, :], axis=0)
         segment_lengths = np.linalg.norm(
             np.diff(upper_centers, axis=0),
@@ -720,7 +722,7 @@ class SIElectrode(PyElectrode):
                 "Cannot bound the gamma cut on a zero-length electrode"
             )
 
-        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length
+        target_tail_length = self._GAMMA_TERMINAL_FRACTION * path_length + max(0.0, float(extra_length))
         tail_start = raw_geo.shape[1] - 1
         accumulated_length = 0.0
         while tail_start > 0 and accumulated_length < target_tail_length:
@@ -728,7 +730,7 @@ class SIElectrode(PyElectrode):
             accumulated_length += segment_lengths[tail_start]
         return tail_start, segment_lengths
 
-    def _gamma_end_wire(self, sections, raw_geo, plane):
+    def _gamma_end_wire(self, sections, raw_geo, plane, extra_length=0.0):
         """Close the loft on the gamma plane.
 
         The five vertex tracks (the polylines through the same vertex of successive
@@ -750,7 +752,7 @@ class SIElectrode(PyElectrode):
         S = np.asarray(sections, dtype=float)                 # (n, 5, 3)
         D = (S - point) @ normal                              # signed; > 0 on the kept side
         n = len(sections)
-        tail_start, segment_lengths = self._gamma_tail_start(raw_geo)
+        tail_start, segment_lengths = self._gamma_tail_start(raw_geo, extra_length)
         pitch = np.concatenate([segment_lengths, segment_lengths[-1:]])
 
         # the first section with a vertex (nearly) on the plane or beyond it
@@ -824,7 +826,7 @@ class SIElectrode(PyElectrode):
 
     def _gamma_boolean_geo_str(
             self, electrode_volume, cutter_volume, raw_geo,
-            angle_at_segment, gamma_normal, plane_point):
+            angle_at_segment, gamma_normal, plane_point, extra_length=0.0):
         """Return a planar gamma cut confined to the electrode terminus."""
         bounds = np.ptp(np.asarray(raw_geo).reshape(-1, 3), axis=0)
         cut_size = max(1.0, 10.0 * np.linalg.norm(bounds))
@@ -875,7 +877,7 @@ class SIElectrode(PyElectrode):
         # physical terminus. A slab bounded only along the exit normal is not
         # sufficient for a curved inflector: the distant entrance can curl
         # back into that same slab.
-        tail_start, segment_lengths = self._gamma_tail_start(raw_geo)
+        tail_start, segment_lengths = self._gamma_tail_start(raw_geo, extra_length)
 
         terminal_sections = []
         for section_index in range(tail_start, raw_geo.shape[1]):
@@ -936,11 +938,176 @@ class SIElectrode(PyElectrode):
         )
         return geo_str
 
-            
+    # ------------------------------------------------------------------ groove (2026-11-17)
+    # An opt-in trough pressed into the FACING surface near the exit, where the high-energy wing
+    # of the beam hits the anode (Daniel: "Maybe we could do a groove there?"). Off by default:
+    # with groove=None the geo string is exactly what it was.
+    _GROOVE_KEYS = ("w_center", "width", "depth", "length", "ramp", "edge", "mesh_min", "mesh_per_2pi")
+    _GROOVE_HALF_SAMPLES = 24        # face samples per half (W1..W5, W5..W2) of a grooved section
+    _GROOVE_TAG_BASE = 20_000_000    # their point tags: + 1_000_000 on the cathode, + 100 per section
+
+    @classmethod
+    def groove_spec(cls, groove):
+        """The groove knob as a dict of floats [m], or None (no groove, also for depth 0).
+
+        PARKED (Daniel, 2026-11-21): strictly opt-in and kept for reference; the one A/B
+        ([-4, 9, 3, 40, 8, 3] mm) lost 1.2 points of transmission because the anode hits follow the trough.
+
+        groove: [w_center, width, depth, length(, ramp, edge, mesh_min, mesh_per_2pi)] or a dict
+        with those keys.
+          w_center  lateral centre of the trough, measured from the design orbit along
+                    t x u (t the orbit tangent, u from the cathode toward the anode), signed so
+                    that + is toward LARGER radius (the frame of the anode hit maps)
+          width     full width at half depth across the face
+          depth     depth into the electrode, along the local face normal
+          length    the trough starts (depth 0) this far before the design-orbit end, measured
+                    along the orbit, and runs out through the exit end
+          ramp      length over which the depth rises from 0 to full (cosine); default 5 mm
+          edge      width of each cosine shoulder across the face (<= width); default width/2,
+                    i.e. a flat floor of width/2
+          mesh_min, mesh_per_2pi   the electrode is meshed with sizes from curvature (mesh_per_2pi
+                    elements per 2 pi of turning, not below mesh_min), so the trough is
+                    resolved at the BEM mesh size h; defaults 1 mm and 12
+        """
+        if groove is None or groove is False:       # False: SpiralInflector's default (it rejects None)
+            return None
+        if isinstance(groove, dict):
+            extra = set(groove) - set(cls._GROOVE_KEYS)
+            if extra:
+                raise ValueError("unknown groove keys {}; expected {}".format(sorted(extra), cls._GROOVE_KEYS))
+            g = {k: float(v) for k, v in groove.items() if v is not None}
+        else:
+            values = [float(v) for v in groove]
+            if not 4 <= len(values) <= len(cls._GROOVE_KEYS):
+                raise ValueError("groove needs [w_center, width, depth, length(, ramp, edge, mesh_min, "
+                                 "mesh_per_2pi)] [m], got {}".format(values))
+            g = dict(zip(cls._GROOVE_KEYS, values))
+        missing = [k for k in ("w_center", "width", "depth", "length") if k not in g]
+        if missing:
+            raise ValueError("groove is missing {}".format(missing))
+        if g["depth"] == 0.0:
+            return None
+        g.setdefault("ramp", 0.005)
+        g.setdefault("edge", 0.5 * g["width"])
+        g.setdefault("mesh_min", 0.001)
+        g.setdefault("mesh_per_2pi", 12.0)
+        if g["width"] <= 0.0 or g["depth"] < 0.0 or g["length"] <= 0.0:
+            raise ValueError("groove width and length must be > 0 and depth >= 0: {}".format(g))
+        if not 0.0 < g["edge"] <= g["width"]:
+            raise ValueError("groove edge must be in (0, width]: {}".format(g))
+        if not 0.0 < g["ramp"] <= g["length"]:
+            raise ValueError("groove ramp must be in (0, length]: {}".format(g))
+        if g["mesh_min"] <= 0.0 or g["mesh_per_2pi"] <= 0.0:
+            raise ValueError("groove mesh_min and mesh_per_2pi must be > 0: {}".format(g))
+        return g
+
+    @staticmethod
+    def _orbit_frame(raw_geo):
+        """The design orbit at the raw sections and its frame: O (orbit points), t (tangent),
+        w (t x u, u from the cathode face centre toward the anode's, signed toward larger
+        radius) and s_end (arc length before the orbit end)."""
+        O = 0.5 * (raw_geo[4] + raw_geo[9])
+        u = raw_geo[4] - raw_geo[9]
+        u /= np.linalg.norm(u, axis=1)[:, None]
+        t = np.gradient(O, axis=0)
+        t /= np.linalg.norm(t, axis=1)[:, None]
+        w = np.cross(t, u)
+        w /= np.linalg.norm(w, axis=1)[:, None]
+        r_hat = np.array([O[-1, 0], O[-1, 1], 0.0])
+        if np.dot(w[-1], r_hat) < 0.0:
+            w *= -1.0
+        seg = np.linalg.norm(np.diff(O, axis=0), axis=1)
+        s_end = np.concatenate([np.cumsum(seg[::-1])[::-1], [0.0]])
+        return O, t, w, s_end
+
+    @staticmethod
+    def _orbit_coordinates(X, frame):
+        """(s_end, w) of point X: the orbit point whose normal plane holds X (the nearest such
+        plane crossing; extrapolated past either end), its arc length before the orbit end and
+        X's lateral offset from it along w."""
+        O, t, w, s_end = frame
+        n = len(O)
+        f = np.einsum("ij,ij->i", X - O, t)
+        candidates = []
+        for j in range(n - 1):
+            if f[j] >= 0.0 > f[j + 1]:
+                candidates.append(j + f[j] / (f[j] - f[j + 1]))
+        if f[-1] >= 0.0:
+            candidates.append((n - 1) + f[-1] / np.linalg.norm(O[-1] - O[-2]))
+        if f[0] < 0.0:
+            candidates.append(f[0] / np.linalg.norm(O[1] - O[0]))
+
+        def at(A, q):
+            j = int(np.clip(np.floor(q), 0, n - 2))
+            return A[j] + (q - j) * (A[j + 1] - A[j])
+
+        q = min(candidates, key=lambda q: np.linalg.norm(X - at(O, q)))
+        w_q = at(w, q)
+        w_q /= np.linalg.norm(w_q)
+        return float(at(s_end, q)), float(np.dot(X - at(O, q), w_q))
+
+    @staticmethod
+    def _groove_factor(g, s, w):
+        """Depth fraction 0..1 at arc length s before the orbit end and lateral offset w."""
+        x = (g["length"] - s) / g["ramp"]
+        along = 0.0 if x <= 0.0 else (1.0 if x >= 1.0 else 0.5 * (1.0 - np.cos(np.pi * x)))
+        a = abs(w - g["w_center"])
+        inner = 0.5 * (g["width"] - g["edge"])
+        outer = 0.5 * (g["width"] + g["edge"])
+        across = 1.0 if a <= inner else (0.0 if a >= outer else 0.5 * (1.0 + np.cos(np.pi * (a - inner) / g["edge"])))
+        return along * across
+
+    def _grooved_face(self, section, frame, g):
+        """The facing parabola of one 5-point section sampled at 2N+1 points from W1 through W5
+        to W2, each pushed into the electrode along the local face normal by the groove depth
+        there. Returns (points, depths) or None when the groove does not reach this section."""
+        W1, W2, W3, W4, W5 = section
+        half_span = 0.5 * (W2 - W1)
+        sag = 0.5 * (W1 + W2) - W5
+        plane_n = np.cross(W2 - W1, W3 - W1)
+        plane_n /= np.linalg.norm(plane_n)
+        back_dir = np.cross(plane_n, W4 - W3)
+        back_dir /= np.linalg.norm(back_dir)
+        N = self._GROOVE_HALF_SAMPLES
+        points, depths, ws, ss = [], [], [], []
+        for eta in np.linspace(-1.0, 1.0, 2 * N + 1):
+            P = W5 + eta * half_span + eta ** 2 * sag
+            n_in = np.cross(plane_n, half_span + 2.0 * eta * sag)
+            n_in /= np.linalg.norm(n_in)
+            if np.dot(n_in, 0.5 * (W3 + W4) - P) < 0.0:
+                n_in = -n_in
+            s, w = self._orbit_coordinates(P, frame)
+            depth = g["depth"] * self._groove_factor(g, s, w)
+            if depth > 0.0:
+                room = abs(np.dot(W3 - P, back_dir))       # to the back face, across the plate
+                if depth > room - 0.5e-3:
+                    raise ValueError("the groove ({:.2f} mm) leaves less than 0.5 mm of the {:.2f} mm "
+                                     "plate".format(1e3 * depth, 1e3 * room))
+            points.append(P + depth * n_in)
+            depths.append(depth)
+            ws.append(w)
+            ss.append(s)
+        depths = np.asarray(depths)
+        if depths.max() <= 0.0:
+            return None
+        if depths[0] > 0.0 or depths[-1] > 0.0:
+            raise ValueError("the groove reaches the edge of the electrode face: at {:.1f} mm before the orbit end the "
+                             "face spans w {:+.2f}..{:+.2f} mm and the groove (w_center {:+.2f}, reaching +-{:.2f} mm) is "
+                             "{:.3f} / {:.3f} mm deep at its edges; move w_center or narrow it".format(
+                                 1e3 * np.mean(ss), 1e3 * min(ws[0], ws[-1]), 1e3 * max(ws[0], ws[-1]),
+                                 1e3 * g["w_center"], 0.5e3 * (g["width"] + g["edge"]), 1e3 * depths[0], 1e3 * depths[-1]))
+        return points, depths, (min(ws[0], ws[-1]), max(ws[0], ws[-1]))
+
     def create_geo_str(self, raw_geo, elec_type, h=0.005,
                        load=True, header=True, gammaAng = -1.0,
                        gamma_plane=None, angling = -1,
-                       vee_shape="linear"):
+                       vee_shape="linear", setback=0.0, groove=None):
+        """setback [m] (2026-11-17): THIS electrode's exit cut moves this far back along the
+        gamma plane's normal, into the electrode. The shared plane (returned by the anode,
+        passed to the cathode and to the gap volume) is not moved. Needs gammaAng > 0.
+
+        groove (2026-11-17): an opt-in trough in this electrode's facing surface near the exit,
+        see groove_spec(). Needs vee_shape "parabolic". None: no change at all."""
 
         f = self._offset
 
@@ -1018,6 +1185,17 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         else:
             boolean_gamma_plane = [None, None, None]
 
+        # This electrode's own cut plane: the shared one, or that plane moved back by setback.
+        setback = float(setback or 0.0)
+        own_plane = boolean_gamma_plane
+        if setback > 0.0:
+            if not apply_boolean_gamma:
+                raise ValueError("an electrode setback needs the gamma exit cut (gammaAng > 0)")
+            _n = np.asarray(boolean_gamma_plane[0], dtype=float)
+            _p = np.asarray(boolean_gamma_plane[1], dtype=float) + setback * _n
+            own_plane = [_n, _p, float(np.dot(_n, _p))]
+            print("SIElectrode {}: exit cut set back {:.2f} mm from the shared gamma plane".format(elec_type, 1e3 * setback))
+
         # The loft sections with the plate angling applied. In "wire" mode the gamma
         # plane closes the loft: sections[:n_loft] are lofted as they are, then one
         # section on the plane.
@@ -1027,7 +1205,10 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
         ]
         n_loft, closing = num_sections, None
         if apply_boolean_gamma and self._GAMMA_CUT_MODE == "wire":
-            n_loft, closing = self._gamma_end_wire(sections, raw_geo, boolean_gamma_plane)
+            n_loft, closing = self._gamma_end_wire(sections, raw_geo, own_plane, extra_length=setback)
+            if setback > 0.0 and closing is None:
+                raise ValueError("the set-back exit plane ({:.2f} mm) does not cut the {} inside its terminal "
+                                 "region".format(1e3 * setback, elec_type))
         loft_sections = [(j, sections[j]) for j in range(n_loft)]
         if closing is not None:
             loft_sections.extend((n_loft + m, wire) for m, wire in enumerate(closing))
@@ -1037,8 +1218,36 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
                   "wire(s); strips {:.2f}..{:.2f} mm wide".format(elec_type, n_loft, num_sections, len(closing),
                                                                   _steps.min(), _steps.max()))
 
+        # The groove: on the sections it reaches, the facing spline runs through 2N+1 samples of
+        # the parabola pushed into the electrode (W5 itself moves with them); other sections
+        # keep their nine-point spline.
+        groove = self.groove_spec(groove)
+        grooved = {}
+        if groove is not None:
+            if vee_shape != "parabolic":
+                raise ValueError("an electrode groove needs vee_shape 'parabolic'")
+            frame = self._orbit_frame(np.asarray(raw_geo, dtype=float))
+            for j, section_points in loft_sections:
+                face = self._grooved_face(np.asarray(section_points, dtype=float), frame, groove)
+                if face is not None:
+                    grooved[j] = face
+            if not grooved:
+                raise ValueError("the groove {} reaches no section of the {}".format(groove, elec_type))
+            _max = 1e3 * max(float(d.max()) for _, d, _ in grooved.values())
+            _lo = 1e3 * max(e[0] for _, _, e in grooved.values())
+            _hi = 1e3 * min(e[1] for _, _, e in grooved.values())
+            print("SIElectrode {}: GROOVE w_center {:+.2f} mm, width {:.2f} mm (FWHM, shoulders {:.2f} mm), depth "
+                  "{:.2f} mm, from {:.1f} mm before the orbit end (ramp {:.1f} mm): {} of {} loft sections, deepest "
+                  "{:.2f} mm; the face spans at least w {:+.2f}..{:+.2f} mm there".format(
+                      elec_type, 1e3 * groove["w_center"], 1e3 * groove["width"], 1e3 * groove["edge"],
+                      1e3 * groove["depth"], 1e3 * groove["length"], 1e3 * groove["ramp"],
+                      len(grooved), len(loft_sections), _max, _lo, _hi))
+
         for j, section_points in loft_sections:
             W1, W2, W3, W4, W5 = section_points
+            if j in grooved:
+                _face_points = grooved[j][0]
+                section_points = list(section_points[:4]) + [_face_points[self._GROOVE_HALF_SAMPLES]]
 
             for point in section_points:
                 geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(
@@ -1057,7 +1266,21 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             # only the facing surface: sigma retains exactly the same meaning
             # as the edge-to-center sag, including a varying sigma(s).
             smooth_face_point_tags = None
-            if vee_shape == "parabolic":
+            if vee_shape == "parabolic" and j in grooved:
+                # grooved section: W1, the 2N-1 pushed samples with W5 at the middle, W2
+                N = self._GROOVE_HALF_SAMPLES
+                extra_tag_base = (self._GROOVE_TAG_BASE + (0 if elec_type == "anode" else 1_000_000) + 100 * j)
+                tags = []
+                for i, point in enumerate(_face_points):
+                    if i in (0, N, 2 * N):
+                        continue
+                    point_tag = extra_tag_base + i
+                    geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(point_tag, point[0], point[1], point[2], h)
+                    tags.append(point_tag)
+                base_point = j * 5
+                smooth_face_point_tags = ([base_point + 1 + f] + tags[:N - 1] + [base_point + 5 + f] + tags[N - 1:]
+                                          + [base_point + 2 + f])
+            elif vee_shape == "parabolic":
                 face_edge_1, face_edge_2, face_center = W1, W2, W5
                 edge_midpoint = 0.5 * (face_edge_1 + face_edge_2)
                 half_span = 0.5 * (face_edge_2 - face_edge_1)
@@ -1144,10 +1367,16 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             1 + f,
             new_loop - 1 + f,
         )
+        if grooved:
+            # mesh sizes from curvature resolve the trough; flat and gently curved surfaces keep h.
+            # Only this electrode's .geo carries these (each electrode is meshed on its own); STEP
+            # reloads get them from the steps folder's mesh_refine.json (tracking.deck).
+            geo_str += "Mesh.MeshSizeFromCurvature = {};\nMesh.MeshSizeMin = {};\n".format(
+                groove["mesh_per_2pi"], groove["mesh_min"])
 
         if apply_boolean_gamma and self._GAMMA_CUT_MODE == "boolean":
-            gamma_normal = np.asarray(boolean_gamma_plane[0], dtype=float)
-            plane_point = np.asarray(boolean_gamma_plane[1], dtype=float)
+            gamma_normal = np.asarray(own_plane[0], dtype=float)
+            plane_point = np.asarray(own_plane[1], dtype=float)
             cutter_volume = 9_000_000 + f
             geo_str += self._gamma_boolean_geo_str(
                 electrode_volume,
@@ -1156,6 +1385,7 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
                 angle_at_segment,
                 gamma_normal,
                 plane_point,
+                extra_length=setback,
             )
 
         
@@ -1169,6 +1399,101 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size
             return geo_str
         else:
             return geo_str, boolean_gamma_plane
+
+
+class SIGapVolume(SIElectrode):
+    """The NEGATIVE space between the two spiral electrodes, as a solid (2026-10-16, Daniel: "in addition to the
+    export of the electrodes in stp format, I would also like to have the negative space between the two spiral
+    electrodes as an extra object").
+
+    Lofted through the same transformed sections as the electrodes (plate angling applied per slice): each
+    section wire is the anode's facing curve from its edge W1 through its centre W5 to its edge W2 (the straight
+    V or the parabola the electrode itself uses), a straight side to the cathode's W2, the cathode's facing curve
+    back to its W1, and a straight side home. The facing surfaces therefore coincide with the electrodes', the
+    sides are the ruled surfaces between their edges, the entrance end is the electrodes' first section and the
+    exit end is cut by the electrodes' shared gamma plane (a planar Boolean cut; the electrodes themselves close
+    on that plane with wires, which differs only inside the last section).
+
+    This is NOT an electrode: it is never added to the assembly (no BEM solve, no collisions) and is exported
+    only as an extra CAD object, with the same centering shift as the spiral electrodes.
+    """
+
+    _ETAS = (-0.75, -0.5, -0.25, 0.25, 0.5, 0.75)        # the electrode's parabola samples between W1, W5, W2
+
+    def _facing_points(self, section, vee_shape):
+        """The facing curve of one electrode section, from W1 through W5 to W2, sampled as the electrode is."""
+        W1, W2, _W3, _W4, W5 = section
+        if vee_shape == "linear":
+            return [W1, W5, W2]
+        half_span = 0.5 * (W2 - W1)
+        sag = 0.5 * (W1 + W2) - W5
+        inner = [W5 + eta * half_span + eta ** 2 * sag for eta in self._ETAS]
+        return [W1] + inner[:3] + [W5] + inner[3:] + [W2]
+
+    def create_geo_str(self, raw_geo, h=0.005, load=True, header=True, gammaAng=-1.0, gamma_plane=None,
+                       angling=-1, vee_shape="linear"):
+        vee_shape = str(vee_shape).strip().lower()
+        if vee_shape in ("v", "vee", "legacy"):
+            vee_shape = "linear"
+        if vee_shape not in ("linear", "parabolic"):
+            raise ValueError("Unsupported vee_shape {!r}; expected 'linear' or 'parabolic'".format(vee_shape))
+        geo_str = ("SetFactory(\"OpenCASCADE\");\nGeometry.NumSubEdges = 100;\n"
+                   "Mesh.CharacteristicLengthMax = {};\n".format(h)) if header else ""
+        num_sections = len(raw_geo[0, :, 0])
+        angle_at_segment = _longitudinal_profile(angling, num_sections, scalar_mode="legacy_angling", name="angling")
+
+        pt, cv, wire = 1, 1, 1
+        wires = []
+        for j in range(num_sections):
+            upper = self._transformed_section_points(raw_geo[0:5, j, :], angle_at_segment[j])
+            lower = self._transformed_section_points(raw_geo[5:10, j, :], angle_at_segment[j])
+            a_pts = self._facing_points(upper, vee_shape)              # anode facing curve, W1 -> W2
+            c_pts = self._facing_points(lower, vee_shape)[::-1]        # cathode facing curve, W2 -> W1
+            tags = []
+            for p in a_pts + c_pts:
+                geo_str += "Point({}) = {{ {}, {}, {}, {} }};\n".format(pt, p[0], p[1], p[2], h)
+                tags.append(pt)
+                pt += 1
+            na = len(a_pts)
+            a_tags, c_tags = tags[:na], tags[na:]
+            curves = []
+            if vee_shape == "linear":
+                for t0, t1 in zip(a_tags[:-1], a_tags[1:]):
+                    geo_str += "Line({}) = {{ {}, {} }};\n".format(cv, t0, t1)
+                    curves.append(cv)
+                    cv += 1
+            else:
+                geo_str += "Spline({}) = {{ {} }};\n".format(cv, ", ".join(str(t) for t in a_tags))
+                curves.append(cv)
+                cv += 1
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(cv, a_tags[-1], c_tags[0])       # side: anode W2 -> cathode W2
+            curves.append(cv)
+            cv += 1
+            if vee_shape == "linear":
+                for t0, t1 in zip(c_tags[:-1], c_tags[1:]):
+                    geo_str += "Line({}) = {{ {}, {} }};\n".format(cv, t0, t1)
+                    curves.append(cv)
+                    cv += 1
+            else:
+                geo_str += "Spline({}) = {{ {} }};\n".format(cv, ", ".join(str(t) for t in c_tags))
+                curves.append(cv)
+                cv += 1
+            geo_str += "Line({}) = {{ {}, {} }};\n".format(cv, c_tags[-1], a_tags[0])       # side: cathode W1 -> anode W1
+            curves.append(cv)
+            cv += 1
+            geo_str += "Wire({}) = {{ {} }};\n\n".format(wire, ", ".join(str(c) for c in curves))
+            wires.append(wire)
+            wire += 1
+
+        volume = 1
+        geo_str += "Ruled ThruSections({}) = {{ {}:{} }};\n".format(volume, wires[0], wires[-1])
+        if float(gammaAng) > 0.0 and gamma_plane is not None and gamma_plane[0] is not None:
+            geo_str += self._gamma_boolean_geo_str(volume, 9_000_001, raw_geo, angle_at_segment,
+                                                   np.asarray(gamma_plane[0], dtype=float),
+                                                   np.asarray(gamma_plane[1], dtype=float))
+        if load:
+            self.generate_from_geo_str(geo_str=geo_str)
+        return geo_str
 
 
 # Geometrically, trajectories have much in common with electrodes...
@@ -1257,24 +1582,44 @@ class SIHousing(PyElectrode):
 
         self._experimental = experimental
 
+        # The shape the central region rebuilds the housing from; filled by create_geo_str.
+        self.outline = None
+        # The wall as curves (the exit plate and the spline); also filled by create_geo_str.
+        self.wall = None
+
     def set_aperture_params(self, parameters):
         self._aperture_params = parameters
 
     def set_aperture_rot_angles(self, angles):
         self._tilt_angle, self._face_angle = angles
 
-    def gen_convex_hull(self, geo, gap, thickness, solid_points=None):
-        from scipy.spatial import ConvexHull
+    def clearance_points(self, geo, solid_points=None, zmin=None, zmax=None):
+        """Every point in the x-y plane the housing wall has to clear, as (N, 2).
 
-        geo_list = []
-        for i in range(9):
-            geo_list.append(geo[i, :, :2])
-        points = np.concatenate(geo_list)
+        `zmin` / `zmax` keep only what is actually beside the wall. The entrance leg of the
+        electrodes runs some 45 mm below the housing, inside the cylinder, and including it
+        used to inflate the outline by up to 17 mm on the entrance side -- and, because that
+        leg carries its own flat face, it also set the angle of the long face beside the exit.
+        """
+        points = np.concatenate([geo[i, :, :] for i in range(9)])
         if solid_points is not None:
             # the meshed electrode solids reach 1-2 mm beyond the analytic curves; the
             # clearance has to hold for them (a 0.8 mm anode-housing gap at the cylinder
             # junction stalled the BEM solve at 770 GMRES iterations)
-            points = np.vstack([points, np.asarray(solid_points, dtype=float)[:, :2]])
+            points = np.vstack([points, np.asarray(solid_points, dtype=float)])
+        if zmin is not None:
+            points = points[points[:, 2] >= zmin]
+        if zmax is not None:
+            points = points[points[:, 2] <= zmax]
+        if len(points) < 3:
+            raise ValueError("no electrode point inside the housing z span "
+                             "({} .. {})".format(zmin, zmax))
+        return points[:, :2]
+
+    def gen_convex_hull(self, geo, gap, thickness, solid_points=None, zmin=None, zmax=None):
+        from scipy.spatial import ConvexHull
+
+        points = self.clearance_points(geo, solid_points=solid_points, zmin=zmin, zmax=zmax)
 
         hull = ConvexHull(points)
         hull_pts = points[hull.vertices, :]
@@ -1368,12 +1713,21 @@ class SIHousing(PyElectrode):
         return np.array(new_points)
 
     def create_geo_str(self, geo, trj, zmin, zmax, span, gap, thickness, h=0.005, load=True, header=True,
-                       zmin_override=None, solid_points=None):
-        # TODO: Doc string -PW
+                       zmin_override=None, solid_points=None, v_exit=None, simplify=True,
+                       plate_pad=0.010, knot_spacing=0.015, z_filter=True, verbose=True):
+        """The housing wall: a closed outline extruded over zmin..zmax with the exit cut out.
 
+        v_exit      the design orbit's direction at the exit; the flat exit plate is set
+                    perpendicular to it and the opening is cut along it, so the opening is a
+                    true rectangle in the plate. Defaults to the last step of `trj`.
+        simplify    one straight plate plus one spline instead of a vertex per hull point.
+        plate_pad   how far the plate reaches past the opening, each side [m]; a floor, not
+                    the final length -- build_wall then runs each end on to where the boundary
+                    crosses the plate's line, which is where the two meet with no corner at all.
+        knot_spacing  how far apart the spline's interpolation points sit along the wall [m].
+        z_filter    clear only the electrode points that are actually beside the wall.
+        """
         offset = self._offset
-
-        pts_in, pts_out = self.gen_convex_hull(geo, gap, thickness, solid_points=solid_points)
 
         dz = self._aperture_params["thickness"]
         r = self._aperture_params["radius"]
@@ -1392,7 +1746,27 @@ class SIHousing(PyElectrode):
             # the entrance end is covered by the cylinder; start exactly where it stops
             zmin = zmin_override
 
-        norm_vec = Vector(trj[-1] - trj[-2]).normalized()
+        # The exit direction. trj is sampled coarsely enough that its last chord is up to 1.6 deg
+        # off the tangent, so the design velocity is used when the caller has it; either way the
+        # SAME vector sets the plate, the opening's rotation and the opening's position, so the
+        # three cannot drift apart.
+        norm_vec = Vector(v_exit if v_exit is not None else (trj[-1] - trj[-2])).normalized()
+        n_hat = np.array([norm_vec[0], norm_vec[1]], dtype=float)
+        n_hat /= np.linalg.norm(n_hat)
+        t_hat = np.array([-n_hat[1], n_hat[0]])
+
+        # The cutting box is swept along its local -y, which Rz(face_angle) turns to azimuth
+        # face_angle - 90 deg, so the opening's own outward normal is at face_angle + 90. Putting
+        # face_angle a quarter turn off the exit azimuth puts that normal ON the exit direction:
+        # the sweep is then perpendicular to the plate and the hole is a true rectangle in it, at
+        # any tilt. Which quarter turn matters -- the two differ by 180 deg, and a 180 deg turn
+        # maps the box onto itself with its long axis tilted the OTHER way -- so it is the one
+        # nearer the angle the electrodes themselves give, which is a fraction of a degree away.
+        _phi = float(np.arctan2(n_hat[1], n_hat[0]))
+        face_angle = min((_phi - 0.5 * np.pi, _phi + 0.5 * np.pi),
+                         key=lambda f: abs(np.arctan2(np.sin(f - self._face_angle),
+                                                      np.cos(f - self._face_angle))))
+        tilt_angle = float(self._tilt_angle)
 
         # z follows the design orbit like x and y do; pinning it to the median plane put the
         # opening trj[-1][2] off the beam (the entrance aperture already tracks trj[0][2]).
@@ -1401,6 +1775,95 @@ class SIHousing(PyElectrode):
                               trj[-1][2]])
 
         hole_type = self._aperture_params["hole_type"]
+
+        # A CIRCULAR exit opening (Daniel, 2026-10-20): "exit_circle" = (radius, du, dw) [m] cuts a round hole of that
+        # radius whose centre is moved du along the plate (t = z x n) and dw vertically from the default centre, e.g.
+        # onto the beam centroid of a hand-off. The plate itself is still sized from the a x b rectangle, so the wall,
+        # the outline and the plate corners -- and with them the exit-plane rotation -- stay exactly as they were.
+        exit_circle = self._aperture_params.get("exit_circle")
+        t3 = np.array([t_hat[0], t_hat[1], 0.0])
+        if exit_circle:
+            _rc, _du, _dw = (float(v) for v in exit_circle)
+            hole_type = "ellipse"
+            a_cut = b_cut = 2.0 * _rc
+            translate_cut = translate + _du * t3 + np.array([0.0, 0.0, _dw])
+        else:
+            a_cut, b_cut, translate_cut = a, b, translate
+
+        # ---- the outline ------------------------------------------------------------------
+        z_lo = zmin if z_filter else None
+        z_hi = zmax if z_filter else None
+        if simplify:
+            # The opening is the a x b rectangle turned by Ry(tilt) then Rz(face): along the plate
+            # its long axis has the footprint a * cos(tilt) and its short axis adds b * sin(tilt),
+            # so the extreme corner sits 0.5 * (a cos + b sin) from the centre -- 23.1 mm against
+            # 17.6 for the long axis alone, at 28 deg of tilt on a 40 x 23 opening. The plate covers
+            # the corners plus the padding; counting the long axis only left 4.5 mm of plate past
+            # the corner where 10 was asked. The `experimental` extra hull point is not used here:
+            # it pushed the hull out at the exit so the wall would reach the opening, which the
+            # plate now does exactly.
+            clear_pts = self.clearance_points(geo, solid_points=solid_points, zmin=z_lo, zmax=z_hi)
+            plate_half = 0.5 * (a * abs(np.cos(tilt_angle)) + b * abs(np.sin(tilt_angle))) + plate_pad
+            self.wall = build_wall(clear_pts, gap, thickness, n_hat,
+                                   float(translate[:2].dot(t_hat)), plate_half,
+                                   knot_spacing=knot_spacing)
+            report = clearance_report(self.wall, clear_pts, gap)
+            if verbose:
+                m = self.wall.meta
+                w_lo, w_hi = self.wall.wall_thickness()
+                print("Housing outline: {} hull vertices -> a {:.1f} mm plate perpendicular to the "
+                      "exit (azimuth {:.2f} deg) and a spline through {} points; {} points in the "
+                      ".geo instead of about {}.".format(
+                          m["n_hull"], 2e3 * plate_half,
+                          np.degrees(np.arctan2(n_hat[1], n_hat[0])) % 360.0, m["n_knots"],
+                          self.wall.n_points(), 2 * m["n_offset"]))
+                print("  clearance to the electrodes {:.3f} mm against {:.3f} asked ({:+.3f} mm), "
+                      "wall {:.3f} .. {:.3f} mm thick, spline {:.2f} mm off its own chords."
+                      .format(1e3 * report["min"], 1e3 * gap, 1e3 * report["worst"],
+                              1e3 * w_lo, 1e3 * w_hi, 1e3 * m["bulge"]))
+            if report["worst"] < -0.1 * gap:
+                raise RuntimeError("the simplified housing outline comes {:.3f} mm closer to the "
+                                   "electrodes than the {:.3f} mm asked for".format(
+                                       -1e3 * report["worst"], 1e3 * gap))
+        else:
+            self.wall = polygon_wall(*self.gen_convex_hull(geo, gap, thickness,
+                                                           solid_points=solid_points,
+                                                           zmin=z_lo, zmax=z_hi))
+
+        # ---- the raw outline, kept for the central region --------------------------------
+        # The central region wants the housing as a SHAPE, not as this solid: the polygon the
+        # wall is extruded from, and the opening the beam leaves through. Recording them here -
+        # deck frame, metres, before the extrusion below and before the electrode's own
+        # translation - means nothing downstream has to re-derive them from the STEP solid.
+        # The aperture rectangle is the a x b mid-plane face of the cutting box, carried through
+        # the same rotations the box gets below: Rx(pi/2) (already folded into the corners, which
+        # is why b runs along the local z), then Ry(tilt), Rz(face), then the same translate.
+        _c = np.array([[-0.5 * a, 0.0, -0.5 * b], [+0.5 * a, 0.0, -0.5 * b],
+                       [+0.5 * a, 0.0, +0.5 * b], [-0.5 * a, 0.0, +0.5 * b]])
+        _ct, _st = np.cos(tilt_angle), np.sin(tilt_angle)
+        _cf, _sf = np.cos(face_angle), np.sin(face_angle)
+        _ry = np.array([[_ct, 0.0, _st], [0.0, 1.0, 0.0], [-_st, 0.0, _ct]])
+        _rz = np.array([[_cf, -_sf, 0.0], [_sf, _cf, 0.0], [0.0, 0.0, 1.0]])
+        if exit_circle:
+            # the round opening as a polygon of 36 points on its rim, in the plate (t and z), at the same distance
+            # along the exit as the rectangle's corners were recorded
+            _th = np.radians(np.arange(0.0, 360.0, 10.0))
+            _ap = translate_cut + 0.5 * a_cut * (np.cos(_th)[:, None] * t3 + np.sin(_th)[:, None] * np.array([0.0, 0.0, 1.0]))
+        else:
+            _ap = translate + _c.dot(_rz.dot(_ry).T)
+        _outer_pts, _outer_curves = self.wall.loop("outer")
+        _inner_pts, _inner_curves = self.wall.loop("inner")
+        self.outline = {"outer": _outer_pts, "outer_curves": _outer_curves,
+                        "inner": _inner_pts, "inner_curves": _inner_curves,
+                        "outer_dense": self.wall.outer, "inner_dense": self.wall.inner,
+                        "aperture": _ap,
+                        "aperture_shape": "circle" if exit_circle else "rectangle",
+                        "z_min": float(zmin), "z_max": float(zmax),
+                        "aperture_size": (float(a_cut), float(b_cut)),
+                        "tilt_angle": tilt_angle, "face_angle": face_angle,
+                        "exit_direction": np.array([norm_vec[0], norm_vec[1], norm_vec[2]], dtype=float),
+                        "simplified": bool(simplify),
+                        "gap": float(gap), "thickness": float(thickness)}
 
         if header:
             geo_str = """SetFactory("OpenCASCADE");
@@ -1411,59 +1874,38 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
         else:
             geo_str = "Geometry.ToleranceBoolean = 1E-5;\n"
 
-        geo_str += "// Outside points\n"
-        n_pts_out = np.shape(pts_out)[0]
+        # ---- the two loops, outer first -----------------------------------------------------
+        # Each loop is written as the curves the wall is made of: with `simplify` that is one
+        # `Line` (the exit plate) and one `Spline`, and without it one `Line` per hull vertex,
+        # exactly as before. gmsh keeps Point and Curve tags in separate spaces, so both count
+        # up from `offset`; the Curve Loops keep their old tags 1 and 2.
+        tag_pt, tag_cv = offset, offset
+        loop_tags = {}
+        for name, which in (("Outside", "outer"), ("Inside", "inner")):
+            pts, curves = self.wall.loop(which)
+            n = len(pts)
+            geo_str += "// {} wall: {} point(s), {} curve(s)\n".format(name, n, len(curves))
+            base, tags = tag_pt, []
+            for pt in pts:
+                geo_str += "Point({}) = {{ {}, {}, 0, {} }};\n".format(tag_pt, pt[0], pt[1], h)
+                tag_pt += 1
+            for kind, i0, i1 in curves:
+                if kind == "spline":
+                    chain = [base + (i0 + k) % n for k in range((i1 - i0) % n + 1)]
+                    geo_str += "Spline({}) = {{ {} }};\n".format(
+                        tag_cv, ", ".join(str(t) for t in chain))
+                else:
+                    geo_str += "Line({}) = {{ {}, {} }};\n".format(tag_cv, base + i0, base + i1)
+                tags.append(tag_cv)
+                tag_cv += 1
+            loop_tags[name] = tags
 
-        for i, pt in enumerate(pts_out):
-            geo_str += "Point({}) = {{ {}, {}, 0, {} }};\n".format(i + offset, pt[0], pt[1], h)
-
-        geo_str += "// Outside lines\n"
-        n_lines_out = n_pts_out  # Should be the same number
-
-        for i in range(n_lines_out - 1):
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(i + offset, i + offset, i + 1 + offset)
-        geo_str += "Line({}) = {{ {}, {} }};\n".format(i + 1 + offset, n_pts_out - 1 + offset,
-                                                       0 + offset)  # Connect last point to first point
-
-        geo_str += "// Inside points\n"
-        n_pts_in = np.shape(pts_in)[0]
-
-        for i, pt in enumerate(pts_in):
-            geo_str += "Point({}) = {{ {}, {}, 0, {} }};\n".format(i + n_pts_out + offset, pt[0], pt[1], h)
-
-        geo_str += "// Inside lines\n"
-        n_lines_in = n_pts_in  # Should be the same number
-
-        for i in range(n_lines_in - 1):
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(i + n_lines_out + offset, i + n_pts_out + offset,
-                                                           i + 1 + n_pts_out + offset)
-        # Connect last point to first point
-        geo_str += "Line({}) = {{ {}, {} }};\n".format(n_lines_in + n_lines_out + offset - 1,
-                                                       i + 1 + n_pts_out + offset,
-                                                       n_pts_out + offset)
-
-        geo_str += "Line Loop({}) = {{ {}:{} }};\n".format(1 + offset, 0 + offset, n_lines_out - 1 + offset)
-        geo_str += "Line Loop({}) = {{ {}:{} }};\n".format(2 + offset, n_lines_out + offset,
-                                                           n_lines_out + n_lines_in - 1 + offset)
+        geo_str += "Line Loop({}) = {{ {} }};\n".format(
+            1 + offset, ", ".join(str(c) for c in loop_tags["Outside"]))
+        geo_str += "Line Loop({}) = {{ {} }};\n".format(
+            2 + offset, ", ".join(str(c) for c in loop_tags["Inside"]))
 
         geo_str += "Plane Surface({}) = {{ {}, {} }};\n".format(1 + offset, 1 + offset, 2 + offset)
-
-        num_wire_points = 12
-        # This will be extruded from 0 to zmin, then translated.
-        z_values = np.linspace(0.0, zmax - zmin, num_wire_points)
-        point_index = n_pts_in + n_pts_out + offset
-        for k in range(num_wire_points):
-            geo_str += "Point({}) = {{ 0.0, 0.0, {} }};\n".format(point_index + k, z_values[k])
-
-        # Create the lines that connect these new points
-        line_index = n_lines_in + n_lines_out + offset + 1
-        for m in range(num_wire_points - 1):
-            geo_str += "Line({}) = {{ {}, {} }};\n".format(line_index + m,
-                                                           point_index + m, point_index + m + 1)
-
-        geo_str += "Wire({}) = {{ {}:{} }};\n".format(3 + offset,
-                                                      n_lines_in + n_lines_out + offset + 1,
-                                                      n_lines_in + n_lines_out + offset + num_wire_points - 1)
 
         geo_str += "// Tool to subtract\n"
 
@@ -1482,32 +1924,58 @@ Mesh.CharacteristicLengthMax = {};  // maximum mesh size""".format(h)
             sub_tool = 2 + offset
 
         elif hole_type == "ellipse":
-            geo_str += "Disk ({}) = {{ 0, 0, 0, {}, {} }};\n".format(500 + offset, 0.5 * a + 5E-9, 0.5 * b + 5E-9)
+            # drawn over local z = -0.025 .. +0.025, symmetric like the rectangle's box: which way local z ends up
+            # pointing depends on the quarter turn face_angle takes (below), and a one-sided 0 .. 0.05 extrusion
+            # pointed DOWNSTREAM on one design and never touched the wall (2026-10-20: a solid plate, 0.01 %)
+            geo_str += "Disk ({}) = {{ 0, 0, -0.025, {}, {} }};\n".format(500 + offset, 0.5 * a_cut + 5E-9, 0.5 * b_cut + 5E-9)
             geo_str += "disk_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(0.05, 500 + offset)
             sub_tool = "disk_out[1]"
 
-        geo_str += "housing_out[] = Extrude {{ Surface{{ {} }}; }} Using Wire {{ {} }};\n".format(1 + offset,
-                                                                                                  3 + offset)
-        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[] }}; }}\n".format(zmin)
-
-        geo_str += "Recursive Delete {{ Point{{ {}:{} }}; }}\n".format(point_index, point_index + num_wire_points - 1)
-        geo_str += "Recursive Delete {{ Line{{ {}:{} }}; }}\n".format(line_index, line_index + num_wire_points - 2)
-        geo_str += "Recursive Delete {{ Surface{{ {} }}; }}\n".format(1 + offset)
+        # A plain translation along z, not a sweep along a 12-point wire: the wire was straight,
+        # so the two build the same prism, but sweeping a spline profile along a pipe is a good
+        # deal more work for OCC than extruding it.
+        geo_str += "housing_out[] = Extrude {{ 0, 0, {} }} {{ Surface{{ {} }}; }};\n".format(
+            zmax - zmin, 1 + offset)
+        geo_str += "Translate {{ 0, 0, {} }} {{ Volume{{ housing_out[1] }}; }}\n".format(zmin)
 
         geo_str += "Rotate {{ {{ 1.0, 0.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
             np.pi / 2.0, sub_tool)
         geo_str += "Rotate {{ {{ 0.0, 1.0, 0.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            self._tilt_angle, sub_tool)
+            tilt_angle, sub_tool)
         geo_str += "Rotate {{ {{ 0.0, 0.0, 1.0 }}, {{ 0.0, 0.0, 0.0 }}, {} }} {{ Volume{{ {} }}; }}\n".format(
-            self._face_angle, sub_tool)
+            face_angle, sub_tool)
 
-        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate[0],
-                                                                               translate[1],
-                                                                               translate[2],
+        geo_str += "Translate {{ {}, {}, {} }} {{ Volume{{ {} }}; }}\n".format(translate_cut[0],
+                                                                               translate_cut[1],
+                                                                               translate_cut[2],
                                                                                sub_tool)
 
-        geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
+        geo_str += "BooleanDifference({}) = {{ Volume {{ housing_out[1] }}; Delete; }}{{ Volume {{ {} }}; Delete; }};\n".format(
             50 + offset, sub_tool)
+
+        # Does the cutting box actually reach through the wall? It is swept from the opening's
+        # own plane, so a wall that stands further out than the box is long simply keeps its
+        # opening -- a closed housing that looks perfectly healthy until the beam hits it. The
+        # tool's local z goes through Rx(pi/2), Ry(tilt) (which leaves it alone) and Rz(face_angle)
+        # to e = (sin face, -cos face, 0): -n_hat for one quarter turn of face_angle and +n_hat for
+        # the other, so a tool drawn over z = z0 .. z1 covers s = s_face + z * (e . n_hat). (This
+        # used to assume -n_hat, which let a one-sided disk that pointed downstream pass.)
+        if hole_type == "rectangle":
+            _z0, _z1 = (-0.025, 0.025) if self._experimental else (0.0, 0.1)
+        else:
+            _z0, _z1 = -0.025, 0.025                          # the extruded disk
+        _e_n = float(np.sin(face_angle) * n_hat[0] - np.cos(face_angle) * n_hat[1])
+        _s_wall = self.outline["outer_dense"].dot(n_hat)
+        _s_face = float(translate[:2].dot(n_hat))
+        _reach = tuple(sorted((_s_face + _z0 * _e_n, _s_face + _z1 * _e_n)))
+        _t_wall = self.outline["outer_dense"].dot(t_hat)
+        _near = (_t_wall >= translate[:2].dot(t_hat) - 0.5 * a) & \
+                (_t_wall <= translate[:2].dot(t_hat) + 0.5 * a)
+        if np.any(_near) and not (_reach[0] <= _s_wall[_near].max() <= _reach[1]):
+            raise RuntimeError(
+                "the exit opening would not be cut: the wall stands at s = {:.1f} mm beside the "
+                "opening but the cutting box only spans {:.1f} .. {:.1f} mm along the exit "
+                "direction".format(1e3 * _s_wall[_near].max(), 1e3 * _reach[0], 1e3 * _reach[1]))
 
         if load:
             self.generate_from_geo_str(geo_str=geo_str)
@@ -2096,12 +2564,25 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     cylinder_offset = 7000
 
     anode = SIElectrode(name="SI Anode", voltage=voltage, offset=anode_offset)
-    _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng, vee_shape=vee_shape)
+    # anode_setback [m]: the anode's exit end cut back from the shared gamma plane (.get: older objects lack it)
+    # anode_groove: an opt-in trough in the anode's facing surface near the exit (SIElectrode.groove_spec; None: none)
+    anode_groove = analytic_pars.get("anode_groove")
+    _, anode_gamma_plane = anode.create_geo_str(raw_geo=geo, elec_type="anode", h=h, load=True, header=True, gammaAng = gamma, angling = anglingAng, vee_shape=vee_shape,
+                                                setback=float(analytic_pars.get("anode_setback", 0.0) or 0.0),
+                                                groove=anode_groove)
+    if SIElectrode.groove_spec(anode_groove) is not None:
+        print("generate_solid_assembly: the anode is GROOVED; the gap-volume export does not follow the groove")
     anode.color = "RED"
 
     cathode = SIElectrode(name="SI Cathode", voltage=-voltage, offset=cathode_offset)
     cathode.create_geo_str(raw_geo=geo, elec_type="cathode", h=h, load=True, header=True, gammaAng = gamma, gamma_plane = anode_gamma_plane, angling = anglingAng, vee_shape=vee_shape)
     anode.color = "BLUE"
+
+    # what generate_gap_volume() needs to build the negative space between these two electrodes on demand
+    # (it is an export object only, so it is not built on every geometry regeneration)
+    numerical_vars["gap_volume_args"] = {"raw_geo": np.array(geo, dtype=float), "h": h, "gammaAng": gamma,
+                                         "gamma_plane": anode_gamma_plane, "angling": anglingAng, "vee_shape": vee_shape}
+    numerical_vars["gap_volume_shift"] = None
 
     # Create an assembly holding all the electrodes
     assy = PyElectrodeAssembly("Spiral Inflector Assembly")
@@ -2142,6 +2623,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
 
         # translate = np.array([0.0, 0.0, zmin])
         # housing.set_translation(translate, absolute=True)
+        _hp = numerical_pars["housing_params"]
         s = housing.create_geo_str(geo=geo,
                                    trj=trj,
                                    zmin=zmin,
@@ -2152,8 +2634,16 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
                                    h=h * 3,
                                    load=True,
                                    header=True,
-                                   zmin_override=(z_cyl_end if numerical_pars["housing_params"].get("truncate_at_cylinder", True) else None),
-                                   solid_points=solid_pts)
+                                   zmin_override=(z_cyl_end if _hp.get("truncate_at_cylinder", True) else None),
+                                   solid_points=solid_pts,
+                                   # the tangent at the exit, not the last chord of the coarse
+                                   # design trajectory: the flat exit plate is set square to it
+                                   v_exit=(analytic_vars["v_design"][-1]
+                                           if analytic_vars.get("v_design") is not None else None),
+                                   simplify=_hp.get("simplify", True),
+                                   plate_pad=_hp.get("plate_pad", 0.010),
+                                   knot_spacing=_hp.get("knot_spacing", 0.015),
+                                   z_filter=_hp.get("z_filter", True))
 
         # with open('housing_geo_str.geo', 'w') as f:
         #     f.write(s)
@@ -2306,7 +2796,7 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         # last_exit_plate=False: no exit plate on the last quad -- the inflector's entrance
         # aperture terminates it instead (lengthen that quad to reach it, less plate_gap)
         last_exit_plate = numerical_pars["quadrupole_params"].get("last_exit_plate", True)
-        if not last_exit_plate:
+        if not last_exit_plate and len(quad_volts):
             # the last quad then runs up to one plate_gap before the inflector entrance plate
             # (its quad-facing face); the lab-frame shift moves quads and inflector alike, so
             # the spacing set here survives the optimizer
@@ -2329,13 +2819,31 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             if pole == 0 or not shared:
                 A1 = SIAperture(name="ent%i"%(4*pole),voltage=0.0)
                 _hole = ent_rad if pole == 0 else aper_rad
-                A1.create_geo_str(r=r, dz=aper_t, a=_hole, b=_hole, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
+                # entrance_hole_rect = (full width along x, full height along y, turn about z [rad]): a
+                # RECTANGULAR first plate (the vacuum-sleeve stand-in), 2026-10-16. The plate turns with
+                # the assembly but not with quad 1, so the angle must include quad 1's own rotation to
+                # line the rectangle up with its poles.
+                _rect = numerical_pars["quadrupole_params"].get("entrance_hole_rect") if pole == 0 else None
+                if _rect:
+                    A1.create_geo_str(r=r, dz=aper_t, a=_rect[0], b=_rect[1], translation=[0,0,z_starts[pole]-aper_t/2.0-gap],
+                                      rotation=[0.0, 0.0, _rect[2]], hole_type="rectangle", h=quad_h, load=True, header=True)
+                else:
+                    A1.create_geo_str(r=r, dz=aper_t, a=_hole, b=_hole, translation=[0,0,z_starts[pole]-aper_t/2.0-gap], hole_type="ellipse", h=quad_h, load=True,header=True)
                 A1.color="BLACK"
                 assy.add_electrode(A1)
             
             if last_exit_plate or pole < nquads - 1:
                 A2 = SIAperture(name="ext%i"%(4*pole),voltage=0.0)
-                A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=quad_h, load=True,header=True)
+                # exit_hole_rects[pole] = (full width along x, full height along y, turn about z [rad]): a RECTANGULAR
+                # hole in the plate after quad `pole` (2026-10-16, the plate between quads 1 and 2); like the first
+                # plate it turns with the assembly, not with the quads
+                _xr = numerical_pars["quadrupole_params"].get("exit_hole_rects") or []
+                _xr = _xr[pole] if pole < len(_xr) else None
+                if _xr:
+                    A2.create_geo_str(r=r, dz=aper_t, a=_xr[0], b=_xr[1], translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap],
+                                      rotation=[0.0, 0.0, _xr[2]], hole_type="rectangle", h=quad_h, load=True, header=True)
+                else:
+                    A2.create_geo_str(r=r, dz=aper_t, a=aper_rad, b=aper_rad, translation=[0,0,z_starts[pole]+quad_lens[pole]+aper_t/2.0+gap], hole_type="ellipse", h=quad_h, load=True,header=True)
                 A2.color="BLACK"
                 assy.add_electrode(A2)
 
@@ -2360,6 +2868,33 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
             D4.color="RED"
             assy.add_electrode(D4)
         
+
+    # A grounded BEAM PIPE instead of the electrostatic quad line (2026-10-20, for analytic magnetic quads):
+    # quadrupole_params["pipe"] = {"r_in", "wall", "z_top", "end_gap"} [m]. It runs from z_top -- where its upstream end
+    # lands AFTER the lab-frame axial shift, e.g. the RFQ exit -- to end_gap short of the inflector entrance plate's
+    # upstream face (no coincident faces). Lab-frame hardware like the quads: it takes only the axial shift and, like
+    # them, stays out of the design-orbit solve (optimize_trajectory's exclude_quadrupoles).
+    _pipe = numerical_pars["quadrupole_params"].get("pipe") if numerical_pars["make_quadrupoles"] else None
+    if _pipe:
+        _ap = numerical_pars["aperture_params"]
+        _z_face = trj[0][2] - _ap["top_distance"] - _ap["thickness"]
+        _sl = si.track_variables.get("shift_applied_lab")
+        _si = si.track_variables.get("shift_applied")
+        _dz_lab = 0.0 if _sl is None else float(np.asarray(_sl, dtype=float)[2])
+        _dz_inf = 0.0 if _si is None else float(np.asarray(_si, dtype=float)[2])
+        _z_top = float(_pipe["z_top"]) - _dz_lab
+        _z_end = _z_face + _dz_inf - _dz_lab - float(_pipe["end_gap"])
+        if not _z_end > _z_top:
+            raise ValueError("beam pipe of zero length: z {:+.4f} .. {:+.4f} m".format(_z_top, _z_end))
+        _r_out = float(_pipe["r_in"]) + float(_pipe["wall"])
+        pipe = SIHousingCylinder(parent=si, name="Beam Pipe", voltage=0.0)
+        pipe.create_geo_str(z_start=_z_top, z_end=_z_end, r_outer=_r_out, thickness=float(_pipe["wall"]),
+                            h=numerical_pars["h"], load=True, header=True)
+        pipe.color = "BLACK"
+        assy.add_electrode(pipe)
+        print("Beam pipe: r {:.2f} .. {:.2f} mm, z {:+.2f} .. {:+.2f} mm before the lab shift ({:+.2f} mm), {:.2f} mm short "
+              "of the entrance plate".format(1e3 * float(_pipe["r_in"]), 1e3 * _r_out, 1e3 * _z_top, 1e3 * _z_end,
+                                             1e3 * _dz_lab, 1e3 * float(_pipe["end_gap"])))
 
     if si.debug:
         assy.show(show_screen=True)
@@ -2387,6 +2922,8 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
         for _eid, _elec in assy.electrodes.items():
             _elec.set_translation(_shift if _eid in _inflector_ids else _shift_lab,
                                   absolute=False)
+        # the gap volume between the spiral electrodes moves with them
+        numerical_vars["gap_volume_shift"] = np.array(_shift, dtype=float)
 
     numerical_vars["objects"] = assy
 
@@ -2396,6 +2933,22 @@ def generate_solid_assembly(si, apertures=None, cylinder=None):
     si.numerical_variables = numerical_vars
 
     return assy
+
+
+def generate_gap_volume(si, name="SI Gap Volume"):
+    """The negative space between the two spiral electrodes of the current solid assembly, as an SIGapVolume
+    (a PyElectrode that is NOT in the assembly), carrying the same centering shift as the electrodes, so that
+    its export() lands in the same frame as theirs. Call after generate_solid_assembly()."""
+    nv = si.numerical_variables
+    args = nv.get("gap_volume_args")
+    if args is None:
+        raise RuntimeError("generate the solid assembly before the gap volume")
+    gap = SIGapVolume(name=name, voltage=0.0)
+    gap.create_geo_str(load=True, header=True, **args)
+    shift = nv.get("gap_volume_shift")
+    if shift is not None:
+        gap.set_translation(np.asarray(shift, dtype=float), absolute=False)
+    return gap
 
 
 def generate_meshed_model(si, apertures=None, cylinder=None):

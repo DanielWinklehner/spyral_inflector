@@ -1,0 +1,10 @@
+# A per-machine paths file: where the disk roots are on THIS computer. Copy it, set the roots, and point to it
+# with --paths, the environment variable MACHINE_PATHS (shared by every package that reads this format) or
+# SPYRAL_INFLECTOR_PATHS, or put it at ~/.config/spyral_inflector/paths.toml. Configs then say ${work}/...
+# TOML literal strings ('...') keep Windows backslashes as they are; every root must be an absolute path.
+
+[meta]
+name = "example"
+
+[roots]
+work = '/path/to/your/work/folder'

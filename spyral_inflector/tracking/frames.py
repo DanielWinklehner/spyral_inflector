@@ -60,11 +60,12 @@ def to_deck_frame(field, frame="auto", log=print):
     return field
 
 
-def rotate_bfield_z(field, deg, label=None, log=print):
+def rotate_bfield_z(field, deg, label=None, log=print, order=1):
     """The field a system rotated by +deg about z sees, on the field's own grid:
     B'(x) = Rz(-deg) B(Rz(deg) x). A rotation about z never mixes z-slices, so each slice
-    is resampled in 2-D (bilinear); positions that fall outside the grid take the nearest
-    edge value, which only affects the corners beyond the tracked region."""
+    is resampled in 2-D (order=1 bilinear, order=3 cubic spline); positions that fall outside
+    the grid take the nearest edge value, which only affects the corners beyond the tracked
+    region. The resampling is the whole error of a rotation, and it grows with the angle."""
     from scipy.ndimage import map_coordinates
 
     g, v = field.grid, field.grid_values
@@ -78,11 +79,27 @@ def rotate_bfield_z(field, deg, label=None, log=print):
     coords = np.stack([ix.ravel(), iy.ravel()])
     out = {k: np.empty_like(bx) for k in "xyz"}
     for k in range(len(z)):
-        sx = map_coordinates(bx[:, :, k], coords, order=1, mode="nearest").reshape(X.shape)
-        sy = map_coordinates(by[:, :, k], coords, order=1, mode="nearest").reshape(X.shape)
+        sx = map_coordinates(bx[:, :, k], coords, order=order, mode="nearest").reshape(X.shape)
+        sy = map_coordinates(by[:, :, k], coords, order=order, mode="nearest").reshape(X.shape)
         out["x"][:, :, k] = c * sx + s * sy                     # Rz(-deg) applied to the vector
         out["y"][:, :, k] = -s * sx + c * sy
-        out["z"][:, :, k] = map_coordinates(bz[:, :, k], coords, order=1, mode="nearest").reshape(X.shape)
+        out["z"][:, :, k] = map_coordinates(bz[:, :, k], coords, order=order, mode="nearest").reshape(X.shape)
     log("B-field rotated by {:+.3f} deg about z on its {}x{}x{} grid".format(deg, len(x), len(y), len(z)))
     return Field.from_arrays(grid={"x": x, "y": y, "z": z}, values=out, dim=3, units="m",
                              label=label or "{} (rotated {:+.2f} deg)".format(getattr(field, "label", "B-field"), deg))
+
+
+def rotate_source_z(field, deg, label=None, log=print, order=3):
+    """The field of a SOURCE physically turned by +deg about z: E'(x) = Rz(deg) E(Rz(-deg) x).
+
+    This is the active counterpart of rotate_bfield_z, which is passive -- it expresses a fixed
+    field in a frame turned by +deg, i.e. E'(x) = Rz(-deg) E(Rz(deg) x). Turning the conductors
+    is the opposite operation, so this is rotate_bfield_z(-deg); the sign is easy to get backwards
+    and is pinned by test_rotate_source_z against a real BEM solve of a physically rotated quad.
+
+    Exact for a sub-assembly whose every OTHER conductor is a surface of revolution about z (the
+    quadrupole poles inside their circular grounded plates), because those are unchanged by the
+    rotation. Not exact if a non-axisymmetric conductor -- the slotted inflector entrance
+    aperture, the housing, the spiral electrodes -- is present in the same solve.
+    """
+    return rotate_bfield_z(field, -float(deg), label=label, log=log, order=order)

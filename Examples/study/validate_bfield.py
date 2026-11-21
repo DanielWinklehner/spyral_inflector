@@ -2,7 +2,7 @@
 region, the on-axis profile down the bore, the design particle's exit point, and a
 2,000-particle bunch through the optimum E-field on both maps.
 
-    python validate_bfield.py --new ../Fields/HCHC-60_CentralBField_z-40to5cm_1mm.pickle
+    python validate_bfield.py --new ../Fields/<map>.pickle
 """
 import argparse
 import os
@@ -14,6 +14,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import track_inflector as ti  # noqa: E402
+from spyral_inflector import machine  # noqa: E402
 from PyPATools.field import Field  # noqa: E402
 from PyPATools.pusher import Pusher  # noqa: E402
 from PyPATools.trackers import Tracker  # noqa: E402
@@ -85,7 +86,7 @@ for uuid in [u for u, e in assembly.electrodes.items() if "assembly" in e.name.l
 for e in assembly.electrodes.values():
     e.generate_mesh()
 index_map = {i: uuid for i, uuid in enumerate(assembly.electrodes.keys())}
-ion = ti.IonSpecies(ti.SPECIES)
+ion = ti.IonSpecies(machine.species())
 r0b, v0b, _, _ = ti.load_particles(args.n)
 if args.swap_xy:
     r0b[:, [0, 1]] = r0b[:, [1, 0]]

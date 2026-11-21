@@ -67,7 +67,11 @@ class SpiralInflector(object):
                                  "rotation": 0.0,  # Clockwise rotation of the spiral inflector, assuming that at
                                  "gammaAng": -1.0,
                                  "anglingAng": -1.0,
-                                 "vee_shape": "linear"
+                                 "vee_shape": "linear",
+                                 "anode_setback": 0.0,  # anode exit end cut back from the shared gamma plane (m)
+                                 # opt-in trough in the anode face near the exit (geometry.SIElectrode.groove_spec);
+                                 # False, not None: initialize() aborts on any None parameter
+                                 "anode_groove": False,
                                  }
 
         for key in self._params_analytic.keys():
@@ -698,7 +702,7 @@ if __name__ == "__main__":
     print("Calculating electric field...")
     si.calculate_potential(res=0.002,
                            limits=((-0.08, 0.08), (-0.08, 0.08), (-0.12, 0.05)),
-                           domain_decomp=(7, 7, 7))
+                           domain_decomp=None)
     si.calculate_efield()
     print("Calculating field took {:.4f} s".format(time.time() - ts))
 

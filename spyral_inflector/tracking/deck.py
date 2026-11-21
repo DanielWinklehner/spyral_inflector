@@ -1,11 +1,15 @@
 """Inputs of a spiral-inflector tracking run: the RFQ particle file, the STEP electrode
-assembly, the field maps, and the naming conventions of the HCHC-60 deck.
+assembly, the field maps, and the electrode naming conventions of the exported geometry.
+
+The beam species, the RF and the start plane are machine settings (spyral_inflector.machine), not
+constants of this module.
 
 Electrode names follow the deck's STEP export: ``SI_Anode``/``SI_Cathode`` (spiral
 electrodes), ``Housing``, ``Entrance_Aperture``, the grounded quad plates ``ent0``/``ext0``/
 ``ent4``/``ext4`` and the quadrupole poles ``D0..D3`` (quad 1) and ``D4..D7`` (quad 2).
 """
 import csv
+import json
 import os
 import pickle
 
@@ -15,10 +19,9 @@ from py_electrodes.py_electrodes import PyElectrode, PyElectrodeAssembly
 from PyPATools.field import Field
 from PyPATools.species import IonSpecies
 
-Z_START = -0.275            # m, where the RFQ bunch starts (upstream of the first quad plate)
-SPECIES = "H2_1+"
+from .. import machine
+
 CLIGHT = 299792458.0
-RF_FREQ_HZ = 32.8e6         # cyclotron RF: one bunch carries I / f_RF of charge
 
 MAX_QUADS = 4               # the generator names the poles of quad i D<4i>..D<4i+3>
 
@@ -41,6 +44,41 @@ def quad_index(name):
         if name in q:
             return i
     return None
+
+
+# Every quadrupole is bounded by a grounded plate at each end, and the plates are SHARED: with
+# shared_plates=True the exit plate of quad i is the entrance plate of quad i+1, and with
+# last_exit_plate=False the LAST quad has no plate of its own -- the inflector's own
+# Entrance_Aperture terminates it (geometry.py runs that quad up to one plate_gap before the
+# entrance plate's face). A plate must therefore appear in the solve of BOTH quads it sits
+# between, and Entrance_Aperture must appear in the last quad's solve as well as the spiral's;
+# leaving it out leaves that quad's field unterminated.
+#
+# ent<4i>/ext<4i> are discs with a circular hole (hole_type="ellipse", a = b = aper_rad), so they
+# are surfaces of revolution about z and a quad turning inside them turns its field with it.
+# Entrance_Aperture is NOT -- it carries a rectangular slot -- so once it is in the solve, turning
+# one quad by itself is only approximate; a RIGID rotation of the whole sub-assembly stays exact.
+QUAD_PLATE_PREFIXES = ("ent", "ext")
+ENTRANCE_APERTURE = "Entrance_Aperture"
+
+
+def is_quad_plate(name):
+    """True for a grounded plate that bounds a quadrupole: the circular ent<4i>/ext<4i> discs of
+    the quad line, and the inflector entrance aperture, which is the last quad's exit plate."""
+    return name == ENTRANCE_APERTURE or any(
+        name.startswith(p) and name[len(p):].isdigit() for p in QUAD_PLATE_PREFIXES)
+
+
+def isolated_quad_drop(names, index):
+    """Electrode names to drop so that only quadrupole `index` and the grounded plates that bound
+    the quad line are left -- the sub-assembly an isolated quad basis is solved in.
+
+    What goes is the spiral electrodes, the housing and the poles of the other quadrupoles. Every
+    bounding plate stays, including the shared ones and the entrance aperture, because those are
+    what terminate the field; dropping them is not a small perturbation.
+    """
+    keep = set(quad_names(index))
+    return sorted(n for n in names if n not in keep and not is_quad_plate(n))
 
 
 # ---------------------------------------------------------------- voltages
@@ -130,16 +168,24 @@ def particle_rows(path, core=True):
         return dst_rows(path, core=core)
     data = np.loadtxt(path, skiprows=1)
     data = data[data[:, 9] == 0]
+    # 2026-10-23: every particle is placed with its OWN beta*lambda, as dst_rows does. The text exports carry
+    # z = -phase/360 * beta*lambda at the mean energy of ALL particles (tail included), which put a 67 keV core
+    # particle 2.6 % too close to the start plane (WARP 10 mA V1.10 export: 1.9 deg rms of arrival-time error)
+    gamma = 1.0 + data[:, 8] / IonSpecies(machine.species()).mass_mev
+    data[:, 4] = -data[:, 6] / 360.0 * np.sqrt(1.0 - 1.0 / gamma ** 2) * CLIGHT / machine.rf_hz() * 1e3
     return data[core_selection(data)] if core else data
 
 
-def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES, core=True):
+def load_particles(path, n, seed=20260905, z_start=None, species=None, core=True):
     """Read an RFQ output file (TraceWin .dst, or the text format x(mm) x'(mrad) y(mm)
     y'(mrad) z(mm) z'(mrad) Phase(deg) Time(s) Energy(MeV) Loss) and draw n particles from
     the unlost ones without replacement; n at or above the file size takes every particle once.
 
     Returns r (n, 3) [m], v (n, 3) [m/s], the IonSpecies and the raw rows drawn. The
-    bunch starts at z_start with the file's z as the longitudinal spread."""
+    bunch starts at z_start with the file's z as the longitudinal spread. z_start and
+    species default to the machine settings."""
+    z_start = machine.z_start() if z_start is None else z_start
+    species = machine.species() if species is None else species
     data = particle_rows(path, core=core)
     rng = np.random.default_rng(seed)
     if n >= len(data):
@@ -158,7 +204,7 @@ def load_particles(path, n, seed=20260905, z_start=Z_START, species=SPECIES, cor
     return r, v, ion, data
 
 
-def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SPECIES, rf_mhz=32.8, inject_core=False):
+def load_particles_with_tail(path, n, seed=20260905, z_start=None, species=None, rf_mhz=None, inject_core=False):
     """Every particle of an RFQ file: the core (|phase| <= 180 deg and energy at least half
     the median) placed as load_particles places it -- a spatial bunch at z_start with the
     phase as longitudinal spread -- and the unaccelerated tail as particles to be injected
@@ -174,7 +220,11 @@ def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SP
     injection ramp; see the TODO in tracking/bunch.py.
 
     Returns r, v, ion, rows, t_inject [s] (0 for the core unless inject_core) and is_tail.
-    n below the file size draws n particles at random from the whole file."""
+    n below the file size draws n particles at random from the whole file. z_start, species
+    and rf_mhz default to the machine settings."""
+    z_start = machine.z_start() if z_start is None else z_start
+    species = machine.species() if species is None else species
+    rf_mhz = machine.rf_mhz() if rf_mhz is None else rf_mhz
     data = particle_rows(path, core=False)
     rng = np.random.default_rng(seed)
     if n < len(data):
@@ -188,9 +238,18 @@ def load_particles_with_tail(path, n, seed=20260905, z_start=Z_START, species=SP
     vz = speed / np.sqrt(1.0 + xp ** 2 + yp ** 2)
     v = np.column_stack([vz * xp, vz * yp, vz])
     t_all = phase / 360.0 / (rf_mhz * 1e6)
+    # 2026-10-23 (Daniel): a WARP export is a ONE-PERIOD snapshot of a DC beam -- the crossings of every recorded period
+    # folded into [-180, 180) deg -- in which the tail overlaps the main bunch, as the tail of the preceding bunches does in
+    # reality. Such a file (no particle beyond +-180 deg) is placed as one spatial snapshot, tail included: every particle
+    # at z = -phase/360 * its own beta*lambda (particle_rows), nothing injected later. TraceWin's tail, trailing up to
+    # thousands of degrees, is still injected at the plane at its arrival time.
+    snapshot = bool(np.all(np.abs(phase) <= 180.0))
     if inject_core:
         r = np.column_stack([x, y, np.full(len(x), float(z_start))])
         t_inject = t_all - t_all.min()            # the earliest particle starts the clock
+    elif snapshot:
+        r = np.column_stack([x, y, z_start + z])
+        t_inject = np.zeros(len(x))
     else:
         r = np.column_stack([x, y, z_start + np.where(is_tail, 0.0, z)])
         t_inject = np.where(is_tail, t_all, 0.0)
@@ -216,20 +275,83 @@ def mean_energy_mev(path, core=True):
 
 
 # ---------------------------------------------------------------- geometry
+# CAD files of a STEP folder (Daniel, 2026-10-16): every export is now ".stp"; runs from before have ".step".
+# Solids that are NOT electrodes carry the stem suffix "_negative" (the gap volume between the spiral
+# electrodes, which fills the beam channel and must never enter a field solve or a collision check); a
+# combined *assembly* file is skipped as before.
+CAD_EXTENSIONS = (".stp", ".step")
+NEGATIVE_SUFFIX = "_negative"
+
+
+def is_electrode_cad(fn):
+    """True for an electrode's CAD file NNN_<Name>.stp / .step: not an assembly, not a _negative solid."""
+    stem, ext = os.path.splitext(os.path.basename(fn))
+    return (ext.lower() in CAD_EXTENSIONS and "assembly" not in stem.lower()
+            and not stem.lower().endswith(NEGATIVE_SUFFIX))
+
+
+def electrode_cad_files(step_dir):
+    """Sorted electrode CAD file names (not paths) of a STEP folder."""
+    return sorted(f for f in os.listdir(step_dir) if is_electrode_cad(f))
+
+
+def cad_name(fn):
+    """'NNN_<Name>.stp' -> '<Name>'."""
+    return os.path.splitext(os.path.basename(fn))[0].split("_", 1)[1]
+
+
+def find_cad(step_dir, name):
+    """Path of the electrode file NNN_<name>.stp (or .step) in step_dir, None if there is none."""
+    for f in electrode_cad_files(step_dir):
+        if cad_name(f) == name:
+            return os.path.join(step_dir, f)
+    return None
+
+
+# 2026-11-17: per-electrode mesh refinement of a STEP folder, {electrode name: {"mesh_per_2pi", "mesh_min" [m]}}, written
+# by a build with a grooved anode (geometry_point). STEP files carry no mesh sizes, so without it the groove would be
+# meshed (BEM and collisions) at the flat size h. Folders without the file mesh exactly as before.
+MESH_REFINE_NAME = "mesh_refine.json"
+
+
 def load_step_assembly(step_dir, voltages=None, name="spiral inflector from STEP"):
-    """PyElectrodeAssembly from a folder of NNN_<Name>.step files, one electrode each
-    (a combined *assembly* export in the same folder is skipped)."""
+    """PyElectrodeAssembly from a folder of NNN_<Name>.stp (or older .step) files, one electrode each
+    (a combined *assembly* export and _negative solids in the same folder are skipped). An electrode
+    named in the folder's mesh_refine.json carries that refinement to mesh_assembly()."""
     volts = read_voltages(voltages)
+    refine = {}
+    refine_fn = os.path.join(step_dir, MESH_REFINE_NAME)
+    if os.path.isfile(refine_fn):
+        with open(refine_fn) as fh:
+            refine = json.load(fh)
     assembly = PyElectrodeAssembly(name)
-    for fn in sorted(os.listdir(step_dir)):
-        if not fn.lower().endswith(".step") or "assembly" in fn.lower():
-            continue
-        ename = os.path.splitext(fn)[0].split("_", 1)[1]
+    for fn in electrode_cad_files(step_dir):
+        ename = cad_name(fn)
         e = PyElectrode(name=ename, voltage=volts.get(ename, 0.0))
         if e.generate_from_file(os.path.join(step_dir, fn)) != 0:
             raise RuntimeError("could not load {}".format(fn))
+        if ename in refine:
+            e.mesh_refine = {k: float(v) for k, v in refine[ename].items()}
         assembly.add_electrode(e)
     return assembly
+
+
+def _generate_mesh_refined(e, h, refine):
+    """e.generate_mesh() with gmsh's mesh sizes from curvature switched on (py_electrodes opens a fresh
+    gmsh session per electrode, so the options are set just before its mesh.generate call)."""
+    import gmsh
+    original = gmsh.model.mesh.generate
+
+    def generate(dim=3):
+        gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", float(refine["mesh_per_2pi"]))
+        gmsh.option.setNumber("Mesh.MeshSizeMin", float(refine["mesh_min"]))
+        return original(dim)
+
+    gmsh.model.mesh.generate = generate
+    try:
+        return e.generate_mesh(brep_h=h) if h else e.generate_mesh()
+    finally:
+        gmsh.model.mesh.generate = original
 
 
 def rotate_quads(assembly, *alphas_deg):
@@ -265,7 +387,11 @@ def mesh_assembly(assembly, h=None):
     them lazily); returns the triangle count."""
     n_tri = 0
     for e in assembly.electrodes.values():
-        ok = e.generate_mesh(brep_h=h) if h else e.generate_mesh()
+        refine = getattr(e, "mesh_refine", None)
+        if refine:
+            ok = _generate_mesh_refined(e, h, refine)
+        else:
+            ok = e.generate_mesh(brep_h=h) if h else e.generate_mesh()
         if ok != 0 or e._gmsh_msh is None:
             raise RuntimeError("failed to mesh {}".format(e.name))
         n_tri += len(e._gmsh_msh["elements"])
@@ -298,23 +424,54 @@ def load_bfield(path, frame="auto"):
     return with_fast_interpolator(to_deck_frame(Field.from_file(path), frame=frame), "B-field")
 
 
-def superpose_basis(basis_dir, *quads, vscale=1.0, unit=3500.0):
-    """Vacuum field summed on the grid from the basis solves ef_itp_spiral/q1/q1skew/q2/
-    q2skew[/q3/q3skew].pickle of basis_dir: quads = (q1, alpha1, q2, alpha2[, q3, alpha3]);
-    a quad rotated by alpha is cos(2 alpha) normal + sin(2 alpha) skew (exact for the
-    quadrupole term), voltages scale linearly."""
+def basis_is_rotatable(basis_dir):
+    """True when the quad bases of basis_dir were solved in isolation, so a quad angle is applied
+    by rotating the field about z rather than by the cos/sin skew identity. Written by the basis
+    driver as basis_meta.json {"rotatable": true}."""
+    try:
+        with open(os.path.join(basis_dir, "basis_meta.json")) as fh:
+            return bool(json.load(fh).get("rotatable"))
+    except (OSError, ValueError):
+        return False
+
+
+def superpose_basis(basis_dir, *quads, vscale=1.0, unit=3500.0, log=None):
+    """Vacuum field summed on the grid from the basis solves of basis_dir:
+    quads = (q1, alpha1, q2, alpha2[, q3, alpha3]), voltages scale linearly.
+
+    How alpha is applied depends on how the bases were solved.
+
+    ROTATABLE bases (basis_meta.json "rotatable": true, written after solving each quad in
+    isolation with --isolate-quad) carry the whole field of one quad inside surfaces of
+    revolution, so turning the quad by alpha turns the field by alpha -- exact up to the bilinear
+    resampling. Only ef_itp_q<i>.pickle is needed.
+
+    Otherwise the old identity is used: a quad rotated by alpha is cos(2 alpha) normal +
+    sin(2 alpha) skew, which needs ef_itp_q<i>skew.pickle and is exact only for the pure
+    quadrupole term of a field that also carries the fringe and the plate images.
+    """
     if len(quads) % 2:
         raise ValueError("superpose_basis needs (voltage, angle) pairs, got {}".format(quads))
     pairs = [(float(quads[2 * i]), float(quads[2 * i + 1])) for i in range(len(quads) // 2)]
+    rotatable = basis_is_rotatable(basis_dir)
     need = ["spiral"] + ["q{}".format(i + 1) for i in range(len(pairs))] + \
-           ["q{}skew".format(i + 1) for i, (_, a) in enumerate(pairs) if a != 0.0]
+           ([] if rotatable else ["q{}skew".format(i + 1) for i, (_, a) in enumerate(pairs) if a != 0.0])
     basis = {k: Field.from_file(os.path.join(basis_dir, "ef_itp_{}.pickle".format(k))) for k in need}
     for k in need[1:]:
         for c in "xyz":
             if basis[k].grid_values[c].shape != basis["spiral"].grid_values[c].shape:
                 raise RuntimeError("basis field {} is not on the spiral field's grid".format(k))
+    if rotatable:
+        from .frames import rotate_source_z
+        quiet = log or (lambda m: None)
+        for i, (_, a) in enumerate(pairs):
+            if a != 0.0:
+                key = "q{}".format(i + 1)
+                basis[key] = rotate_source_z(basis[key], a, log=quiet)
 
     def quad(c, key, volt, alpha):
+        if rotatable:
+            return volt / unit * basis[key].grid_values[c]          # already turned, above
         a = np.radians(alpha)
         v = np.cos(2 * a) * basis[key].grid_values[c]
         if alpha != 0.0:

@@ -28,7 +28,7 @@ import time
 
 import numpy as np
 
-DECK = os.environ.get("SI_DECK", r"D:\MIT Dropbox\Daniel Winklehner\Projects\IsoDAR\60 MeV Cyclotron\Spiral_inflector")
+DECK = os.environ.get("SI_DECK") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 
@@ -41,8 +41,8 @@ p.add_argument("--h", type=float, default=0.002)
 p.add_argument("--resolve-every", type=int, default=8)
 p.add_argument("--sc-min-particles", type=int, default=200)
 p.add_argument("--cases", nargs="+", default=["vac", "sc"], help="which pairs to run")
-p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
-p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
+p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
+p.add_argument("--bfield", required=True, help="the B map (field pickle)")
 a = p.parse_args()
 
 RUN = os.path.abspath(a.run)

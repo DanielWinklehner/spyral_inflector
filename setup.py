@@ -7,5 +7,7 @@ setup(name='spyral_inflector',
       author='Daniela Campo, Philip Weigel, Daniel Winklehner',
       author_email='winklehn@mit.edu',
       license='MIT',
-      packages=['spyral_inflector', 'spyral_inflector.tracking'],
+      packages=['spyral_inflector', 'spyral_inflector.tracking', 'spyral_inflector.workflows'],
+      python_requires='>=3.11',
+      entry_points={'console_scripts': ['spyral-inflector = spyral_inflector.workflows.cli:main']},
       zip_safe=False)

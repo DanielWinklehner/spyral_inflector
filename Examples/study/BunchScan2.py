@@ -66,7 +66,7 @@ parser.add_argument("--asym-steps", type=int, default=210, help="steps after the
 parser.add_argument("--dt", type=float, default=1.0e-10)
 parser.add_argument("--seed", type=int, default=20260906)
 parser.add_argument("--tag", default="scan2")
-parser.add_argument("--rank", choices=("transmission", "vert"), default="transmission",
+parser.add_argument("--rank", choices=("transmission", "vert", "vert_h"), default="transmission",
                     help="best point: highest transmission, or (vert) the smallest rms vertical angle vz/v_long of the transmitted bunch at the asymptotic state (vfom, mrad) among the points within --rank-tol of the best transmission")
 parser.add_argument("--rank-tol", type=float, default=0.03, help="transmission tolerance for --rank vert (fraction)")
 args = parser.parse_args()
@@ -214,6 +214,15 @@ def run_point(q1, q2, a1, a2, s, phi, q3=None, a3=0.0):
             zp = st_a[:, 5] / np.hypot(st_a[:, 3], st_a[:, 4])
             zp_mean, zp_rms = 1e3 * float(zp.mean()), 1e3 * float(zp.std())
             vfom = zp_rms
+    # the same figure of merit AT THE HAND-OFF PLANE (the exit-plane crossing): the central-region A/Bs of
+    # 2026-09-14 show the cyclotron's injection cut is set by z' rms here (cliff near 40 mrad), while the
+    # asymptotic value 55 mm on compresses beams that differ by 11 points of survival into 33-36 mrad
+    vfom_h = zp_h_mean = None
+    okh = crossed & np.all(np.isfinite(exit_plane.state), axis=1)
+    if okh.sum() >= 20:
+        st_h = exit_plane.state[okh]
+        zph = st_h[:, 5] / np.hypot(st_h[:, 3], st_h[:, 4])
+        zp_h_mean, vfom_h = 1e3 * float(zph.mean()), 1e3 * float(zph.std())
     return {"q1": q1, "q2": q2, "alpha1": a1, "alpha2": a2, "vscale": s, "phi": phi, "q3": q3, "alpha3": a3,
             "transmission": float(crossed.sum()) / len(rr), "n_transmitted": int(crossed.sum()),
             "lost_spiral": spiral / len(rr), "lost_quads": quads / len(rr),
@@ -225,6 +234,7 @@ def run_point(q1, q2, a1, a2, s, phi, q3=None, a3=0.0):
             "z_env_mean_mm": None if z_env is None else float(np.mean(z_env[:4])),
             "zp_asym_mean_mrad": zp_mean, "zp_asym_rms_mrad": zp_rms,
             "vfom": vfom, "vfom_unit": "mrad (rms vz/v_long at the asymptotic state)",
+            "zp_handoff_mean_mrad": zp_h_mean, "vfom_h": vfom_h, "vfom_h_unit": "mrad (rms vz/v_long at the hand-off plane = exit-plane crossing)",
             "losses": losses, "wall_s": time.time() - t0}
 
 
@@ -235,10 +245,11 @@ def pick_best(rows):
     if not rows:
         return None
     top = max(r["transmission"] for r in rows)
-    if args.rank == "vert":
-        cands = [r for r in rows if r["transmission"] >= top - args.rank_tol and r["vfom"] is not None]
+    if args.rank in ("vert", "vert_h"):
+        key = "vfom" if args.rank == "vert" else "vfom_h"
+        cands = [r for r in rows if r["transmission"] >= top - args.rank_tol and r.get(key) is not None]
         if cands:
-            return min(cands, key=lambda r: (r["vfom"], -r["transmission"]))
+            return min(cands, key=lambda r: (r[key], -r["transmission"]))
     return max(rows, key=lambda r: r["transmission"])
 
 

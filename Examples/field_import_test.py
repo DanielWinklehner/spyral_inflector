@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 
 mydebug = True
 
-# Test OPERA 3D field import
-folder = r"/mnt/d/MIT Dropbox/Daniel Winklehner/Projects/IsoDAR/Cyclotron BFields"
+# Test OPERA 3D field import: the folder holding isodar2012_plugField_compl.table (first argument, else
+# the environment variable SI_BFIELD_DIR)
+import sys
+folder = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("SI_BFIELD_DIR", ".")
 
 bfield = Field.from_file(os.path.join(folder, "isodar2012_plugField_compl.table"),
                          label="Test Cyclotron B-Field 3D",

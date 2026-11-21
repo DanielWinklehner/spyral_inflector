@@ -1,0 +1,32 @@
+# A design config of the example machine. Disk locations are written with the roots of the per-machine paths file
+# (paths.example.toml), never with drive letters. run_minimal.py reads [machine], [inputs] and [run] results; the
+# levelling chain (spyral-inflector chain) reads the rest, see the commented tables below and the README.
+
+include = ["machine.toml"]
+
+[run]
+results = "${work}/minimal_workflow"
+
+[inputs]
+bfield = "${work}/minimal_workflow/inputs/bfield_generated.pickle"      # run_minimal.py writes it
+particles = "${work}/minimal_workflow/inputs/beam_generated.txt"        # run_minimal.py writes it
+current_ma = 1.0
+
+# What the levelling chain needs on top, for a design that has a levelled source run:
+#
+# [run]
+# family = "triplet"
+# prefix = "d1o_c"                                   # pass k writes <results>/<family>/<prefix><k>
+# source = "${work}/Results/triplet/d1"              # the levelled run this levelling starts from
+# best_knobs = "${work}/Results/triplet/d1/prof/best_knobs.json"
+# quads_json = "${work}/Results/triplet/d1/prof/best_quads.json"
+#
+# [rotation]
+# rule = "corner"
+# gap_azimuth_deg = 26
+# corner = "outer"
+# corner_offset_mm = 3.25
+# half_gap_m = 0.00325
+#
+# [reports]
+# gap_voltage_kv = 24.8

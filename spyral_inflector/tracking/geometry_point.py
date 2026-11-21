@@ -2,8 +2,8 @@
 set the spiral voltage (and the axial shift dz, unless fixed) for the design particle,
 and export the electrodes as STEP files with the design-orbit state the tracking needs.
 
-This is the geometry stage of the HCHC-60 study (GeometryPoint.py); the knob names and
-defaults are the deck's."""
+This is the geometry stage of the study workflows; DEFAULT_KNOBS is the generator's starting
+geometry, and every knob a design sets overrides it."""
 import csv
 import json
 import os
@@ -18,10 +18,10 @@ DEFAULT_KNOBS = dict(
     volt=12000.0, gap=0.019, tilt=31.0, dx=0.01, sigma=0.0022, aspect=2.4, gamma=5.0, angling=11.0,
     quad_bore=0.013, quad_z1=-0.27, quad_z2=-0.19, quad_len=0.045, quad_len2=None, shared_plates=False,
     n_quads=2, quad_z3=None, quad_len3=None,
-    aper_hole=0.0125, entrance_hole=None, plate_gap=0.001, plate_thickness=0.005,
-    slot_width=0.015, slot_length=0.040, exit_opening=None,
+    aper_hole=0.0125, entrance_hole=None, entrance_rect=None, exit_rects=None, plate_gap=0.001, plate_thickness=0.005,
+    slot_width=0.015, slot_length=0.040, exit_opening=None, exit_circle=None,
     housing_gap=0.006, housing_thickness=0.004, top_distance=0.005, bottom_distance=0.010, rotation=0.0,
-    q2_exit_plate=True,
+    q2_exit_plate=True, pipe=None, angling_profile=None, sigma_profile=None,
 )
 KNOB_HELP = {
     "volt": "nominal spiral electrode voltage [V] (the optimizer scales it)", "gap": "electrode gap [m]",
@@ -32,15 +32,54 @@ KNOB_HELP = {
     "n_quads": "2 (doublet) or 3 (triplet)", "quad_z3": "quad 3 start z [m] (shared_plates: derived)", "quad_len3": "quad 3 length [m] (default: quad_len)",
     "shared_plates": "one grounded plate between the quads (quad 2 then starts at z1 + len1 + 2 plate_gap + plate_thickness)",
     "aper_hole": "quad aperture hole radius [m]", "entrance_hole": "hole radius of the first plate [m] (default: aper_hole)",
+    "entrance_rect": "[half-width u, half-height w [m], angle [deg]]: a RECTANGULAR first-plate hole instead of the round one; "
+                     "u is turned by angle from the deck x axis (the plate turns with the assembly, not with quad 1)",
+    "exit_rects": "per quad, None or [half-width u, half-height w [m], angle [deg]]: a RECTANGULAR hole in the plate AFTER "
+                  "that quad (index 0 = the plate between quads 1 and 2) instead of the round aper_hole",
     "plate_gap": "axial gap between a quad's aperture plates and its pole ends [m]", "plate_thickness": "quad aperture plate thickness [m]",
     "slot_width": "inflector entrance slot width (gap direction) [m]", "slot_length": "inflector entrance slot length [m]",
     "exit_opening": "housing exit opening (across, along the tilted gap) [m] (default: the entrance slot)",
+    "exit_circle": "[radius, du, dw] [m]: a ROUND housing exit opening instead of the rectangle, its centre moved du along "
+                   "the plate and dw vertically from the default (e.g. onto a hand-off centroid, exit_hole_center.py); the "
+                   "plate is still sized from exit_opening, so the wall and the exit-plane rotation do not change",
     "housing_gap": "clearance between the electrodes' convex hull and the housing's inner wall [m]",
     "housing_thickness": "housing wall thickness [m]", "top_distance": "entrance plate height above the electrodes [m]",
     "bottom_distance": "distance of the housing exit opening past the electrode end [m]",
     "rotation": "rotation of the whole inflector (electrodes, housing, apertures) about the axis [deg]; rotate the quads and the beam by the same angle",
     "q2_exit_plate": "False: no exit plate on quad 2, the inflector entrance aperture terminates it (set quad_len2 to reach it)",
+    "pipe": "[r_in, wall, z_top, end_gap] [m]: a grounded beam pipe from z_top (deck frame, where its upstream end lands after "
+            "the axial shift, e.g. the RFQ exit) to end_gap short of the inflector entrance plate; with n_quads = 0 it "
+            "replaces the electrostatic quad line (the magnetic quads are analytic, tracking/magquads.py)",
+    "angling_profile": "[entrance, middle, exit, ...] angling [deg] at nodes spread evenly over the electrode, from its entrance "
+                       "section (-1) to its exit section (+1) of the truncated electrode, linearly interpolated (Barnard et al., "
+                       "PRAB 24, 023501 (2021): Q2(s) on 3 nodes); signed; replaces the scalar angling, whose legacy meaning "
+                       "is the ramp [+a, 0, -a]. A dict is passed to the generator as it is (geometry._longitudinal_profile)",
+    "sigma_profile": "[entrance, middle, exit, ...] V-depth [m] at the same nodes (Barnard's Q1(s)); signed; replaces the scalar "
+                     "sigma, which is constant along the electrode, i.e. [s, s, s]",
+    "anode_setback": "[m] the anode's exit end cut back this far along the gamma plane's normal; the cathode, the housing and "
+                     "the exit plate keep the shared plane (needs gamma > 0). Optional, not in DEFAULT_KNOBS. "
+                     "An A/B at 5 and 10 mm showed no gain: the anode hits follow the new end",
+    "anode_groove": "[w_center, width, depth, length(, ramp, edge, mesh_min, mesh_per_2pi)] [m]: a trough pressed into the "
+                    "anode's facing surface, centred w_center from the design orbit (+ = larger radius), width = full "
+                    "width at half depth, from length before the orbit end out through the exit; ramp (5 mm) the depth "
+                    "rise, edge (width/2) each cosine shoulder; the anode is meshed from curvature (12 per 2 pi, >= 1 mm) "
+                    "so the trough is resolved. Optional, not in DEFAULT_KNOBS (geometry.SIElectrode.groove_spec). "
+                    "PARKED: the one A/B was worse (the hits follow the trough); not used in new inflector designs",
 }
+
+
+def profile_spec(nodes, scalar):
+    """What the generator gets for angling or sigma: the scalar (legacy meaning) when there is no profile; a list of
+    node values spread evenly from the electrode's entrance (-1) to its exit (+1) as a sampled, linearly interpolated
+    profile; a dict as it is (geometry._longitudinal_profile reads all three)."""
+    if nodes is None:
+        return scalar
+    if isinstance(nodes, dict):
+        return dict(nodes)
+    values = [float(v) for v in nodes]
+    if len(values) < 2:
+        raise ValueError("a profile needs at least 2 nodes, got {}".format(values))
+    return {"kind": "samples", "values": values}
 
 
 def _sanitize(name):
@@ -78,7 +117,9 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     from PyPATools.particles import ParticleDistribution
     from PyPATools.species import IonSpecies
     from ..spyral_inflector import SpiralInflector
-    from .deck import SPECIES, write_voltages
+    from .. import machine
+    from .deck import write_voltages
+    from .export import HOUSING_OUTLINE_NAME, write_housing_outline
 
     log = log or (lambda m: print(m, flush=True))
     k = dict(DEFAULT_KNOBS)
@@ -87,25 +128,51 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
         k["quad_len2"] = k["quad_len"]
     if k.get("quad_len3") is None:
         k["quad_len3"] = k["quad_len"]
-    n_quads = int(k.get("n_quads", 2) or 2)
-    if k["shared_plates"]:
+    n_quads = 2 if k.get("n_quads") is None else int(k["n_quads"])     # 0: no electrostatic quads at all (2026-10-20)
+    if k["shared_plates"] and n_quads >= 2:
         k["quad_z2"] = k["quad_z1"] + k["quad_len"] + 2.0 * k["plate_gap"] + k["plate_thickness"]
         if n_quads >= 3:
             k["quad_z3"] = k["quad_z2"] + k["quad_len2"] + 2.0 * k["plate_gap"] + k["plate_thickness"]
-    z_starts = [k["quad_z1"], k["quad_z2"]] + ([k["quad_z3"]] if n_quads >= 3 else [])
-    lengths = [k["quad_len"], k["quad_len2"]] + ([k["quad_len3"]] if n_quads >= 3 else [])
+    z_starts = ([k["quad_z1"], k["quad_z2"]] + ([k["quad_z3"]] if n_quads >= 3 else [])) if n_quads else []
+    lengths = ([k["quad_len"], k["quad_len2"]] + ([k["quad_len3"]] if n_quads >= 3 else [])) if n_quads else []
+    pipe = ({"r_in": float(k["pipe"][0]), "wall": float(k["pipe"][1]), "z_top": float(k["pipe"][2]),
+             "end_gap": float(k["pipe"][3])} if k.get("pipe") else None)
     os.makedirs(out_dir, exist_ok=True)
     t_start = time.time()
     log("GEOMETRY: {}".format(k))
     log("  design energy {:.5f} MeV, truncations {} deg, dz {}".format(
         energy_mev, fix_truncations, "fixed at {:+.2f} mm".format(1e3 * fix_dz) if fix_dz is not None else "optimized"))
 
-    ion = ParticleDistribution(species=IonSpecies(SPECIES))
+    # 2026-10-21: angling and V-depth as PROFILES along the electrode (Barnard et al., PRAB 24, 023501 (2021), whose
+    # inflector C3 shaped Q1(s) and Q2(s) piecewise linearly on 3 nodes); a profile replaces its scalar
+    angling_spec = profile_spec(k.get("angling_profile"), k["angling"])
+    sigma_spec = profile_spec(k.get("sigma_profile"), k["sigma"])
+    if k.get("angling_profile") is not None:
+        log("  angling PROFILE {} deg, entrance -> exit (replaces the scalar angling {:g})".format(
+            angling_spec.get("values", angling_spec), float(k["angling"])))
+    if k.get("sigma_profile") is not None:
+        log("  V-depth PROFILE {} mm, entrance -> exit (replaces the scalar sigma {:g} mm)".format(
+            [round(1e3 * v, 4) for v in sigma_spec["values"]] if "values" in sigma_spec else sigma_spec, 1e3 * float(k["sigma"])))
+
+    # 2026-11-17: anode_setback [m], the anode's exit end cut back from the shared gamma plane (the cathode, the
+    # housing and the exit plate stay). Not in DEFAULT_KNOBS on purpose: runs without it keep their knob sets as they were.
+    anode_setback = float(k.get("anode_setback") or 0.0)
+    if anode_setback:
+        log("  ANODE SETBACK {:.2f} mm: the anode's exit cut moved back from the shared gamma plane".format(1e3 * anode_setback))
+    # 2026-11-17: anode_groove, an opt-in trough in the anode's facing surface near the exit (where the high-energy
+    # wing hits it). Not in DEFAULT_KNOBS either. Checked here, so a bad knob fails before the build.
+    from ..geometry import SIElectrode
+    anode_groove = SIElectrode.groove_spec(k.get("anode_groove"))
+    if anode_groove is not None:
+        log("  ANODE GROOVE " + ", ".join("{} {:g} mm".format(key, 1e3 * val) if key != "mesh_per_2pi"
+                                          else "{} {:g}".format(key, val) for key, val in anode_groove.items()))
+    ion = ParticleDistribution(species=IonSpecies(machine.species()))
     ion.set_mean_energy_z_mev(energy_mev)
     si = SpiralInflector(ion=ion, method="numerical", solver="bempp",
-                         volt=k["volt"], gap=k["gap"], tilt=k["tilt"], dx=k["dx"], sigma=k["sigma"],
+                         volt=k["volt"], gap=k["gap"], tilt=k["tilt"], dx=k["dx"], sigma=sigma_spec,
                          vee_shape="parabolic", ns=100, aspect_ratio=k["aspect"], rotation=k["rotation"],
-                         debug=False, gammaAng=k["gamma"], anglingAng=k["angling"])
+                         debug=False, gammaAng=k["gamma"], anglingAng=angling_spec, anode_setback=anode_setback,
+                         anode_groove=anode_groove if anode_groove is not None else False)
     si.load_bfield(bfield=bfield)
     si.initialize()
     si.set_parameter(key="h", value=h)
@@ -114,18 +181,27 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
                                                    "top_distance": k["top_distance"], "bottom_distance": k["bottom_distance"],
                                                    "hole_type": "rectangle", "voltage": 0.0,
                                                    **({"exit_width": k["exit_opening"][0], "exit_length": k["exit_opening"][1]}
-                                                      if k["exit_opening"] else {})})
+                                                      if k["exit_opening"] else {}),
+                                                   **({"exit_circle": tuple(float(v) for v in k["exit_circle"])}
+                                                      if k.get("exit_circle") else {})})
     si.set_parameter(key="make_housing", value=True)
     si.set_parameter(key="housing_params", value={"zmin": -0.12, "zmax": 0.03, "span": True, "gap": k["housing_gap"],
                                                   "thickness": k["housing_thickness"], "voltage": 0.0, "experimental": True})
-    si.set_parameter(key="make_quadrupoles", value=True)
+    si.set_parameter(key="make_quadrupoles", value=bool(z_starts) or pipe is not None)
     si.set_parameter(key="quadrupole_params", value={"a": k["quad_bore"], "b": k["quad_bore"], "radius": 0.04,
                                                      "z_starts": z_starts, "lengths": lengths,
                                                      "voltages": [3500] * len(z_starts), "aper_rad": 2.0 * k["aper_hole"],
                                                      "plate_gap": k["plate_gap"], "plate_thickness": k["plate_thickness"],
                                                      "shared_plates": bool(k["shared_plates"]),
                                                      "last_exit_plate": bool(k["q2_exit_plate"]),
-                                                     "entrance_aper_rad": 2.0 * (k["entrance_hole"] if k["entrance_hole"] else k["aper_hole"])})
+                                                     "entrance_aper_rad": 2.0 * (k["entrance_hole"] if k["entrance_hole"] else k["aper_hole"]),
+                                                     **({"entrance_hole_rect": (2.0 * float(k["entrance_rect"][0]), 2.0 * float(k["entrance_rect"][1]),
+                                                                                float(np.radians(float(k["entrance_rect"][2]))))}
+                                                        if k.get("entrance_rect") else {}),
+                                                     **({"exit_hole_rects": [(2.0 * float(x[0]), 2.0 * float(x[1]), float(np.radians(float(x[2]))))
+                                                                             if x else None for x in k["exit_rects"]]}
+                                                        if k.get("exit_rects") else {}),
+                                                     **({"pipe": pipe} if pipe else {})})
     si.generate_geometry()
     log("  geometry generated ({:.0f} s)".format(time.time() - t_start))
 
@@ -186,9 +262,75 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     rmtree_retry(steps_dir, log=log)
     os.makedirs(steps_dir)
     for i, electrode in enumerate(assembly.electrodes.values()):
-        if electrode.export(os.path.join(steps_dir, "{:03d}_{}.step".format(i, names[i]))) != 0:
+        if electrode.export(os.path.join(steps_dir, "{:03d}_{}.stp".format(i, names[i]))) != 0:
             raise RuntimeError("STEP export failed for {}".format(electrode.name))
     log("  exported {} STEP files -> {}".format(len(names), steps_dir))
+    if anode_groove is not None:
+        # STEP files carry no mesh sizes: every loader of this folder meshes the grooved anode from curvature
+        # (tracking.deck.load_step_assembly / mesh_assembly), as the build itself did
+        from .deck import MESH_REFINE_NAME
+        anode_name = [names[i] for i, e in enumerate(assembly.electrodes.values()) if e.name == "SI Anode"]
+        with open(os.path.join(steps_dir, MESH_REFINE_NAME), "w") as fh:
+            json.dump({nm: {"mesh_per_2pi": anode_groove["mesh_per_2pi"], "mesh_min": anode_groove["mesh_min"]}
+                       for nm in anode_name}, fh, indent=1)
+        log("  mesh refinement for the grooved anode ({}) -> {}".format(", ".join(anode_name), MESH_REFINE_NAME))
+    # the negative space between the two spiral electrodes as an extra CAD object (Daniel, 2026-10-16); its
+    # "_negative" suffix keeps every STEP-folder loader from taking it for an electrode. A failure here must not
+    # stop a build.
+    try:
+        from ..geometry import generate_gap_volume
+        from .export import GAP_VOLUME_NAME
+        import gmsh as _gmsh
+        _gap_fn = os.path.join(steps_dir, GAP_VOLUME_NAME)
+        if generate_gap_volume(si).export(_gap_fn) != 0:
+            raise RuntimeError("export failed")
+        _gmsh.initialize()
+        try:
+            _gmsh.option.setNumber("General.Terminal", 0)
+            _gmsh.model.occ.importShapes(_gap_fn)
+            _gmsh.model.occ.synchronize()
+            _vol = sum(_gmsh.model.occ.getMass(3, t) for _d, t in _gmsh.model.getEntities(3))
+        finally:
+            _gmsh.finalize()
+        log("  gap volume between the spiral electrodes: {:.1f} cm3 -> {}".format(1e6 * _vol, GAP_VOLUME_NAME))
+    except Exception as exc:  # noqa: BLE001
+        log("  gap volume export failed: {}".format(exc))
+    # the closest approach of the two spiral electrodes (Daniel, 2026-10-15: they nearly touched at the
+    # exit end on the e071 / e016e shapes -- a guaranteed spark); every build reports it
+    try:
+        from .electrode_gap import electrode_gap
+        gap_info = electrode_gap(steps_dir)
+        v_ac = abs(electrode_voltages.get("SI_Anode", 0.0) - electrode_voltages.get("SI_Cathode", 0.0))
+        log("  electrode gap: anode-cathode minimum {:.2f} mm at z {:+.1f} mm, r {:.1f} mm, azimuth {:+.1f} deg "
+            "({:.1f} kV across it: {:.1f} kV/mm)".format(gap_info["min_mm"], gap_info["z_mm"], gap_info["r_mm"],
+                                                        gap_info["azimuth_deg"], 1e-3 * v_ac,
+                                                        1e-3 * v_ac / max(gap_info["min_mm"], 1e-6)))
+    except Exception as exc:  # noqa: BLE001
+        log("  electrode gap check failed: {}".format(exc))
+        gap_info = None
+    # The central region wants the housing as a shape rather than as this solid, so write what
+    # the solid was made from: the polygon the wall is extruded from and the four corners of the
+    # exit opening. Same frame as the STEP files just written - the electrode's own rotation and
+    # translation (the centering shift) applied exactly as PyElectrode.export applies them.
+    _hs = assembly.get_electrode_by_name("Housing")
+    _ol = getattr(_hs, "outline", None) if _hs is not None else None
+    if _ol:
+        _xy = _hs._transformation.apply_to_points(
+            np.column_stack([_ol["outer"], np.zeros(len(_ol["outer"]))]))[:, :2]
+        _ap = _hs._transformation.apply_to_points(np.array(_ol["aperture"], dtype=float))
+        write_housing_outline(os.path.join(steps_dir, HOUSING_OUTLINE_NAME), _xy, _ap,
+                              curves=_ol.get("outer_curves"),
+                              comments=("geometry: {}".format(out_dir),
+                                        "the housing solid is this polygon extruded over z = {:+.4f} .. {:+.4f} m "
+                                        "with a {:.1f} mm wall inwards and {:.1f} mm clearance to the electrodes."
+                                        .format(_ol["z_min"], _ol["z_max"], 1e3 * _ol["thickness"], 1e3 * _ol["gap"]),
+                                        ("the exit opening is a CIRCLE of radius {:.2f} mm; 'aperture' lists {} points on its rim."
+                                         .format(0.5e3 * _ol["aperture_size"][0], len(_ol["aperture"]))
+                                         if _ol.get("aperture_shape") == "circle" else
+                                         "the exit opening is {:.1f} x {:.1f} mm (along the gap x across it)."
+                                         .format(1e3 * _ol["aperture_size"][0], 1e3 * _ol["aperture_size"][1]))))
+        log("  housing outline: {} outer vertices + {} aperture points -> {}".format(
+            len(_xy), len(_ap), os.path.join(steps_dir, HOUSING_OUTLINE_NAME)))
     # surface field of the last BEM solve (the optimized voltage), per electrode
     from .bem_reload import surface_field_stats
     try:
@@ -202,7 +344,7 @@ def build_geometry(out_dir, steps_dir, bfield, energy_mev, knobs=None, fix_trunc
     out = {"steps_dir": steps_dir, "voltages_csv": volt_fn, "state_pickle": state_fn, "knobs": k, "energy_mev": energy_mev,
            "fixed_truncations_deg": list(fix_truncations), "fix_dz_m": fix_dz, "res_m": res, "optimizer": optimizer,
            "voltage": result["voltage"], "dz_mm": 1e3 * result["dz"], "surface_field": sf, "surface_mesh_h_m": h,
-           "wall_s": time.time() - t_start}
+           "electrode_gap": gap_info, "wall_s": time.time() - t_start}
     with open(os.path.join(out_dir, "summary.json"), "w") as fh:
         json.dump(out, fh, indent=2)
     del si

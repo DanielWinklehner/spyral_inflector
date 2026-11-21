@@ -3,6 +3,7 @@ the inflector exit plane, the hand-off plane crossing, trajectory/envelope/snaps
 recorders and the space-charge re-solve."""
 import time
 
+import os
 import numpy as np
 
 from PyPATools.pusher import Pusher
@@ -256,9 +257,55 @@ class Envelope(Recorder):
         return None
 
 
+
+def _rotation_from_to(a, b):
+    """Rotation matrix taking direction a onto direction b (Rodrigues); identity when they are parallel."""
+    a = np.asarray(a, dtype=float); b = np.asarray(b, dtype=float)
+    na, nb = np.linalg.norm(a), np.linalg.norm(b)
+    if na == 0.0 or nb == 0.0:
+        return np.eye(3)
+    a = a / na; b = b / nb
+    k = np.cross(a, b); s = float(np.linalg.norm(k)); c = float(np.dot(a, b))
+    if s < 1e-12:
+        return np.eye(3)
+    k = k / s
+    K = np.array([[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]])
+    th = np.arctan2(s, c)
+    return np.eye(3) + np.sin(th) * K + (1.0 - np.cos(th)) * (K @ K)
+
+class MovingField:
+    """The last space-charge solve carried along with the bunch (2026-09-16): evaluated in the bunch frame of the
+    solve - the query points are translated back by the centroid displacement since the solve and rotated back by
+    the rotation of the mean velocity direction, the field vectors rotated forward - so the self-field pattern moves
+    and turns with the beam between solves instead of staying where the bunch was when it was solved."""
+
+    def __init__(self, field, c0, v0):
+        self.field = field
+        self.c0 = np.asarray(c0, dtype=float)
+        self.v0 = np.asarray(v0, dtype=float)
+        self.c = self.c0.copy()
+        self.R = np.eye(3)
+
+    def update(self, c, v, c0=None, v0=None):
+        if c0 is not None:
+            self.c0 = np.asarray(c0, dtype=float)
+        if v0 is not None:
+            self.v0 = np.asarray(v0, dtype=float)
+        self.c = np.asarray(c, dtype=float)
+        self.R = _rotation_from_to(self.v0, v)
+
+    def __call__(self, pts):
+        pts = np.atleast_2d(np.asarray(pts, dtype=float))
+        local = (pts - self.c) @ self.R + self.c0          # R^T (pts - c) + c0
+        return np.asarray(self.field(local), dtype=float) @ self.R.T
+
+
 class SpaceCharge:
     """Re-solve the space-charge field of the live particles every n steps and swap it
-    into slot 1 of the CompositeField [vacuum, space charge]."""
+    into slot 1 of the CompositeField [vacuum, space charge]. With SI_SC_MOVE=1 the solved
+    field is wrapped in a MovingField and follows the bunch centroid and mean direction
+    between solves (the field is used at the NEXT push, at r + v dt/2: the centroid is
+    extrapolated by half a step)."""
 
     def __init__(self, solver, composite, charges, every, min_particles=0):
         self.solver = solver
@@ -273,8 +320,17 @@ class SpaceCharge:
         self.solve_time = 0.0
         self.log = []
         self.exclude = None         # an ExitPlane: particles past it no longer deposit charge
+        # default ON since 2026-09-16 00:40: against a solve-every-step reference the moving field puts the vertical
+        # exit centroid within 0.03 mm (the lab-fixed field: 0.24 mm off) and the hand-off states within 0.07 % (0.5 %)
+        self.move = os.environ.get("SI_SC_MOVE", "1") == "1"
+        self.moving = None
 
-    def solve_now(self, r, active, step, verbose=False):
+    def _depositing(self, active):
+        if self.exclude is not None and self.exclude.crossed is not None:
+            return active & ~self.exclude.crossed
+        return active
+
+    def solve_now(self, r, active, step, verbose=False, v=None, dt=0.0):
         t0 = time.time()
         if self.exclude is not None and self.exclude.crossed is not None:
             active = active & ~self.exclude.crossed
@@ -284,7 +340,18 @@ class SpaceCharge:
             self.n_skipped += 1
             return
         phi, e_sc = self.solver.solve(r[active], self.charges[active])
-        self.composite.fields[1] = e_sc
+        if self.move and v is not None:
+            c0 = r[active].mean(axis=0); v0 = v[active].mean(axis=0)
+            self.moving = MovingField(e_sc, c0, v0)
+            self.moving.update(c0 + 0.5 * dt * v0, v0)
+            # the frame is re-derived every step from the SAME particles (depositing now, still alive later)
+            self._sol_mask = active.copy()
+            self._r0 = r.copy()
+            self._v0 = v.copy()
+            self.composite.fields[1] = self.moving
+        else:
+            self.moving = None
+            self.composite.fields[1] = e_sc
         wall = time.time() - t0
         self.solve_time += wall
         self.n_solves += 1
@@ -300,7 +367,13 @@ class SpaceCharge:
     def apply(self, step, r_prev, v_prev, r, v, active, t, dt):
         # called after the push of `step`; the new field serves the next `every` steps
         if (step + 1) % self.every == 0 and np.any(active):
-            self.solve_now(r, active, step + 1)
+            self.solve_now(r, active, step + 1, v=v, dt=dt)
+        elif self.moving is not None:
+            common = self._sol_mask & self._depositing(active)
+            if np.any(common):
+                vm = v[common].mean(axis=0)
+                self.moving.update(r[common].mean(axis=0) + 0.5 * dt * vm, vm,
+                                   c0=self._r0[common].mean(axis=0), v0=self._v0[common].mean(axis=0))
         return r, v, active
 
 
@@ -377,7 +450,7 @@ def continue_design(ion, efield, bfield, r_exit, v_exit, dt, path_m):
         return r0[0].copy(), v0[0] / np.linalg.norm(v0[0])
     n_steps = int(1.5 * path_m / (float(np.linalg.norm(v0)) * dt)) + 20
     snap = SnapshotRecorder(range(0, n_steps))
-    Tracker(Pusher(ion, algorithm="rk4_rel"), efield, bfield, terminators=[], recorders=[snap]).run(
+    Tracker(Pusher(ion, algorithm=os.environ.get("SI_PUSHER", "boris_rel")), efield, bfield, terminators=[], recorders=[snap]).run(
         _PD(r0.copy(), v0.copy()), dt, n_steps, show_progress=False, sync_back=False)
     ks = sorted(snap.snapshots)
     R = np.vstack([r0] + [snap.snapshots[k][0][:1] for k in ks])
