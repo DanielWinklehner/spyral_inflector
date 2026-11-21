@@ -1,15 +1,14 @@
-"""Particle files at the start plane and halfway through the SI entrance aperture for ANY levelled run (2026-10-21).
+"""Particle files at the start plane and halfway through the inflector entrance aperture for ANY levelled run.
 
-RunProbe.ps1 did this for t1nr_circ_c2 with its plane and setting written in by hand (Daniel, 2026-10-20). Here they come
-from the run itself:
+The plane and the setting come from the run itself:
   * the setting = the run's final every-particle run <run>/<level>/bunch_<tag>.json (basis and STEP folders, phi, levelling
     shift, quads incl. turns, vscale, space-charge cell and cadence, particles) and the levelling's B map;
   * the plane = the mid-plane of the Entrance_Aperture plate of that run's STEP folder (deck frame), moved by the assembly's
     axial shifts the tracking applies (the basis state's shift_all_m + the levelling shift), normal to z.
-One every-particle bunch run with --probe-z into <run>/probe, then probe_files.py writes <run>/probe/files/
+One every-particle bunch run with --probe-z into <run>/probe, then workflows.probe_files writes <run>/probe/files/
 <run>_initial_particles.txt and <run>_probe_z<plane>mm.txt (+ _index.txt): x y z vx vy vz phase, Baseline frame, m, m/s, rad.
 
-    python probe_run.py <run> [--level sc_level] [--from-tag sc_all_level] [--dry-run]
+    python -m spyral_inflector.workflows.probe <run> [--level sc_level] [--from-tag sc_all_level] [--dry-run]
 """
 import argparse
 import glob
@@ -29,11 +28,10 @@ def main(argv=None):
     p.add_argument("--from-tag", default="sc_all_level", help="the final run whose setting is repeated")
     p.add_argument("--tag", default="sc_all_probe")
     p.add_argument("--dry-run", action="store_true", help="print the plane and the bunch command, run nothing")
-    p.add_argument("--sc-h", type=float, default=None, help="space-charge cell [m] instead of the --from-tag run's (e.g. 0.002 = SCLevel --final)")
-    p.add_argument("--resolve-every", type=int, default=None, help="Poisson cadence instead of the --from-tag run's (8 = SCLevel --final)")
+    p.add_argument("--sc-h", type=float, default=None, help="space-charge cell [m] instead of the --from-tag run's (e.g. 0.002 = level --final)")
+    p.add_argument("--resolve-every", type=int, default=None, help="Poisson cadence instead of the --from-tag run's (8 = level --final)")
     a = p.parse_args(argv)
 
-    SCRIPTS = os.path.dirname(os.path.abspath(__file__))
     RUN = os.path.abspath(a.run)
     NAME = os.path.basename(RUN)
     LVL = os.path.join(RUN, a.level)
@@ -81,14 +79,14 @@ def main(argv=None):
     os.makedirs(OUT, exist_ok=True)
     t0 = time.time()
     with open(os.path.join(OUT, "log_{}.txt".format(a.tag)), "w", encoding="utf-8") as fh:
-        r = subprocess.run([sys.executable, "-u"] + cmd, stdout=fh, stderr=subprocess.STDOUT, cwd=SCRIPTS)
+        r = subprocess.run([sys.executable, "-u"] + cmd, stdout=fh, stderr=subprocess.STDOUT)
     if r.returncode != 0:
         raise SystemExit("bunch failed (exit {}), see {}".format(r.returncode, os.path.join(OUT, "log_{}.txt".format(a.tag))))
     pj = json.load(open(os.path.join(OUT, "bunch_{}.json".format(a.tag))))
     print("probe run done in {:.0f} min: transmitted {:.2f} % (the final run {:.2f} %)".format(
         (time.time() - t0) / 60, 100 * pj["transmission"], 100 * js["transmission"]), flush=True)
-    r = subprocess.run([sys.executable, "-u", os.path.join(SCRIPTS, "probe_files.py"), os.path.join(OUT, "bunch_{}.npz".format(a.tag)),
-                        "--out", os.path.join(OUT, "files"), "--prefix", NAME], cwd=SCRIPTS)
+    r = subprocess.run([sys.executable, "-u", "-m", "spyral_inflector.workflows.probe_files",
+                        os.path.join(OUT, "bunch_{}.npz".format(a.tag)), "--out", os.path.join(OUT, "files"), "--prefix", NAME])
     sys.exit(r.returncode)
 
 

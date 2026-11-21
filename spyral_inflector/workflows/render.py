@@ -1,6 +1,6 @@
 """Render an inflector + quadrupole assembly with the tracked trajectories, in the Baseline (machine) frame.
 
-Two figures in the style of the HCHC-60 audit renders (Results/audit/fig_doublet_triplet):
+Two figures:
   <out>_render.png  3-D view: spiral anode red, cathode blue, quad poles orange, grounded plates grey, housing light grey;
                     trajectories green when transmitted, red when lost (the loss point appended)
   <out>_side.png    the x-z and y-z projections: each electrode as one translucent silhouette, all tracks on top
@@ -11,8 +11,8 @@ rotation), each quad by its own total rotation on top, shifted by the run's leve
 tracks and the metal agree exactly. All recorded tracks are drawn (bunch.py records an evenly spaced subsample of every
 particle, core and tail).
 
-    python render_inflector.py <bunch_sc_all_level.npz> --steps <run>/sc_level/t<trunc>/steps
-                               --quad-rotations 19.49 21.64 26.88 --out <png stem> [--title ...]
+    python -m spyral_inflector.workflows.render <bunch_sc_all_level.npz> --steps <run>/sc_level/t<trunc>/steps
+                                              --quad-rotations 19.49 21.64 26.88 --out <png stem> [--title ...]
 """
 import argparse
 import glob

@@ -12,11 +12,10 @@ tracking time (bunch --shift-z), no solve. Newton iterations on a measured 2x2 J
 (finite differences --dt [deg], --ddz [m]), damped to --max-dt / --max-ddz per step, until
 |height| < --tol-z and |angle| < --tol-zp. With --final the levelled setting is run with every
 RFQ particle (core + injected tail) with space charge at --final-h cells, with a hand-off file.
-No run without space charge unless --with-nosc (Daniel, 2026-11-07: "stop doing no space-charge
-runs"); at --current-ma 0 the zero-current run is the only one.
+No run without space charge unless --with-nosc; at --current-ma 0 the zero-current run is the only one.
 
-    python SCLevel.py --run <deck>\\Results\\triplet\\triplet1 --final
-    python SCLevel.py --run <deck>\\Results\\final\\vfocus1_final --best-json basis\\scan2_fine.json --quads 16 24 --final
+    python -m spyral_inflector.workflows.level --run <run> --base-run <run> --bfield <map> --particles <beam file>
+        --current-ma <mA> --best-json <quads json> --quads <basis turns...> [--vscale <x>] [--final]
 
 Writes <run>/sc_level/ (geometries, basis fields and bunch runs per evaluation, the full runs,
 hand-offs) and <run>/sc_level.md.
@@ -35,20 +34,17 @@ import numpy as np
 
 def main(argv=None):
     """Space-charge levelling of a run (command line: see the module docstring)."""
-    SCRIPTS = os.path.dirname(os.path.abspath(__file__))
-    DECK = os.environ.get("SI_DECK") or os.path.dirname(SCRIPTS)
     PY = sys.executable
-    sys.path.insert(0, SCRIPTS)
 
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run", required=True, help="run folder with geometry/summary.json, exit_plane.json, basis/ and steps/")
     p.add_argument("--best-json", default=None, help="scan json with the quad setting (default: basis/scan2_scan.json, else scan2_fine.json)")
     p.add_argument("--quads", type=float, nargs="+", default=None, help="basis rotation of the quads [deg] (default: from the run's spiral state)")
-    p.add_argument("--base-run", default=os.path.join(DECK, "Results", "final", "final1"), help="the rotated field the run's geometry was optimized in")
+    p.add_argument("--base-run", required=True, help="the rotated field the run's geometry was optimized in")
     p.add_argument("--n", type=int, default=5000)
     p.add_argument("--h", type=float, default=0.004)
     p.add_argument("--resolve-every", type=int, default=10)   # 10 since 2026-09-15 23:50 (was 16)
-    p.add_argument("--current-ma", type=float, default=8.0)
+    p.add_argument("--current-ma", type=float, required=True, help="beam current [mA]")
     p.add_argument("--vscale", type=float, default=1.0, help="operating spiral voltage as a multiple of the gap-centering value (FullOpt _vscale)")
     p.add_argument("--dt", type=float, default=0.3, help="finite-difference step of the exit truncation [deg]")
     p.add_argument("--ddz", type=float, default=0.001, help="finite-difference step of the axial shift [m]")
@@ -77,8 +73,8 @@ def main(argv=None):
     p.add_argument("--final-h", type=float, default=0.002)
     p.add_argument("--final-resolve-every", type=int, default=8)
     p.add_argument("--with-nosc", action="store_true", help="--final also runs every particle with no space charge (off by default)")
-    p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
-    p.add_argument("--bfield", default=os.path.join(DECK, "Fields", "final1_baseline_1mm.pickle"))
+    p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
+    p.add_argument("--bfield", required=True, help="the UNROTATED B map")
     a = p.parse_args(argv)
 
     RUN = os.path.abspath(a.run)
@@ -102,7 +98,7 @@ def main(argv=None):
 
     def run_cmd(cmd, log_path):
         with open(log_path, "w", encoding="utf-8") as fh:
-            r = subprocess.run([PY, "-u"] + [str(c) for c in cmd], stdout=fh, stderr=subprocess.STDOUT, cwd=SCRIPTS)
+            r = subprocess.run([PY, "-u"] + [str(c) for c in cmd], stdout=fh, stderr=subprocess.STDOUT)
         if r.returncode != 0:
             raise SystemExit("{} failed (exit {}), see {}".format(cmd[0], r.returncode, log_path))
 

@@ -1,8 +1,8 @@
 """Beam and loss report of an every-particle bunch run (core + RFQ tail), CPU only (numpy).
 
-    python beam_report.py <bunch_sc_all_level.npz> [<more runs> ...] [--labels A B ...] [--current-ma 10]
+    python -m spyral_inflector.workflows.beam_report <bunch_sc_all_level.npz> [<more runs> ...] [--labels A B ...] --current-ma 10
 
-Everything is over ALL particles of the RFQ file (Daniel, 2026-10-15: the tail is real beam):
+Everything is over ALL particles of the RFQ file (the tail is real beam):
   transmission (out of the housing, post-exit hits counted as lost), and how much of it is tail;
   at the hand-off plane (electrode exit) and 55 mm on: rms vertical angle and height, centroid;
   energy spread at the hand-off (rms, and the fraction more than 3.5 % below the mean);
@@ -21,16 +21,25 @@ import os
 
 import numpy as np
 
+from spyral_inflector import machine
+
 
 def main(argv=None):
     """Beam report of one or more bunch runs (command line: see the module docstring)."""
-    M_H2P, QE = 3.3462e-27, 1.602176634e-19
     p = argparse.ArgumentParser()
     p.add_argument("npz", nargs="+")
     p.add_argument("--labels", nargs="+", default=None)
-    p.add_argument("--current-ma", type=float, default=10.0)
-    p.add_argument("--rf-mhz", type=float, default=32.8)
+    p.add_argument("--current-ma", type=float, required=True, help="beam current [mA] (for the beam power)")
+    p.add_argument("--rf-mhz", type=float, default=None, help="RF [MHz] (default: the machine setting)")
+    p.add_argument("--mass-kg", type=float, default=None,
+                   help="ion mass [kg] for kinetic energies (default: the machine species' mass from PyPATools)")
     a = p.parse_args(argv)
+    if a.rf_mhz is None:
+        a.rf_mhz = machine.rf_mhz()
+    if a.mass_kg is None:
+        from PyPATools.species import IonSpecies
+        a.mass_kg = IonSpecies(machine.species()).mass_kg
+    M_ION, QE = a.mass_kg, 1.602176634e-19
     labels = a.labels or [os.path.basename(os.path.dirname(os.path.dirname(f))) for f in a.npz]
 
 
@@ -74,7 +83,7 @@ def main(argv=None):
         i_p = 1e-3 * a.current_ma / n
         tail = d["is_tail"]
         out = d["crossed"] & ~d["post_exit_hit"]
-        T0 = 0.5 * M_H2P * np.sum(d["v0"] ** 2, axis=1) / QE / 1e3
+        T0 = 0.5 * M_ION * np.sum(d["v0"] ** 2, axis=1) / QE / 1e3
         V = potentials(js, path)
 
         def plane(state, sel):
@@ -85,7 +94,7 @@ def main(argv=None):
 
         okh, zh, zph, vh = plane(d["handoff_state"], out)
         oka, za, zpa, _ = plane(d["asym_state"], out)
-        Th = 0.5 * M_H2P * np.sum(vh ** 2, axis=1) / QE / 1e3
+        Th = 0.5 * M_ION * np.sum(vh ** 2, axis=1) / QE / 1e3
         th = np.asarray(d["handoff_time"], float)[okh]
         ph = 360.0 * a.rf_mhz * 1e6 * th
         ref = np.median(ph[~tail[okh]]) if (~tail[okh]).any() else np.median(ph)

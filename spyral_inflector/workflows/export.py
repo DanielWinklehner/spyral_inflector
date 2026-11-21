@@ -1,6 +1,6 @@
-"""Baseline-frame export of a space-charge-levelled geometry (follow-up 4 of the vfocus campaign).
+"""Baseline-frame export of a space-charge-levelled geometry.
 
-SCLevel.py leaves the levelled geometry as the STEP files of <run>/sc_level/t<trunc>/steps (rebuilt at
+The level step leaves the levelled geometry as the STEP files of <run>/sc_level/t<trunc>/steps (rebuilt at
 the levelled exit truncation, at the run's dz) plus an axial shift applied at tracking time. The
 plate rule that fixes the system rotation R depends only on the x-y position of the beam's crossing
 of the exit plate's outer face, so the shift leaves R untouched, but the truncation moves the exit
@@ -9,7 +9,8 @@ every electrode is rotated by that R (quads by their extra angles), shifted by t
 the deck frame, mirrored into the machine frame and written in millimetres. The levelled hand-off
 files (already tracked with the shift) are copied alongside.
 
-    python ExportLevelled.py --run <deck>\\Results\\final\\vfocus1_final
+    python -m spyral_inflector.workflows.export --run <run> --quads <total turns...> --rotation-rule corner \\
+        --gap-azimuth <deg> --half-gap <m> --corner-offset-mm <mm>
 Writes <run>/export_baseline_levelled/ (steps_baseline_mm/, exit_plane_spec.json, handoff_*_level.h5, README.txt).
 """
 import argparse
@@ -22,25 +23,24 @@ import time
 
 def main(argv=None):
     """Baseline-frame export of a levelled run (command line: see the module docstring)."""
-    SCRIPTS = os.path.dirname(os.path.abspath(__file__))
-    sys.path.insert(0, os.path.dirname(os.path.dirname(SCRIPTS)))
-
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run", required=True)
     p.add_argument("--level", default="sc_level", help="levelling folder inside the run (with sc_level.json)")
-    p.add_argument("--quads", type=float, nargs="+", default=[16.0, 24.0], help="quad rotations on top of R [deg], one per quad (2 for a doublet, 3 for a triplet)")
-    p.add_argument("--rotation-rule", choices=("offset", "parallel", "corner"), default="offset",
-                   help="which plate rule re-solves R on the levelled STEP set. It MUST match the rule the run was built with -- ExportLevelled had no such flag until 2026-09-19 and silently used offset, which on the parallel-rule e016b run returned -87.0 deg instead of -61.4 and left the plate 25.6 deg off parallel, with every STEP file and the E-field rotated by it.")
-    p.add_argument("--corner-offset-mm", type=float, default=3.25,
-                   help="rule=corner: how far to the +x side of the gap ray the chosen corner sits")
+    p.add_argument("--quads", type=float, nargs="+", required=True, help="quad rotations on top of R [deg], one per quad (2 for a doublet, 3 for a triplet)")
+    p.add_argument("--rotation-rule", choices=("offset", "parallel", "corner"), required=True,
+                   help="which plate rule re-solves R on the levelled STEP set. It MUST match the rule the run was built with: a mismatched rule silently returns a different R and rotates every STEP file and the E-field by it")
+    p.add_argument("--corner-offset-mm", type=float, default=None,
+                   help="rule=corner (required there): how far to the +x side of the gap ray the chosen corner sits")
     p.add_argument("--corner", choices=("outer", "inner"), default="outer",
                    help="rule=corner: which end of the exit plate is pinned")
     p.add_argument("--r-near", type=float, default=None,
                    help="rule=corner: pick the branch nearest this rotation (default: the run's own R)")
-    p.add_argument("--gap-azimuth", type=float, default=34.0)
-    p.add_argument("--half-gap", type=float, default=0.005)
+    p.add_argument("--gap-azimuth", type=float, required=True, help="first gap ray of the central region [deg]")
+    p.add_argument("--half-gap", type=float, required=True, help="half the accelerating gap [m]")
     p.add_argument("--out", default=None, help="default: <run>/export_baseline_levelled")
     a = p.parse_args(argv)
+    if a.rotation_rule == "corner" and a.corner_offset_mm is None:
+        p.error("--rotation-rule corner needs --corner-offset-mm")
 
     import numpy as np  # noqa: E402
 
@@ -48,6 +48,7 @@ def main(argv=None):
     from spyral_inflector.tracking.export import (HOUSING_OUTLINE_NAME, steps_to_baseline_mm,  # noqa: E402
                                                   field_to_machine_frame, housing_outline_to_baseline_mm)
     from spyral_inflector.tracking.deck import superpose_basis  # noqa: E402
+    from spyral_inflector import machine  # noqa: E402
     from PyPATools.field import Field  # noqa: E402
 
     RUN = os.path.abspath(a.run)
@@ -103,12 +104,12 @@ def main(argv=None):
     stamp("  R re-solved on the levelled geometry: {:+.3f} deg (run {:+.3f}, change {:+.3f})".format(R, R_run, R - R_run))
     if abs(R - R_run) > 0.2:
         stamp("  NOTE: |dR| > 0.2 deg -- the levelled geometry was rebuilt in the field rotated by the run's R; a re-optimization "
-              "at the new R (RunFinalPush phase 5 loop) would be self-consistent")
+              "at the new R (the next rotation pass of the chain) would be self-consistent")
 
     # 2. STEP export: rotate by R (quads on top), shift by the levelled dz in the deck frame, mirror, millimetres
     files = steps_to_baseline_mm(steps, os.path.join(OUT, "steps_baseline_mm"), rotation_deg=R, quad_rotation=tuple(a.quads),
-                                 combined="{}_inflector_{}_levelled_baseline_mm.stp".format(os.environ.get("SI_MACHINE", "HCHC60"),
-                                                                                             os.path.basename(RUN)),
+                                 combined="{}inflector_{}_levelled_baseline_mm.stp".format(machine.tag() + "_" if machine.tag() else "",
+                                                                                           os.path.basename(RUN)),
                                  shift_z=shift, log=stamp)
 
     # 2b. the housing OUTLINE through the same transform: the polygon the wall is extruded from and the four
@@ -125,11 +126,10 @@ def main(argv=None):
         stamp("  NOTE: no {} in the levelled STEP folder (built before the outline was exported); "
               "the central region has only 002_Housing.stp".format(HOUSING_OUTLINE_NAME))
 
-    # 3. the levelled E-field (Daniel, 2026-09-15 20:30: "add the field and step export"): the levelled spiral basis
+    # 3. the levelled E-field: the levelled spiral basis
     #    (re-solved by SCLevel at the levelled truncation) plus the quads at the levelled voltages and rotations, times the
     #    operating spiral voltage scale, translated by the levelling shift exactly as bunch.py tracks it, then mirrored into
-    #    the machine frame. Same file name as RunFinalPush phase 10, so the central-region scripts take it via
-    #    HCHC60_EFIELD with HCHC60_EFIELD_ZSHIFT_MM = 0 (the shift is already in the field).
+    #    the machine frame. A central-region model reads it with no further z shift (the shift is already in the field).
     basis_dir = lv.get("basis") or ""
     if not os.path.isdir(basis_dir):                        # a levelling done on another machine records that machine's path
         basis_dir = os.path.join(LVL, "t{:.3f}".format(t_exit), "basis")
@@ -190,7 +190,7 @@ def main(argv=None):
                  "steps_baseline_mm/housing_outline.txt   the housing as a SHAPE for the central region: the polygon the wall is extruded\n"
                  "                         from (before any extrusion) and the four corners of the exit opening, same frame and units\n"
                  "exit_plane_spec.json     the exit plate's outer face at R (unshifted z; add the shift for the machine-frame z)\n"
-                 "efield_fine_best_baseline.pickle   levelled E-field (spiral x vscale + quads), V/m on a metre grid, shift included (use HCHC60_EFIELD_ZSHIFT_MM = 0)\n"
+                 "efield_fine_best_baseline.pickle   levelled E-field (spiral x vscale + quads), V/m on a metre grid, shift included (apply no further z shift)\n"
                  "levelled_export.json     quads, vscale, shift, R of this export\n"
                  + ("magquads_baseline.json   the analytic MAGNETIC quads (PyPATools MagneticQuadrupole specs, Baseline and tracking frame, turned by R)\n"
                     if mq else "") +

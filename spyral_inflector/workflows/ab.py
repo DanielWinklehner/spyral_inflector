@@ -1,19 +1,18 @@
 """A/B of a geometry change -- a RECTANGULAR first aperture (the vacuum-sleeve stand-in, ent0), plate holes, or any
-knob via --knob (2026-10-20: the round housing exit opening, exit_circle) -- against a levelled reference run.
+knob via --knob (e.g. a round housing exit opening, exit_circle) -- against a levelled reference run: ONE run with
+every particle at the operating current, to be looked at before any optimization.
 
-Daniel, 2026-10-16: "When you have the rectangle figured out, run a single full run with all particles and 10 mA as an
-A/B and show me the results before doing any optimization runs."
-
-Everything is the reference's LEVELLED setting except the sleeve: the reference run's knobs with entrance_rect added,
+Everything is the reference's LEVELLED setting except the change: the reference run's knobs with the change applied,
 both truncations fixed at the levelled values and dz fixed at the run's design-orbit dz (the voltage from the same
 centering solve the levelling used), the same system rotation R, the same quads (voltages AND turns), the same voltage
 scale, levelling shift, beam rotation, particles and space-charge settings. Bases re-solved as the reference had them:
-the spiral basis without the quad poles (SCLevel's default), the quad bases and their skews with every electrode
-(TripletScan's), all on this geometry -- the rectangle changes quad 1's fringe, so the quad bases must be new.
+the spiral basis without the quad poles (the level step's default), the quad bases and their skews with every
+electrode, all on this geometry -- an aperture change alters quad 1's fringe, so the quad bases must be new.
 No optimization and no levelling: one every-particle bunch run at the reference's setting.
 
-    python ABRect.py --ref-run E:\\HCHC1.5\\Results\\triplet\\t1nc --name t1nc_rect --entrance-rect 0.017 0.0065 9.4926
-    python ABRect.py --ref-run E:\\HCHC1.5\\Results\\triplet\\t1nr_c2 --name t1nr_c2_circ --base-run <ref> --knob exit_circle=[0.01,-0.000956,-0.001214]
+    python -m spyral_inflector.workflows.ab --results <results> --ref-run <levelled run> --name <name> --base-run <ref>
+        --bfield <map> --particles <beam file> --entrance-rect 0.017 0.0065 9.4926
+    python -m spyral_inflector.workflows.ab ... --knob exit_circle=[0.01,-0.000956,-0.001214]
 """
 import argparse
 import json
@@ -27,21 +26,21 @@ import numpy as np
 
 def main(argv=None):
     """One every-particle A/B run of a geometry change at a levelled reference's setting."""
-    SCRIPTS = os.path.dirname(os.path.abspath(__file__))
-    DECK = os.environ.get("SI_DECK") or os.path.dirname(SCRIPTS)
     PY = sys.executable
-    sys.path.insert(0, SCRIPTS)
     p = argparse.ArgumentParser()
     p.add_argument("--ref-run", required=True)
-    p.add_argument("--name", required=True)
+    p.add_argument("--name", required=True, help="new run folder under <results>/<family>")
+    p.add_argument("--results", default=os.environ.get("SI_RESULTS"),
+                   help="results root (default: the environment variable SI_RESULTS)")
+    p.add_argument("--family", default="triplet", help="results sub-folder of the new run")
     p.add_argument("--entrance-rect", type=float, nargs=3, default=None, metavar=("HALF_U", "HALF_W", "ANGLE_DEG"),
                    help="half-widths [m] and the turn of the rectangle's long (u) axis from the deck x axis [deg], before R "
                         "(default: the reference's)")
     p.add_argument("--knob", action="append", default=[], metavar="KEY=JSON",
                    help="set any geometry knob, e.g. exit_circle=[0.01,-0.000956,-0.001214]; repeatable")
-    p.add_argument("--base-run", default=r"E:\HCHC1.5\Results\final\d1", help="folder with bfield_rotated.pickle (the design-orbit field)")
-    p.add_argument("--bfield", default=r"E:\HCHC1.5\Fields\hchc15_injax_1mm.pickle")
-    p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
+    p.add_argument("--base-run", required=True, help="folder with bfield_rotated.pickle (the design-orbit field)")
+    p.add_argument("--bfield", required=True, help="the UNROTATED B map")
+    p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
     p.add_argument("--res", type=float, default=0.0025)
     p.add_argument("--h", type=float, default=0.005)
     p.add_argument("--geo-res", type=float, default=0.005)
@@ -56,8 +55,10 @@ def main(argv=None):
     from spyral_inflector.tracking.deck import particle_rows  # noqa: E402
     from spyral_inflector.tracking.geometry_point import build_geometry  # noqa: E402
 
-    RESULTS = os.environ.get("SI_RESULTS") or os.path.join(DECK, "Results")
-    OUT = os.path.join(RESULTS, "triplet", a.name)
+    if not a.results:
+        p.error("give --results or set SI_RESULTS")
+    RESULTS = a.results
+    OUT = os.path.join(RESULTS, a.family, a.name)
     GEO, STEPS, BASIS = (os.path.join(OUT, d) for d in ("geometry", "steps", "basis"))
     os.makedirs(OUT, exist_ok=True)
     LOG = open(os.path.join(OUT, "log.txt"), "a", encoding="utf-8")
@@ -77,7 +78,7 @@ def main(argv=None):
 
     def run(cmd, log_path):
         with open(log_path, "w", encoding="utf-8") as fh:
-            r = subprocess.run([PY, "-u"] + [str(c) for c in cmd], stdout=fh, stderr=subprocess.STDOUT, cwd=SCRIPTS)
+            r = subprocess.run([PY, "-u"] + [str(c) for c in cmd], stdout=fh, stderr=subprocess.STDOUT)
         if r.returncode != 0:
             stamp("FAILED (exit {}): see {}".format(r.returncode, log_path))
             raise SystemExit(r.returncode)

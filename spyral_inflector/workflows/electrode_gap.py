@@ -2,7 +2,7 @@
 it is, from the STEP files (exact solid-to-solid distance from OpenCASCADE via gmsh), plus a
 profile of the gap along the electrodes from a fine surface mesh. CPU only.
 
-    python electrode_gap.py <steps folder> [<steps folder> ...] [--labels ...] [--voltage-kv 23.2] [--h 0.0008]
+    python -m spyral_inflector.workflows.electrode_gap <steps folder> [<steps folder> ...] [--labels ...] [--voltage-kv 23.2] [--h 0.0008]
 
 Frame and units are the STEP files' (deck frame, metres, for the run folders' steps/).
 The profile bins the anode's surface nodes by their distance to the cathode surface along z.

@@ -1,4 +1,4 @@
-"""Baseline-frame export of an A/B run folder (ABRect.py) -- the ExportLevelled.py outputs for a run that was NOT
+"""Baseline-frame export of an A/B run folder (workflows.ab) -- the workflows.export outputs for a run that was NOT
 levelled itself but tracked at its reference's levelled setting.
 
 Takes the rotation, the levelling shift, the quads and the voltage scale from the A/B's own bunch json (what the
@@ -7,7 +7,8 @@ steps_baseline_mm/ (one .stp per electrode, the combined assembly, SI_Gap_Volume
 exit_plane_spec.json (the corner rule re-measured on this geometry, for the record), efield_fine_best_baseline.pickle,
 export.json, README.txt, and the hand-off if the run saved one.
 
-    python ExportAB.py --run E:\\HCHC1.5\\Results\\triplet\\t1nr_c2_circ --quads 19.4926 21.6445 28.6825
+    python -m spyral_inflector.workflows.export_ab --run <A/B run> --quads <total turns...> --gap-azimuth <deg> \\
+        --half-gap <m> --corner-offset-mm <mm>
 """
 import argparse
 import json
@@ -23,12 +24,14 @@ def main(argv=None):
     p.add_argument("--tag", default="sc_all_ab", help="the bunch run whose setting is exported (bunch_<tag>.json)")
     p.add_argument("--quads", type=float, nargs="+", required=True, help="TOTAL quad rotations on top of R [deg]")
     p.add_argument("--rotation-rule", choices=("offset", "parallel", "corner"), default="corner")
-    p.add_argument("--gap-azimuth", type=float, default=24.0)
-    p.add_argument("--half-gap", type=float, default=0.00325)
+    p.add_argument("--gap-azimuth", type=float, required=True, help="first gap ray of the central region [deg]")
+    p.add_argument("--half-gap", type=float, required=True, help="half the accelerating gap [m]")
     p.add_argument("--corner", choices=("outer", "inner"), default="outer")
-    p.add_argument("--corner-offset-mm", type=float, default=3.25)
+    p.add_argument("--corner-offset-mm", type=float, default=None, help="rule=corner (required there) [mm]")
     p.add_argument("--out", default=None)
     a = p.parse_args(argv)
+    if a.rotation_rule == "corner" and a.corner_offset_mm is None:
+        p.error("--rotation-rule corner needs --corner-offset-mm")
 
     import numpy as np  # noqa: E402
 
@@ -36,6 +39,7 @@ def main(argv=None):
     from spyral_inflector.tracking.export import (HOUSING_OUTLINE_NAME, steps_to_baseline_mm,  # noqa: E402
                                                   field_to_machine_frame, housing_outline_to_baseline_mm)
     from spyral_inflector.tracking.deck import superpose_basis  # noqa: E402
+    from spyral_inflector import machine  # noqa: E402
     from PyPATools.field import Field  # noqa: E402
 
     RUN = os.path.abspath(a.run)
@@ -70,7 +74,7 @@ def main(argv=None):
 
     # 2. STEP files and the housing outline, placed as tracked
     files = steps_to_baseline_mm(steps, os.path.join(OUT, "steps_baseline_mm"), rotation_deg=R, quad_rotation=tuple(a.quads),
-                                 combined="{}_inflector_{}_baseline_mm.stp".format(os.environ.get("SI_MACHINE", "HCHC60"), NAME),
+                                 combined="{}inflector_{}_baseline_mm.stp".format(machine.tag() + "_" if machine.tag() else "", NAME),
                                  shift_z=shift, log=stamp)
     ol_src = os.path.join(steps, HOUSING_OUTLINE_NAME)
     if os.path.exists(ol_src):

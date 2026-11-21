@@ -1,20 +1,19 @@
-"""One pass of the CORNER-rule rotation/levelling fixed point (the e016e procedure, rebuilt 2026-10-19).
+"""One pass of the CORNER-rule rotation/levelling fixed point.
 
-Daniel, 2026-10-19: re-export t1nr with the CORNER rule -- "rotation fixed point -> bases -> SCLevel ->
-ExportLevelled, repeated until |dR| < 0.2 deg. Nothing else changes."
-
-This script does the first two stages for a new run folder, starting from the LEVELLED setting of --prev:
-  1. rotation fixed point (RunFinalPush phases 4-5): rotate the B map by R, rebuild the geometry in it with
-     --prev's knobs, both truncations fixed at --prev's levelled values and dz fixed at --prev's levelled dz
-     (maxiter 0: only the voltage centering solve runs), re-solve R from the corner rule; repeat until the
-     rotation moves by less than --r-tol. Writes <out>/bfield_rotated.pickle and <out>/exit_plane.json.
-  2. the seven bases at that R, exactly as ABRect.py solves them: the spiral without the quad poles
+The fixed point is "rotation fixed point -> bases -> level -> export, repeated until the export's re-solved
+rotation moves by less than 0.2 deg; nothing else changes" (`spyral_inflector.workflows.chain` drives it).
+This step does the first two stages for a new run folder, starting from the LEVELLED setting of --prev:
+  1. rotation fixed point: rotate the B map by R, rebuild the geometry in it with --prev's knobs, both
+     truncations fixed at --prev's levelled values and dz fixed at --prev's levelled dz (maxiter 0: only the
+     voltage centering solve runs), re-solve R from the corner rule; repeat until the rotation moves by less
+     than --r-tol. Writes <out>/bfield_rotated.pickle and <out>/exit_plane.json.
+  2. the seven bases at that R, exactly as the A/B step solves them: the spiral without the quad poles
      (--drop D*), the quads and their skews with every electrode, all with --rotate-all R on the unrotated map.
-SCLevel (with --base-run <out>) and ExportLevelled (--rotation-rule corner ...) follow; corner_pass_run.ps1
-chains them and starts another pass while the export's re-solved R differs from the run's by --r-tol or more.
+The corner rule puts the chosen corner of the housing exit plate --corner-offset-mm to the +x side of the
+first gap ray (--gap-azimuth); both, and --half-gap, are properties of the machine's central region.
 
-    python corner_pass.py --prev E:\\HCHC1.5\\Results\\triplet\\t1nr --name t1nr_c1 --r0 -91.0
-    python corner_pass.py --prev E:\\HCHC1.5\\Results\\triplet\\t1nr_c1 --name t1nr_c2      (R0 from t1nr_c1's export)
+    python -m spyral_inflector.workflows.rotate --results <results> --prev <results>/triplet/<run> --name <run>_c1
+        --bfield <map> --particles <beam file> --gap-azimuth <deg> --half-gap <m> --corner-offset-mm <mm> [--r0 <deg>]
 """
 import argparse
 import json
@@ -27,13 +26,12 @@ import time
 
 def main(argv=None):
     """One corner-rule rotation pass: the rotation fixed point and the bases of a new run (command line: see the module docstring)."""
-    SCRIPTS = os.path.dirname(os.path.abspath(__file__))
-    DECK = os.environ.get("SI_DECK") or os.path.dirname(SCRIPTS)
     PY = sys.executable
-    sys.path.insert(0, SCRIPTS)
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--prev", required=True, help="run whose LEVELLED setting (sc_level/sc_level.json) starts this pass")
-    p.add_argument("--name", required=True, help="new run folder under <SI_RESULTS>/triplet")
+    p.add_argument("--name", required=True, help="new run folder under <results>/<family>")
+    p.add_argument("--results", default=os.environ.get("SI_RESULTS"),
+                   help="results root (default: the environment variable SI_RESULTS)")
     p.add_argument("--best-knobs", default=None,
                    help="start from a FullOpt winner instead of --prev's levelled setting: its best_knobs.json gives the knobs (incl. "
                         "angling_profile / sigma_profile / aspect), both truncations (_truncations_deg) and dz (_dz_m) -- FullOpt builds "
@@ -41,20 +39,20 @@ def main(argv=None):
                         "the quad basis turns and the default R0 (2026-10-21, the profile campaign)")
     p.add_argument("--r0", type=float, default=None,
                    help="starting rotation [deg]; default: --prev's corner-rule export (export_baseline_levelled/exit_plane_spec.json)")
-    p.add_argument("--gap-azimuth", type=float, default=24.0)
-    p.add_argument("--half-gap", type=float, default=0.00325)
+    p.add_argument("--gap-azimuth", type=float, required=True, help="first gap ray of the central region [deg]")
+    p.add_argument("--half-gap", type=float, required=True, help="half the accelerating gap [m]")
     p.add_argument("--corner", choices=("outer", "inner"), default="outer")
-    p.add_argument("--corner-offset-mm", type=float, default=3.25)
+    p.add_argument("--corner-offset-mm", type=float, required=True, help="corner rule: offset of the plate corner to +x of the gap ray [mm]")
     p.add_argument("--r-tol", type=float, default=0.2)
     p.add_argument("--max-iter", type=int, default=4)
     p.add_argument("--quads", type=float, nargs="+", default=None, help="basis turns of the quads [deg] (default: --prev's levelling)")
-    p.add_argument("--bfield", default=r"E:\HCHC1.5\Fields\hchc15_injax_1mm.pickle", help="the UNROTATED map")
-    p.add_argument("--particles", default=os.path.join(DECK, "Particles", "MIT RFQ Beamdynamics", "ext3_exit.dst"))
+    p.add_argument("--bfield", required=True, help="the UNROTATED map")
+    p.add_argument("--particles", required=True, help="the injected beam file (TraceWin .dst or the 10-column text file)")
     p.add_argument("--res", type=float, default=0.0025, help="basis grid [m]")
     p.add_argument("--h", type=float, default=0.005)
     p.add_argument("--geo-res", type=float, default=0.005)
     p.add_argument("--no-bases", action="store_true")
-    p.add_argument("--family", default="triplet", help="results sub-folder of the new run (magquad: the no-ESQ runs, 2026-10-20)")
+    p.add_argument("--family", default="triplet", help="results sub-folder of the new run")
     a = p.parse_args(argv)
 
     from spyral_inflector.tracking.deck import particle_rows  # noqa: E402
@@ -63,7 +61,9 @@ def main(argv=None):
     from spyral_inflector.tracking.exit_plane import exit_plane_spec  # noqa: E402
     from PyPATools.field import Field  # noqa: E402
 
-    RESULTS = os.environ.get("SI_RESULTS") or os.path.join(DECK, "Results")
+    if not a.results:
+        p.error("give --results or set SI_RESULTS")
+    RESULTS = a.results
     PREV = os.path.abspath(a.prev)
     OUT = os.path.join(RESULTS, a.family, a.name)
     GEO, STEPS, BASIS = (os.path.join(OUT, d) for d in ("geometry", "steps", "basis"))
@@ -86,7 +86,7 @@ def main(argv=None):
 
     def run(cmd, log_path):
         with open(log_path, "w", encoding="utf-8") as fh:
-            r = subprocess.run([PY, "-u"] + [str(c) for c in cmd], stdout=fh, stderr=subprocess.STDOUT, cwd=SCRIPTS)
+            r = subprocess.run([PY, "-u"] + [str(c) for c in cmd], stdout=fh, stderr=subprocess.STDOUT)
         if r.returncode != 0:
             stamp("FAILED (exit {}): see {}".format(r.returncode, log_path))
             raise SystemExit(r.returncode)

@@ -2,17 +2,27 @@
 alpha = angle of the mean momentum from the local tangent (azimuthal direction of circulation), positive = outward (v . r_hat > 0).
 Also the circulation sense (viewed from +z of the frame the npz is in) and the per-particle alpha spread.
 
-    python handoff_direction.py <bunch npz> [...]
+    python -m spyral_inflector.workflows.handoff_direction <bunch npz> [...] [--mass-kg <kg>]
 """
-import sys
+import argparse
 
 import numpy as np
+
+from spyral_inflector import machine
 
 
 def main(argv=None):
     """Hand-off position and mean-momentum direction (command line: see the module docstring)."""
-    M, QE = 3.3462e-27, 1.602176634e-19
-    for path in sys.argv[1:]:
+    p = argparse.ArgumentParser()
+    p.add_argument("npz", nargs="+")
+    p.add_argument("--mass-kg", type=float, default=None,
+                   help="ion mass [kg] for the kinetic energy (default: the machine species' mass from PyPATools)")
+    a = p.parse_args(argv)
+    if a.mass_kg is None:
+        from PyPATools.species import IonSpecies
+        a.mass_kg = IonSpecies(machine.species()).mass_kg
+    M, QE = a.mass_kg, 1.602176634e-19
+    for path in a.npz:
         d = np.load(path, allow_pickle=True)
         out = d["crossed"] & ~d["post_exit_hit"]
         s = d["handoff_state"][out]

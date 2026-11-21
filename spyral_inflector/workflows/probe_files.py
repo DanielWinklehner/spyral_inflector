@@ -1,7 +1,6 @@
-"""Particle files at a probe plane and at the start (Daniel, 2026-10-20: "add a probe plane halfway through the SI
-entrance aperture and record all particles that cross the plane. Plane normal is the z axis. Recorded particles in the
-format x, y, z (will be the same for all), vx, vy, vz in m and m/s, plus the particle phase in rad. Then also save the
-initial particles in that same format in a separate file.")
+"""Particle files at a probe plane and at the start: every particle that crossed a probe plane normal to z (e.g.
+halfway through the inflector entrance aperture) as x, y, z (the same for all), vx, vy, vz in m and m/s plus the
+particle phase in rad, and the initial particles in the same format in a separate file.
 
 Both files: Baseline (machine) frame, +z up, the beam travels towards -z (so vz < 0); the beam is turned about z by
 the run's phi (90 deg + R) exactly as it was tracked, so the two files share one frame. Columns
@@ -11,7 +10,7 @@ whose crossing of the start plane is t = 0 (positive = late). It is NOT wrapped:
 periods late carries a phase N * 2 pi larger. Rows keep the RFQ file's order (unlost particles); the probe file lists
 only the particles that reached the plane, and a companion *_index.txt gives each row's index in the initial file.
 
-    python probe_files.py <bunch npz with probe_*> --out <dir> [--particles <.dst>]
+    python -m spyral_inflector.workflows.probe_files <bunch npz with probe_*> --out <dir> [--particles <.dst>]
 """
 import argparse
 import json
@@ -29,11 +28,13 @@ def main(argv=None):
     p.add_argument("--prefix", default=None, help="file-name prefix (default: the npz's run folder name)")
     a = p.parse_args(argv)
 
-    from spyral_inflector.tracking.deck import load_particles_with_tail, orient_beam, Z_START  # noqa: E402
+    from spyral_inflector.tracking.deck import load_particles_with_tail, orient_beam  # noqa: E402
+    from spyral_inflector import machine  # noqa: E402
+    Z_START = machine.z_start()
 
     js = json.load(open(a.npz[:-4] + ".json"))
     d = np.load(a.npz, allow_pickle=True)
-    rf_hz = 1e6 * float(js["sc"]["rf_MHz"]) if js.get("sc") else 32.8e6
+    rf_hz = 1e6 * float(js["sc"]["rf_MHz"]) if js.get("sc") else machine.rf_hz()
     phi = float(js["phi_deg"])
     particles = a.particles or js["particles"]
     run = os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(a.npz)))) if os.path.basename(

@@ -1,21 +1,23 @@
-"""phase_coupling.py - how much of the hand-off phase length is transverse-to-longitudinal coupling of the line (RFQ exit -> electrode
+"""How much of the hand-off phase length is transverse-to-longitudinal coupling of the line (RFQ exit -> electrode
 exit), the (l|x), (l|x'), (l|y), (l|y') terms that Barnard et al., PRAB 24, 023501 (2021) remove with shaped field gradients
 (their inflector C3: rf spread +-39 deg -> +-22 deg). CPU only.
 
-    python phase_coupling.py <bunch_*.npz> [...] --labels A B ...
+    python -m spyral_inflector.workflows.phase_coupling <bunch_*.npz> [...] --labels A B ...
 
 Per every-particle run, over the transmitted CORE particles (the tail's arrival is set by its RFQ phase, not by the line):
 linear least squares of the hand-off RF phase on the start values (phase phi0, relative energy delta, x, x', y, y' at the RFQ exit,
-start plane = SI_Z_START) and the variance split: what phi0 + delta (the RFQ and the drift, R55/R56 like) explain, what the four
+start plane = the machine's z_start) and the variance split: what phi0 + delta (the RFQ and the drift, R55/R56 like) explain, what the four
 transverse start coordinates (R51..R54 like) add, and the phase length the run would have with those four terms at zero.
 2026-10-21: the coefficients stay a fit to the core (they are properties of the line), but the phase lengths reported first are
-over EVERY transmitted particle, core and tail (beam_report.py's wrapped phase), with and without the fitted transverse part
-(Daniel: no core-only numbers); the core-sample lines are labelled as the fit sample.
+over EVERY transmitted particle, core and tail (beam_report's wrapped phase), with and without the fitted transverse part
+(no core-only numbers); the core-sample lines are labelled as the fit sample.
 """
 import argparse
 import os
 
 import numpy as np
+
+from spyral_inflector import machine
 
 
 def main(argv=None):
@@ -23,11 +25,20 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("npz", nargs="+")
     p.add_argument("--labels", nargs="+", default=None)
-    p.add_argument("--rf-mhz", type=float, default=32.8)
-    p.add_argument("--z-start", type=float, default=float(os.environ.get("SI_Z_START", "-0.270")))
+    p.add_argument("--rf-mhz", type=float, default=None, help="RF [MHz] (default: the machine setting)")
+    p.add_argument("--z-start", type=float, default=None, help="start plane, deck frame [m] (default: the machine setting)")
+    p.add_argument("--mass-kg", type=float, default=None,
+                   help="ion mass [kg] for kinetic energies (default: the machine species' mass from PyPATools)")
     a = p.parse_args(argv)
+    if a.rf_mhz is None:
+        a.rf_mhz = machine.rf_mhz()
+    if a.z_start is None:
+        a.z_start = machine.z_start()
     F = a.rf_mhz * 1e6
-    M_H2P, QE = 3.3462e-27, 1.602176634e-19
+    if a.mass_kg is None:
+        from PyPATools.species import IonSpecies
+        a.mass_kg = IonSpecies(machine.species()).mass_kg
+    M_ION, QE = a.mass_kg, 1.602176634e-19
     for path, lab in zip(a.npz, a.labels or a.npz):
         if not os.path.exists(path):    # e.g. a no-space-charge run, no longer made by default (2026-11-07)
             print("(skipped {}: {} does not exist)".format(lab, path))
@@ -45,7 +56,7 @@ def main(argv=None):
         th = np.asarray(d["handoff_time"], float)[ok]
         ph = 360.0 * F * th
         ph = (ph - np.median(ph) + 180.0) % 360.0 - 180.0
-        T0 = 0.5 * M_H2P * sp ** 2 / QE
+        T0 = 0.5 * M_ION * sp ** 2 / QE
         delta = 1e3 * (T0 / T0.mean() - 1.0)                                # per mille
         xp, yp = v0[:, 0] / v0[:, 2], v0[:, 1] / v0[:, 2]
         dz = r0[:, 2] - a.z_start
