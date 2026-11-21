@@ -41,6 +41,35 @@ def test_one_bit_differs(tmp_path):
     assert any("STEP DATA" in d for d in diffs)
 
 
+class _Node:
+    """A pickled object graph like a field: a cycle back to its owner and a per-process memo uuid."""
+    def __init__(self, value, uuid):
+        self.data = np.array([0.5, value])
+        self._MemoMixin__uuid = uuid
+        self.child = {"owner": self}
+
+
+def _pickled_run(folder, value, uuid, wall):
+    import pickle
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "ef_itp_spiral.pickle"), "wb") as fh:
+        pickle.dump(_Node(value, uuid), fh)
+    write(os.path.join(folder, "reload_spiral.json"),
+          json.dumps({"solve_s": wall, "potential_s": wall, "wall_time_s": wall, "t_ref_s": 1.5e-7}))
+
+
+def test_object_graphs_and_wall_clock_keys(tmp_path):
+    _pickled_run(tmp_path / "a", 1.0, "uuid-a", 13.9)
+    _pickled_run(tmp_path / "b", 1.0, "uuid-b", 62.1)
+    assert compare_dirs(tmp_path / "a", tmp_path / "b")[0] == []        # cycle walked once, uuid and times skipped
+    _pickled_run(tmp_path / "c", np.nextafter(1.0, 2.0), "uuid-c", 62.1)
+    diffs = compare_dirs(tmp_path / "a", tmp_path / "c")[0]
+    assert len(diffs) == 1 and "ef_itp_spiral.pickle.data" in diffs[0]
+    write(os.path.join(tmp_path / "c", "reload_spiral.json"), json.dumps({"solve_s": 1.0, "potential_s": 1.0,
+                                                                         "wall_time_s": 1.0, "t_ref_s": 1.6e-7}))
+    assert any("t_ref_s" in d for d in compare_dirs(tmp_path / "a", tmp_path / "c")[0])   # a physics time is compared
+
+
 def test_cli_paths_and_config(clean_env, capsys):
     root = os.fspath(clean_env)
     paths = write(os.path.join(root, "paths.toml"), "[roots]\nwork = '{}'\n".format(os.path.join(root, "work")))

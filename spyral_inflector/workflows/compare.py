@@ -6,7 +6,8 @@ Compared by content, file by file (relative paths):
     .json         every number exactly; strings after replacing each folder's own root by <ROOT>; keys that hold
                   wall-clock times (--ignore-key) are skipped
     .h5           every dataset bit for bit and every attribute (strings rooted as for json)
-    .pickle       the bytes; if they differ, the unpickled objects (arrays bit for bit, strings rooted)
+    .pickle       the bytes; if they differ, the unpickled objects (arrays bit for bit, strings rooted, the memo
+                  uuids of cached interpolators skipped, compiled numba functions compared by name)
     .stp/.step    the DATA section (the header carries the file name and a time stamp)
     .csv, .dat    the text, rooted
     log*.txt, .png  listed, not compared (time stamps, renderer metadata)
@@ -25,7 +26,11 @@ import sys
 
 import numpy as np
 
-TIME_KEYS = r"(^|_)(time|times|elapsed|wall|timestamp|date|started|finished|duration)(_s|_min|_h)?$|^t_(setup|solve|run)"
+# wall-clock keys (setup_time_s, solve_s, potential_s, wall_s, ...); t_ref_s, t_rms_ns and the like are physics
+TIME_KEYS = (r"(^|_)(time|times|elapsed|wall|timestamp|date|started|finished|duration)(_s|_min|_h)?$"
+             r"|^(potential|solve|setup|assembly)_s$|^t_(setup|solve|run)")
+# identities that are new in every process: the memo uuid of PyPATools' cached interpolators
+UNSTABLE_KEYS = r"__uuid$"
 SKIP = ("log*.txt", "*.png", "*.log", "*.pyc")
 
 
@@ -37,16 +42,36 @@ def _rooted(s, root):
     return s.replace("\\", "/")
 
 
+def _is_compiled(x):
+    return type(x).__module__.split(".")[0] == "numba"
+
+
+def _compiled_name(x):
+    f = getattr(x, "py_func", None)
+    return "{}.{}".format(f.__module__, f.__qualname__) if f is not None else type(x).__name__
+
+
 class Diff:
     def __init__(self, root_a, root_b, ignore):
         self.root_a, self.root_b = root_a, root_b
         self.ignore = [re.compile(r) for r in ignore]
         self.out = []
+        self.new_file()
+
+    def new_file(self):
+        self._seen = set()          # (id A, id B) of the objects already walked: object graphs have cycles
+        self._keep = []             # ... kept alive, so that an id is never reused within one file
 
     def note(self, where, msg):
         self.out.append("{}: {}".format(where, msg))
 
     def value(self, a, b, where):
+        if isinstance(a, (dict, list)) or (hasattr(a, "__dict__") and not isinstance(a, type)):
+            pair = (id(a), id(b))
+            if pair in self._seen:
+                return
+            self._seen.add(pair)
+            self._keep.append((a, b))
         if isinstance(a, dict) and isinstance(b, dict):
             for k in sorted(set(a) | set(b), key=str):
                 if any(r.search(str(k)) for r in self.ignore):
@@ -69,6 +94,10 @@ class Diff:
         elif isinstance(a, float) and isinstance(b, float):
             if not (a == b or (a != a and b != b)) or np.signbit(a) != np.signbit(b):
                 self.note(where, "{!r} vs {!r}".format(a, b))
+        elif _is_compiled(a) or _is_compiled(b):
+            # a compiled function cached in an object (numba dispatcher): code, compared by the function it compiles
+            if _compiled_name(a) != _compiled_name(b):
+                self.note(where, "compiled {} vs {}".format(_compiled_name(a), _compiled_name(b)))
         elif type(a) is not type(b) and not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
             self.note(where, "type {} vs {}".format(type(a).__name__, type(b).__name__))
         elif hasattr(a, "__dict__") and hasattr(b, "__dict__") and not isinstance(a, type):
@@ -148,9 +177,10 @@ def compare_file(d, rel, fa, fb):
             d.note(rel, "text differs")
 
 
-def compare_dirs(a, b, ignore=(TIME_KEYS,), only=None, skip=SKIP):
+def compare_dirs(a, b, ignore=(TIME_KEYS, UNSTABLE_KEYS), only=None, skip=SKIP):
     """Returns (differences, compared files, skipped files, files only in A, files only in B)."""
     a, b = os.path.abspath(a), os.path.abspath(b)
+    sys.setrecursionlimit(max(sys.getrecursionlimit(), 20000))     # deep object graphs of the field pickles
 
     def files(root):
         out = set()
@@ -167,6 +197,7 @@ def compare_dirs(a, b, ignore=(TIME_KEYS,), only=None, skip=SKIP):
         if any(fnmatch.fnmatch(os.path.basename(rel), g) for g in skip):
             skipped.append(rel)
             continue
+        d.new_file()
         try:
             compare_file(d, rel, os.path.join(a, rel), os.path.join(b, rel))
         except Exception as err:            # an unreadable file is a difference, not a crash of the comparison
@@ -180,7 +211,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="bit-for-bit comparison of two run folders")
     p.add_argument("a")
     p.add_argument("b")
-    p.add_argument("--ignore-key", nargs="*", default=[TIME_KEYS], help="regexes of json/h5 keys not compared")
+    p.add_argument("--ignore-key", nargs="*", default=[TIME_KEYS, UNSTABLE_KEYS],
+                   help="regexes of json/h5/pickle keys not compared (default: wall-clock times, memo uuids)")
     p.add_argument("--only", nargs="*", default=None, help="compare only these relative-path globs")
     p.add_argument("--max-lines", type=int, default=200)
     a = p.parse_args(argv)
